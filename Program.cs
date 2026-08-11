@@ -104,13 +104,12 @@ public class Program
                     var psAgent = new EPowerShellAgent(effectiveDir);
                       agent.RegisterTool(psAgent);
 
+                    // EFileResearchTool — project-wide file scan for analysis
                        {
-                          // Use config values — no hardcoded defaults
-                        var researchExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                          var researchExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                                { ".cs", ".md", ".json", ".txt", ".xml", ".ps1", ".sln",
                                 ".csproj", ".config", ".sql", ".html", ".css", ".js" };
 
-                          // Override from config if available
                         var toolConfig = _config.Tools.EFileResearchTool;
                          foreach (var ext in toolConfig.DefaultExtensions)
                              researchExtensions.Add(ext);
@@ -119,14 +118,6 @@ public class Program
                              effectiveDir, defaultExtensions: researchExtensions,
                               maxCharsPerFile: toolConfig.MaxCharsPerFile));
                         }
-
-                    // ── File Operation Tools (P0: proper file ops) ──
-                    agent.RegisterTool(new EFileReadTool(effectiveDir));
-                    agent.RegisterTool(new EFileWriteTool(effectiveDir));
-                    agent.RegisterTool(new EFileEditTool(effectiveDir));
-                    agent.RegisterTool(new EFileCopyTool(effectiveDir));
-                    agent.RegisterTool(new EDirListTool(effectiveDir));
-                    agent.RegisterTool(new EFileSearchTool(effectiveDir));
 
                     EColor.TagBold(EColor.Info(), "Init", $"Tools: {string.Join(", ", agent.Tools.Select(t => t.Name))}");
                       Gui.BlankLine();

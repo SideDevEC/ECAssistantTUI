@@ -64,20 +64,11 @@ public class ToolPolicy
     private void SetDefaultPermissions()
     {
         // Read-only tools — always allowed
-        _permissions["EFileRead"] = new ToolPermission { ToolName = "EFileRead", Level = ToolPermissionLevel.Allowed, Reason = "Read-only operation" };
-        _permissions["EDirList"] = new ToolPermission { ToolName = "EDirList", Level = ToolPermissionLevel.Allowed, Reason = "Read-only operation" };
-        _permissions["EFileSearch"] = new ToolPermission { ToolName = "EFileSearch", Level = ToolPermissionLevel.Allowed, Reason = "Read-only operation" };
         _permissions["EFileResearchTool"] = new ToolPermission { ToolName = "EFileResearchTool", Level = ToolPermissionLevel.Allowed, Reason = "Read-only research" };
         _permissions["EFileAnalyzer"] = new ToolPermission { ToolName = "EFileAnalyzer", Level = ToolPermissionLevel.Allowed, Reason = "Read-only analysis" };
 
-        // Write tools — allowed but logged (agent should be able to create/edit files)
-        _permissions["EFileWrite"] = new ToolPermission { ToolName = "EFileWrite", Level = ToolPermissionLevel.Allowed, Reason = "File creation — sandboxed to working dir" };
-        _permissions["EFileEdit"] = new ToolPermission { ToolName = "EFileEdit", Level = ToolPermissionLevel.Allowed, Reason = "File editing — sandboxed to working dir" };
-        _permissions["EFileCopy"] = new ToolPermission { ToolName = "EFileCopy", Level = ToolPermissionLevel.Allowed, Reason = "File copy — sandboxed to working dir" };
-
-        // PowerShell — allowed by default (the agent needs to be able to run commands)
-        // Future: could be split into read-only PowerShell (allowed) vs write PowerShell (approval)
-        _permissions["EPowerShellAgent"] = new ToolPermission { ToolName = "EPowerShellAgent", Level = ToolPermissionLevel.Allowed, Reason = "Command execution — needed for code, build, debugging" };
+        // PowerShell — primary tool, allowed (needs command access to be useful)
+        _permissions["EPowerShellAgent"] = new ToolPermission { ToolName = "EPowerShellAgent", Level = ToolPermissionLevel.Allowed, Reason = "Primary tool — command execution" };
     }
 
     /// <summary>Set permission for a specific tool.</summary>

@@ -120,3 +120,16 @@ ECAssistant/
 - CLI commands: `memory-save`, `memory-query`, `memory-stats`
 
 **Status:** v8.2 — builds successfully (0 errors). PowerShell as primary tool. Tool policy active. Session management active. Context compaction wired. Tools self-register into system prompt.
+
+## 🔧 Git Workflow
+
+**Repo:** `https://github.com/LLamaDudeX/ECAssistant.git` (branch: `main`)
+
+**Rule:** Always commit and push all changes to GitHub after completing work on this project. This ensures the code is testable on Windows.
+
+```bash
+cd <project-root>
+git add -A
+git commit -m "<descriptive message>"
+git push
+```

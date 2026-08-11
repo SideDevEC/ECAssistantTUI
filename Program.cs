@@ -124,6 +124,7 @@ public class Program
                     agent.RegisterTool(new EFileReadTool(effectiveDir));
                     agent.RegisterTool(new EFileWriteTool(effectiveDir));
                     agent.RegisterTool(new EFileEditTool(effectiveDir));
+                    agent.RegisterTool(new EFileCopyTool(effectiveDir));
                     agent.RegisterTool(new EDirListTool(effectiveDir));
                     agent.RegisterTool(new EFileSearchTool(effectiveDir));
 

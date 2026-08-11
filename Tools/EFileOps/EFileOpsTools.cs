@@ -445,6 +445,96 @@ public class EDirListTool : EToolBase
 }
 
 /// <summary>
+/// File Copy Tool — copies a file to a new location.
+/// Write operation: sandboxed to working directory.
+/// </summary>
+public class EFileCopyTool : EToolBase
+{
+    private readonly string _workingDirectory;
+
+    public EFileCopyTool(string workingDirectory)
+    {
+        _workingDirectory = Path.GetFullPath(workingDirectory);
+    }
+
+    public override string Name => "EFileCopy";
+
+    public override string Description =>
+        "Copy a file to a new location. Creates parent directories if needed. " +
+        "Use for: duplicating files, backing up, creating copies with new names.";
+
+    public override string UsageExample => "EFileCopy(source=\"Program.cs\", dest=\"Program_backup.cs\")";
+
+    public override string GetToolRules() =>
+        "RULE: <source> is the file to copy (relative to working dir). " +
+        "<dest> is the destination path (relative to working dir). " +
+        "Both must be within the working directory.";
+
+    public override string GetToolExample() =>
+        "<toolcall>EFileCopy<source>Program.cs</source><dest>Program_backup.cs</dest></toolcall>";
+
+    public override Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments)
+    {
+        var source = arguments.GetValueOrDefault("source")
+                   ?? arguments.GetValueOrDefault("src")
+                   ?? arguments.GetValueOrDefault("from");
+        var dest = arguments.GetValueOrDefault("dest")
+                 ?? arguments.GetValueOrDefault("destination")
+                 ?? arguments.GetValueOrDefault("to")
+                 ?? arguments.GetValueOrDefault("target");
+
+        if (string.IsNullOrWhiteSpace(source))
+            return Task.FromResult(EToolResult.Failure(Name, "Missing 'source' argument."));
+        if (string.IsNullOrWhiteSpace(dest))
+            return Task.FromResult(EToolResult.Failure(Name, "Missing 'dest' argument."));
+
+        var fullSource = ResolvePath(source!);
+        var fullDest = ResolvePath(dest!);
+
+        if (!File.Exists(fullSource))
+            return Task.FromResult(EToolResult.Failure(Name, $"Source file not found: {source}"));
+        if (!IsWithinDirectory(fullDest, _workingDirectory))
+            return Task.FromResult(EToolResult.Failure(Name, $"Destination outside working directory: {dest}"));
+
+        try
+        {
+            var dir = Path.GetDirectoryName(fullDest);
+            if (!string.IsNullOrEmpty(dir))
+                Directory.CreateDirectory(dir);
+
+            File.Copy(fullSource, fullDest, overwrite: true);
+
+            var info = new FileInfo(fullDest);
+            return Task.FromResult(EToolResult.Success(Name,
+                $"Copied: {source} → {dest} ({info.Length} bytes)",
+                new Dictionary<string, string>
+                {
+                    ["source"] = source!,
+                    ["dest"] = dest!,
+                    ["bytes"] = info.Length.ToString()
+                }));
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(EToolResult.Failure(Name, $"Error copying file: {ex.Message}"));
+        }
+    }
+
+    private string ResolvePath(string relativePath)
+    {
+        if (Path.IsPathRooted(relativePath))
+            return relativePath;
+        return Path.GetFullPath(Path.Combine(_workingDirectory, relativePath));
+    }
+
+    private static bool IsWithinDirectory(string fullPath, string baseDir)
+    {
+        var fullDir = Path.GetFullPath(baseDir).TrimEnd(Path.DirectorySeparatorChar);
+        return fullPath.StartsWith(fullDir, StringComparison.OrdinalIgnoreCase);
+    }
+}
+
+/// <summary>
 /// File Search Tool — searches for files by name pattern across the project.
 /// Read-only, safe operation.
 /// </summary>

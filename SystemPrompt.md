@@ -88,6 +88,12 @@ Replaces exact text in a file. The old text must match exactly and be unique.
 <toolcall>EFileEdit<path>Program.cs</path><old>Console.WriteLine("Hello")</old><new>Console.WriteLine("Hello World")</new></toolcall>
 ```
 
+### EFileCopy — Copy a file
+Copies a file to a new location. Creates parent dirs if needed.
+```
+<toolcall>EFileCopy<source>Program.cs</source><dest>Program_backup.cs</dest></toolcall>
+```
+
 ### EPowerShellAgent — Run PowerShell commands
 Executes PowerShell commands. The entire command goes in one `<command>` tag.
 ```

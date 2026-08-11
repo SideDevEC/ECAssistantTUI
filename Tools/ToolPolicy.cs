@@ -73,6 +73,7 @@ public class ToolPolicy
         // Write tools — allowed but logged (agent should be able to create/edit files)
         _permissions["EFileWrite"] = new ToolPermission { ToolName = "EFileWrite", Level = ToolPermissionLevel.Allowed, Reason = "File creation — sandboxed to working dir" };
         _permissions["EFileEdit"] = new ToolPermission { ToolName = "EFileEdit", Level = ToolPermissionLevel.Allowed, Reason = "File editing — sandboxed to working dir" };
+        _permissions["EFileCopy"] = new ToolPermission { ToolName = "EFileCopy", Level = ToolPermissionLevel.Allowed, Reason = "File copy — sandboxed to working dir" };
 
         // PowerShell — allowed by default (the agent needs to be able to run commands)
         // Future: could be split into read-only PowerShell (allowed) vs write PowerShell (approval)

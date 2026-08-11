@@ -32,4 +32,4 @@ appsettings.json.bak
 transcript.json
 
 # Memory files (personal data)
-Memory/*.json
+Memory/*.json*.secrets

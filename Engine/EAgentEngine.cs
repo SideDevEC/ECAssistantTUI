@@ -201,13 +201,32 @@ public sealed class EAgentEngine : IAsyncDisposable
 
          }
 
-       /// <summary>Build system+tools prompt (called once, cached).</summary>
+       /// <summary>Build system+tools prompt — SystemPrompt.md + runtime tool self-registration.</summary>
+    /// <remarks>
+    /// SystemPrompt.md is tool-agnostic (v3.2). Each registered tool provides its own
+    /// Name, Description, Rules, and Examples via ToSystemPromptBlock(). These are
+    /// appended at runtime so adding/removing tools requires no SystemPrompt.md edits.
+    /// </remarks>
     private string BuildSystemToolsPrompt()
           {
           var sb = new StringBuilder();
            if (!string.IsNullOrEmpty(_systemPromptText))
                sb.AppendLine(_systemPromptText);
-           // Tools are already documented in SystemPrompt.md v3.0 — no duplication
+
+           // ── Runtime tool self-registration ──
+           // Each tool injects its own rules + examples via ToSystemPromptBlock()
+           if (_tools.Count > 0)
+           {
+               sb.AppendLine();
+               sb.AppendLine("## REGISTERED TOOLS");
+               sb.AppendLine();
+               foreach (var tool in _tools)
+               {
+                   sb.AppendLine(tool.ToSystemPromptBlock());
+                   sb.AppendLine();
+               }
+           }
+
          return sb.ToString();
              }
 

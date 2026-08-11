@@ -1,13 +1,13 @@
-# ECAssistant Architecture (v8.1 — 2026-08-12)
+# ECAssistant Architecture (v8.2 — 2026-08-12)
 
-**Summary:** A local, offline AI agent in C# .NET 8 using LLamaSharp. Runs GGUF models locally. Uses XML-style response tags (`<toolcall>`, `<output>`, `<thinking>`) for reliable tool parsing. PowerShell is the primary and only tool needed for all file/system operations — no separate file operation classes since all LLMs know PowerShell natively. Multi-step autonomous loops with persistent memory, sliding context windows, real tokenizer-based token counting, tool policy enforcement, and multi-session management.
+**Summary:** A local, offline AI agent in C# .NET 8 using LLamaSharp. Runs GGUF models locally. Uses XML-style response tags (`<toolcall>`, `<output>`, `<thinking>`) for reliable tool parsing. PowerShell is the primary and only tool needed for all file/system operations — no separate file operation classes since all LLMs know PowerShell natively. Multi-step autonomous loops with persistent memory, sliding context windows, real tokenizer-based token counting, tool policy enforcement, and multi-session management. Tools self-register their rules and examples into the system prompt at runtime — SystemPrompt.md is tool-agnostic.
 
 ## Key Facts
 - **Language:** C# .NET 8 console app (`net8.0-windows`, Nullable enabled)
 - **LLM Backend:** LLamaSharp 0.27.0 — loads GGUF models from disk
 - **Runtime:** Self-hosted, offline — no external API calls, no prerequisites
 - **Tools:** 2 registered — `EPowerShellAgent` (all file/system ops) + `EFileResearchTool` (project scan)
-- **Config:** `SystemPrompt.md` (v3.1), `appsettings.json` (runtime settings)
+- **Config:** `SystemPrompt.md` (v3.2 — tool-agnostic), `appsettings.json` (runtime settings)
 
 ## Architecture Overview
 
@@ -23,8 +23,8 @@ Program.cs (entry point, CLI loop, session management)
     │               │       │
     │               │       ├── EAgentEngine.GenerateAsync(prompt)
     │               │       │       │
-    │               │       │       ├── BuildFullPrompt(): system prompt → memory → windowed history → stop directive
-    │               │       │       │       (no duplicate tool injection — tools documented in SystemPrompt.md only)
+    │               │       │       ├── BuildFullPrompt(): system prompt (incl. runtime tool blocks) → memory → windowed history → stop directive
+    │               │       │       │       (tools self-register via ToSystemPromptBlock() — SystemPrompt.md has no hardcoded tool docs)
     │               │       │       │
     │               │       │       └── _executor.InferAsync(fullPrompt) — LLamaSharp InteractiveExecutor
     │               │       │               │
@@ -76,10 +76,19 @@ Program.cs (entry point, CLI loop, session management)
 - `WorkingDirectory` set on `ProcessStartInfo` so relative paths work
 - Output escaped (`<` → `&lt;`, `>` → `&gt;`) to prevent XML tag confusion
 
-### 2. No Duplicate Tool Injection (v8.1)
-**Decision:** Tools are documented only in `SystemPrompt.md`, not injected twice by `BuildSystemToolsPrompt()`.
+### 2. Tool Self-Registration in System Prompt (v8.2)
+**Decision:** SystemPrompt.md is tool-agnostic. Tools self-register their Name, Description, Rules, and Examples at runtime via `ToSystemPromptBlock()`.
 
-**Rationale:** Duplicating tool definitions in two different formats confused the LLM. SystemPrompt.md v3.1 has clear examples for each tool.
+**Rationale:**
+- Adding/removing tools requires no SystemPrompt.md edits
+- Tool definitions are co-located with the tool implementation (single source of truth)
+- SystemPrompt.md stays clean and focused on response format + operating rules
+- Each tool owns its own documentation — no drift between docs and code
+
+**Implementation:**
+- `EToolBase.ToSystemPromptBlock()` assembles Name + Description + Rules + Examples
+- `EAgentEngine.BuildSystemToolsPrompt()` iterates registered tools and appends their blocks
+- `SystemPrompt.md` v3.2 has a placeholder section: `## REGISTERED TOOLS` (filled at runtime)
 
 ### 3. XML Escaping on Tool Output (v8.1)
 **Decision:** All tool output that may contain `<` or `>` characters is escaped before returning to the LLM.
@@ -134,6 +143,7 @@ Program.cs (entry point, CLI loop, session management)
 | PowerShell tool (primary) | ✅ Live | Temp .ps1 script, WorkingDirectory, XML escaping |
 | EFileResearchTool | ✅ Live | Project-wide scan, XML-escaped output |
 | XML-style response parsing | ✅ Live | `<thinking>`, `<toolcall>`, `<output>` |
+| Tool self-registration | ✅ Live | Tools inject rules+examples via ToSystemPromptBlock() at runtime |
 | Multi-step orchestration | ✅ Live | Fail-fast on 3 consecutive failures |
 | Tool policy + approval gates | ✅ Live | 3 levels, checked before every tool call |
 | Session management | ✅ Live | Main, isolated, named. CLI commands |
@@ -146,4 +156,4 @@ Program.cs (entry point, CLI loop, session management)
 | DecisionLoop | ⚠️ WIP | Placeholder — defaults "B", no real user input |
 | EContextAnalyzer | ⚠️ WIP | Basic `using` parsing only |
 
-**Status:** v8.1 — builds successfully (0 errors, 10 warnings). PowerShell as primary tool.
+**Status:** v8.2 — builds successfully (0 errors, 10 warnings). PowerShell as primary tool. Tools self-register into system prompt.

@@ -1,19 +1,23 @@
-# ECAssistant — Project Summary (v8.1 — 2026-08-12)
+# ECAssistant — Project Summary (v8.2 — 2026-08-12)
 
-**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Embeds a GGUF model into its own runtime. Uses structured XML-style tags for tool calling and multi-step autonomous loops with persistent memory, sliding context windows, real tokenizer-based token counting, tool policy enforcement, and multi-session management. PowerShell is the primary tool for all file and system operations — no separate file operation classes needed since all LLMs know PowerShell natively.
+**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Embeds a GGUF model into its own runtime. Uses structured XML-style tags for tool calling and multi-step autonomous loops with persistent memory, sliding context windows, real tokenizer-based token counting, tool policy enforcement, and multi-session management. PowerShell is the primary tool for all file and system operations — no separate file operation classes needed since all LLMs know PowerShell natively. Tools self-register their rules and examples into the system prompt at runtime — SystemPrompt.md is tool-agnostic.
 
 ## Key Facts
 - **Language:** C# .NET 8 console app (`net8.0-windows`, Nullable enabled)
 - **LLM Backend:** LLamaSharp 0.27.0 — loads GGUF models from disk (Qwen3-8B-Q4_K_M.gguf)
 - **Runtime:** Self-hosted, offline inference — no external API calls, no prerequisites
 - **Model:** Qwen3-8B-Q4_K_M, context: 32768 tokens, temp: 0.3
-- **System Prompt:** `SystemPrompt.md` (v3.1 — loaded via `File.ReadAllText()` at startup)
+- **System Prompt:** `SystemPrompt.md` (v3.2 — tool-agnostic, loaded via `File.ReadAllText()` at startup; tools self-register at runtime)
 - **Tools:** 2 registered — `EPowerShellAgent` (primary, all file/system ops) + `EFileResearchTool` (project-wide scan)
 - **Package deps:** `LLamaSharp`, LLamaSharp.Backend.Vulkan/Cuda12/CPU/Console, Microsoft.Extensions.Logging.Abstractions
 
 ## Design Philosophy
 
 **PowerShell as primary tool:** Instead of creating separate C# classes for each file operation (read, write, copy, delete, search), the agent uses `EPowerShellAgent` for everything. Every LLM already knows PowerShell commands (`Get-Content`, `Copy-Item`, `Set-Content`, `Select-String`, etc.), so no extra tool definitions are needed. This keeps the codebase lean and the tool surface small. `EFileResearchTool` is kept for project-wide multi-file scanning that would be inefficient with individual PowerShell commands.
+
+## Key Fixes (v8.2)
+- **Tool self-registration:** SystemPrompt.md no longer hardcodes tool docs. Each tool provides its own rules+examples via `ToSystemPromptBlock()`, appended at runtime by `BuildSystemToolsPrompt()`. Adding/removing tools = zero SystemPrompt.md edits.
+- **SystemPrompt v3.2:** Tool-agnostic — only response format, operating rules, and memory guidelines. Tool section is a placeholder filled at runtime.
 
 ## Key Fixes (v8.1)
 - **EPowerShellAgent rewritten:** Uses temp `.ps1` script file instead of `cmd.exe` quoting (fixes quote-breaking), sets `WorkingDirectory` on process (fixes relative path issues), escapes `<>` in output (fixes XML tag confusion in LLM history)
@@ -26,7 +30,7 @@
 ```
 ECAssistant/
 ├── ECAssistant.csproj           ← .NET 8 project (net8.0-windows, Nullable)
-├── SystemPrompt.md               ← v3.1: Identity + response format + PowerShell tool examples
+├── SystemPrompt.md               ← v3.2: Response format + operating rules (tool-agnostic, tools self-register at runtime)
 ├── appsettings.json              ← Runtime config (model, tools, memory, workspace settings)
 ├── SUMMARY.md                    ← This file
 ├── ARCHITECTURE.md               ← Architecture documentation
@@ -115,4 +119,4 @@ ECAssistant/
 - Categories: bugs, solutions, general, user
 - CLI commands: `memory-save`, `memory-query`, `memory-stats`
 
-**Status:** v8.1 — builds successfully (0 errors). PowerShell as primary tool. Tool policy active. Session management active. Context compaction wired.
+**Status:** v8.2 — builds successfully (0 errors). PowerShell as primary tool. Tool policy active. Session management active. Context compaction wired. Tools self-register into system prompt.

@@ -1,0 +1,35 @@
+# Build artifacts
+bin/
+obj/
+*.dll
+*.pdb
+*.exe
+
+# IDE files
+.vs/
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+*.user
+
+# Model files (large, don't commit)
+*.gguf
+*.bin
+*.gguf.*
+
+# Logs
+*.log
+
+# User-specific config (keep template, ignore personal)
+# appsettings.json can contain personal paths — uncomment to ignore:
+# appsettings.json
+appsettings.json.bak
+
+# Transcripts (session data)
+transcript.json
+
+# Memory files (personal data)
+Memory/*.json

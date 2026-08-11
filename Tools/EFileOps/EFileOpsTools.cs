@@ -78,14 +78,18 @@ public class EFileReadTool : EToolBase
 
             var sb = new StringBuilder();
             sb.AppendLine($"File: {path} ({totalLines} lines total, showing {readCount} from line {offset})");
-            sb.AppendLine("```");
+            sb.AppendLine("<detail>");
 
             for (int i = startIdx; i < endIdx; i++)
             {
-                sb.AppendLine($"{i + 1,4} | {lines[i]}");
+                // Escape angle brackets to prevent XML tag confusion in LLM history
+                var line = lines[i]
+                    .Replace("\u003c", "&lt;")
+                    .Replace("\u003e", "&gt;");
+                sb.AppendLine($"{i + 1,4} | {line}");
             }
 
-            sb.AppendLine("```");
+            sb.AppendLine("</detail>");
 
             if (endIdx < totalLines)
                 sb.AppendLine($"... ({totalLines - endIdx} more lines, use offset={endIdx + 1} to continue)");

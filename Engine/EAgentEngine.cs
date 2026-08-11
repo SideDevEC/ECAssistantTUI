@@ -207,22 +207,7 @@ public sealed class EAgentEngine : IAsyncDisposable
           var sb = new StringBuilder();
            if (!string.IsNullOrEmpty(_systemPromptText))
                sb.AppendLine(_systemPromptText);
-           sb.AppendLine();
-             sb.AppendLine("> REGISTERED TOOLS");
-            sb.AppendLine("Use these EXACT names inside <toolcall>...</toolcall>. Single line only.");
-               sb.AppendLine();
-
-           foreach (var t in _tools)
-              {
-                  var block = t.ToSystemPromptBlock();
-                   if (!string.IsNullOrEmpty(block))
-                      {
-                        sb.AppendLine($"\n### {t.Name}");
-                         sb.Append(block);
-                          sb.AppendLine();
-                       }
-                        }
-
+           // Tools are already documented in SystemPrompt.md v3.0 — no duplication
          return sb.ToString();
              }
 

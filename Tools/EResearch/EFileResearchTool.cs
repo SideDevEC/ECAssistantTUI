@@ -51,6 +51,8 @@ public class EFileResearchTool : EToolBase
                     var content = await File.ReadAllTextAsync(filePath);
                     if (content.Length > _maxCharsPerFile)
                         content = content.Substring(0, _maxCharsPerFile) + "\n... [truncated]";
+                    // Escape angle brackets to prevent XML tag confusion in LLM history
+                    content = content.Replace("\u003c", "&lt;").Replace("\u003e", "&gt;");
 
                     sb.AppendLine($"## {relativePath} ({content.Length} chars)");
                     sb.AppendLine(content);

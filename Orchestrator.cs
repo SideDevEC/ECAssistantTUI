@@ -303,10 +303,13 @@ public sealed class AgentOrchestrator : IAsyncDisposable
             var args = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
             var argMatches = Regex.Matches(toolcallContent, @"<([a-zA-Z_][\w]*)>(.*?)</\1>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
+            Program.Gui.WriteLineColored($"[Parse] Toolcall content: {toolcallContent}");
+            Program.Gui.WriteLineColored($"[Parse] Regex matches: {argMatches.Count}");
             foreach (Match m in argMatches)
                {
                 var key = m.Groups[1].Value;
                 var value = m.Groups[2].Value;
+                Program.Gui.WriteLineColored($"[Parse] Arg: {key} = {value.Substring(0, Math.Min(value.Length, 100))}");
                 if (!string.IsNullOrEmpty(key)) args[key] = value;
                }
 

@@ -403,10 +403,15 @@ public sealed class EAgentEngine : IAsyncDisposable
               var rawResult = sb.ToString().Trim();
                   string cleanResponse;
 
+              // Debug: show raw model output for troubleshooting
+              Program.Gui.WriteLineColored($"[Engine] Raw output ({rawResult.Length} chars): {rawResult.Substring(0, Math.Min(rawResult.Length, 500))}");
+
                      // Extract clean response — ONLY the last well-formed structured block:
                      // Prefer <output>...</output> or <toolcall>...</toolcall>
                   // Strip everything outside structural tags (hallucination noise).
                    cleanResponse = ExtractCleanResponse(rawResult);
+
+              Program.Gui.WriteLineColored($"[Engine] Clean response ({cleanResponse.Length} chars): {cleanResponse.Substring(0, Math.Min(cleanResponse.Length, 500))}");
 
               if (string.IsNullOrEmpty(cleanResponse))
                   cleanResponse = timedOut ? "(Response truncated — model timed out)" : "(Empty response from model)";

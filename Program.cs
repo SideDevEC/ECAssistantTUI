@@ -9,6 +9,7 @@ using ECAssistant.Tools.Background;
 using ECAssistant.Tools.Web;
 using ECAssistant.Tools.Build;
 using ECAssistant.Tools.Git;
+using ECAssistant.Tools.Code;
 using ECAssistant.Tools;
 using ECAssistant.Analysis;
 using ECAssistant.UI;
@@ -141,6 +142,15 @@ public class Program
                         await agent.InitializeVectorMemoryAsync(vecDir);
                     }
 
+                    // ── v10: Self-Correction Manager ──
+                    agent.InitializeSelfCorrection(effectiveDir);
+
+                    // ── v10: Project Context Manager (auto-scan project) ──
+                    await agent.InitializeProjectContextAsync(effectiveDir);
+
+                    // ── v10: Task Planner ──
+                    agent.InitializeTaskPlanner();
+
                     // ── Secondary Model (optional, for summarization) ──
                     if (_config.SecondaryModel.Enabled && !string.IsNullOrEmpty(_config.SecondaryModel.ModelPath))
                     {
@@ -175,6 +185,7 @@ public class Program
                     agent.RegisterTool(new EWebSearchTool());
                     agent.RegisterTool(new EDotnetBuildTool(effectiveDir));
                     agent.RegisterTool(new EGitTool(effectiveDir));
+                    agent.RegisterTool(new ECodeEditorTool(effectiveDir));
 
                     // EFileResearchTool — project-wide file scan for analysis
                        {

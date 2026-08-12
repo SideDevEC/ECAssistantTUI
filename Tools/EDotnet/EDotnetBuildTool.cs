@@ -40,7 +40,7 @@ public class EDotnetBuildTool : EToolBase
         "EDotnetBuild(project=\"MyProject.csproj\")";
 
     public override string GetToolRules() =>
-        "RULE: <action> = build|test|restore|clean (default: build). " +
+        "RULE: <action> = build|test|test-filter|restore|clean|format|format-check (default: build). " +
         "Optional <project> = path to .csproj or .sln file. " +
         "Optional <configuration> = Debug|Release (default: Debug). " +
         "Returns structured errors with file, line, and error code for easy fixing.";
@@ -48,6 +48,8 @@ public class EDotnetBuildTool : EToolBase
     public override string GetToolExample() =>
         "<toolcall>EDotnetBuild<project>ECAssistant.csproj</project></toolcall>\n" +
         "<toolcall>EDotnetBuild<action>test</action></toolcall>\n" +
+        "<toolcall>EDotnetBuild<action>test-filter</action><filter>TestClass.TestMethod</filter></toolcall>\n" +
+        "<toolcall>EDotnetBuild<action>format</action></toolcall>\n" +
         "<toolcall>EDotnetBuild<action>build</action><configuration>Release</configuration></toolcall>";
 
     public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments)
@@ -56,14 +58,23 @@ public class EDotnetBuildTool : EToolBase
         var project = arguments.GetValueOrDefault("project") ?? "";
         var configuration = arguments.GetValueOrDefault("configuration") ?? "Debug";
 
-        var cmd = action switch
+        string cmd;
+        switch (action)
         {
-            "build" => $"build",
-            "test" => $"test",
-            "restore" => $"restore",
-            "clean" => $"clean",
-            _ => $"build"
-        };
+            case "build": cmd = "build"; break;
+            case "test": cmd = "test"; break;
+            case "test-filter":
+            {
+                var filter = arguments.GetValueOrDefault("filter") ?? "";
+                cmd = string.IsNullOrEmpty(filter) ? "test" : "test --filter \"" + filter + "\"";
+                break;
+            }
+            case "restore": cmd = "restore"; break;
+            case "clean": cmd = "clean"; break;
+            case "format": cmd = "format"; break;
+            case "format-check": cmd = "format --verify-no-changes"; break;
+            default: cmd = "build"; break;
+        }
 
         if (!string.IsNullOrEmpty(project))
             cmd += $" \"{project}\"";

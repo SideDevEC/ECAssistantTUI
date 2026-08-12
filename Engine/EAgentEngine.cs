@@ -36,6 +36,9 @@ public sealed class EAgentEngine : IAsyncDisposable
     private readonly List<EToolBase> _tools = new();
     private EMemoryManager? _memoryManager = null;
     private VectorMemoryStore? _vectorMemory = null;
+    private SelfCorrectionManager? _selfCorrection = null;
+    private ProjectContextManager? _projectContext = null;
+    private TaskPlanner? _taskPlanner = null;
 
        // ── Context Window (replaces raw string list) ───────────
     private readonly ContextWindow _contextWindow;
@@ -51,10 +54,53 @@ public sealed class EAgentEngine : IAsyncDisposable
 
     public EMemoryManager Memory => _memoryManager ??= new EMemoryManager();
     public VectorMemoryStore? VectorMemory => _vectorMemory;
+    public SelfCorrectionManager? SelfCorrection => _selfCorrection;
+    public ProjectContextManager? ProjectContext => _projectContext;
+    public TaskPlanner? TaskPlanner => _taskPlanner;
     public IReadOnlyList<EToolBase> Tools => _tools;
     public int TurnCount => _turnCount;
     public ConversationTranscript Transcript => _transcript;
     public ContextWindow ContextWindow => _contextWindow;
+
+    /// <summary>Initialize self-correction manager.</summary>
+    public void InitializeSelfCorrection(string workingDir)
+    {
+        _selfCorrection = new SelfCorrectionManager(workingDir);
+        EColor.TagBold(EColor.Success(), "SelfCorrect", "Self-correction manager ready.");
+    }
+
+    /// <summary>Initialize project context manager and scan project.</summary>
+    public async Task InitializeProjectContextAsync(string workingDir)
+    {
+        _projectContext = new ProjectContextManager(workingDir);
+        await _projectContext.InitializeAsync();
+        EColor.TagBold(EColor.Success(), "ProjectCtx", $"Project context loaded: {_projectContext.FileCount} files.");
+    }
+
+    /// <summary>Initialize task planner for this session.</summary>
+    public void InitializeTaskPlanner()
+    {
+        _taskPlanner = new TaskPlanner();
+    }
+
+    /// <summary>Inject project context into prompt (called from BuildFullPrompt).</summary>
+    private string? GetProjectContextInjection()
+    {
+        if (_projectContext == null) return null;
+        return _projectContext.GetProjectSummary();
+    }
+
+    /// <summary>Inject task progress into prompt.</summary>
+    private string? GetTaskProgressInjection()
+    {
+        return _taskPlanner?.GetProgressContext();
+    }
+
+    /// <summary>Inject failure context into prompt.</summary>
+    private string? GetFailureInjection()
+    {
+        return _selfCorrection?.GetFailureSummary();
+    }
 
     /// <summary>Initialize vector memory store with TF-IDF embeddings (no external deps).</summary>
     public async Task InitializeVectorMemoryAsync(string storeDir)
@@ -287,6 +333,9 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
 
                // ── Step 2: Query memory and inject relevant entries ───────────
              var memoryInject = GetMemoryInjection(userRequest);
+           var projectCtx = GetProjectContextInjection();
+           var taskProgress = GetTaskProgressInjection();
+           var failureCtx = GetFailureInjection();
 
            // ── Step 3: Get windowed history from ContextWindow ───
            var windowMessages = _contextWindow.GetWindowMessages();
@@ -323,6 +372,21 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                 sb.AppendLine(memoryInject);
                    sb.AppendLine();
                }
+
+              // v10: Project context injection
+              if (!string.IsNullOrEmpty(projectCtx))
+              {
+                  sb.AppendLine(projectCtx);
+                  sb.AppendLine();
+              }
+
+              // v10: Task progress injection
+              if (!string.IsNullOrEmpty(taskProgress))
+                  sb.AppendLine(taskProgress);
+
+              // v10: Failure history injection (when agent is struggling)
+              if (!string.IsNullOrEmpty(failureCtx))
+                  sb.AppendLine(failureCtx);
 
               // Conversation history (windowed, summarized if needed)
              if (windowMessages.Count > 0)

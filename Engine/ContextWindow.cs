@@ -100,6 +100,20 @@ public class ContextWindow
     public void SetSummaryService(SummaryService service)
            => _summaryService = service;
 
+      /// <summary>Remove the last assistant message from history (for format retries).</summary>
+     public bool RemoveLastAssistantMessage()
+     {
+         for (int i = _messages.Count - 1; i >= 0; i--)
+         {
+             if (_messages[i].Role == "assistant")
+             {
+                 _messages.RemoveAt(i);
+                 return true;
+             }
+         }
+         return false;
+     }
+
       /// <summary>Clear all messages and reset.</summary>
      public void Clear() { _messages.Clear(); }
 

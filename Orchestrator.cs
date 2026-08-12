@@ -174,11 +174,18 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                 _formatRetries++;
                 if (_formatRetries <= MaxFormatRetries)
                 {
-                    Logger.Warn("Orchestrator", $"No tags in response (attempt {_formatRetries}/{MaxFormatRetries}). Retrying with format reminder.");
-                    _engine.AddToolResult("System",
-                        "[FORMAT ERROR] Your last response was REJECTED. You did not use the required tags.\n" +
-                        "You MUST respond with: <thinking>brief reasoning</thinking> then <output>your answer</output>\n" +
-                        "NEVER write plain text. NEVER skip the tags. Try again NOW with the correct format.");
+                    Logger.Warn("Orchestrator", $"No tags (attempt {_formatRetries}/{MaxFormatRetries}). Removing bad response, retrying.");
+                    
+                    // Remove the bad assistant response from history so model doesn't learn from it
+                    _engine.RemoveLastAssistantResponse();
+                    
+                    // Inject as a user-level message (not tool result) for stronger signal
+                    _engine.InjectFormatRetry(
+                        "Your last response was REJECTED — you did not use the required XML tags.\n" +
+                        "You MUST respond using this EXACT format:\n" +
+                        "<thinking>brief reasoning</thinking><output>your answer</output>\n" +
+                        "Do NOT write any text outside these tags. Do NOT skip the tags.\n" +
+                        "Now answer the previous question using the correct format.");
                     _turnCount++;
                     continue;
                 }

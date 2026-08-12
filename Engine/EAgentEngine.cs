@@ -443,6 +443,28 @@ public sealed class EAgentEngine : IAsyncDisposable
               catch { /* don't crash on save failure */ }
               }
 
+      /// <summary>Remove the last assistant response from history (for format retries).</summary>
+     public void RemoveLastAssistantResponse()
+     {
+         _contextWindow.RemoveLastAssistantMessage();
+         // Also remove from transcript
+         for (int i = _transcript.Messages.Count - 1; i >= 0; i--)
+         {
+             if (_transcript.Messages[i].Role == "assistant")
+             {
+                 _transcript.Messages.RemoveAt(i);
+                 break;
+             }
+         }
+     }
+
+      /// <summary>Inject a format retry prompt as a user message.</summary>
+     public void InjectFormatRetry(string errorMessage)
+     {
+         _contextWindow.AddUserMessage(errorMessage);
+         _transcript.AddUser(errorMessage);
+     }
+
       /// <summary>Clear context window and transcript.</summary>
     public void ClearHistory()
            {

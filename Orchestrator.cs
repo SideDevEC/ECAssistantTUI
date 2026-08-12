@@ -131,10 +131,20 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                                     var logEntry = $"Tool:{decision.ToolName} \u2192 OK\nOutput: {result.Output?.Substring(0, Math.Min(result.Output.Length, 300))}";
                                        _toolCallLog.Add(logEntry);
 
-                                    // Add tool result to conversation history with <tooloutput> tag
-                                            _engine.AddToolResult(decision.ToolName!, result.Output!);
+                                    // Add tool result to conversation history
+                                            var toolOutput = result.Output!;
+                                            
+                                    // Track completed step
+                                    var stepCmd = argsDict.GetValueOrDefault("command") ?? "";
+                                    var stepDesc = $"{decision.ToolName}: {stepCmd.Substring(0, Math.Min(stepCmd.Length, 80))}";
+                                    _completedSteps.Add(stepDesc);
+                                    
+                                    // v9.20: After a tool result, add a STRONG directive to use <output>
+                                    toolOutput += "\n\n--- You now have the tool result above. You MUST respond with <thinking>brief</thinking><output>your answer</output>. Do NOT call another tool unless you still need more data. ---";
+                                    
+                                    _engine.AddToolResult(decision.ToolName!, toolOutput);
 
-                                Program.Gui.WriteLineColored("[Orchestrator] Tool succeeded. Continuing loop so LLM can format the answer.\n");
+                                EColor.WriteLine(EColor.Dim, $"[Orchestrator] Tool succeeded, looping back to LLM (turn {_turnCount + 1})...");
                                 }
                         else
                                 {

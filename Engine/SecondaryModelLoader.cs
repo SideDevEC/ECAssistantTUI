@@ -153,26 +153,57 @@ User: " + userRequest + "\n";
 
         var result = await GenerateAsync(prompt, maxTokens: 256);
         
+        // v10.7.5: Log raw decomposition output for debugging
+        Logger.Info("SecondaryModel", $"Raw decomposition output:\n{result}");
+        EColor.WriteLine(EColor.Dim, $"[Secondary] Raw decomposition:\n{result}");
+
         if (string.IsNullOrWhiteSpace(result))
             return null;
 
         // Parse numbered lines: "1. ...", "2. ...", etc.
+        // v10.7.5: Stop at first non-numbered line (model added extra steps after the real ones)
         var steps = new List<string>();
         var lines = result.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        int expectedNumber = 1;
         foreach (var line in lines)
         {
             var trimmed = line.Trim();
-            // Match "N. ..." pattern
-            var match = System.Text.RegularExpressions.Regex.Match(trimmed, @"^\d+\.\s*(.+)$");
+            // Match "N. ..." pattern with sequential numbering
+            var match = System.Text.RegularExpressions.Regex.Match(trimmed, $@"^{expectedNumber}\.\s*(.+)$");
             if (match.Success)
             {
                 var step = match.Groups[1].Value.Trim();
                 if (!string.IsNullOrWhiteSpace(step))
                     steps.Add(step);
+                expectedNumber++;
+            }
+            else
+            {
+                // v10.7.5: Stop at first line that breaks the sequence
+                // This catches extra steps, explanations, or commentary after the real steps
+                break;
             }
         }
 
-        // Also strip any non-step content (model might add explanation)
+        // v10.7.5: Hard cap — count action verbs in the original request
+        var actionWords = new[] { "calculate", "build", "create", "add", "remove", "update", "fix", 
+            "replace", "refactor", "test", "delete", "move", "copy", "write", "read", "run", 
+            "compile", "deploy", "install", "config", "edit", "find", "search", "check", "get" };
+        var requestActions = 0;
+        var lowerRequest = userRequest.ToLower();
+        foreach (var word in actionWords)
+            if (lowerRequest.Contains(word))
+                requestActions++;
+        
+        // Allow at most requestActions + 1 steps (one extra for implicit actions)
+        var maxSteps = Math.Max(1, requestActions + 1);
+        if (steps.Count > maxSteps)
+        {
+            Logger.Warn("SecondaryModel", $"Decomposition produced {steps.Count} steps but request has ~{requestActions} actions — trimming to {maxSteps}.");
+            EColor.TagBold(EColor.Warn(), "Secondary", $"Trimmed {steps.Count} steps to {maxSteps} (matched request actions).");
+            steps = steps.Take(maxSteps).ToList();
+        }
+
         // If we found no numbered steps, return null (use keyword fallback)
         if (steps.Count == 0)
         {
@@ -181,6 +212,9 @@ User: " + userRequest + "\n";
         }
 
         Logger.Info("SecondaryModel", $"Decomposed into {steps.Count} steps: {string.Join(" | ", steps.Select(s => s.Substring(0, Math.Min(s.Length, 50))))}");
+        EColor.TagBold(EColor.Success(), "Secondary", $"Decomposed into {steps.Count} steps:");
+        for (int i = 0; i < steps.Count; i++)
+            EColor.WriteLine(EColor.Dim, $"  {i+1}. {steps[i]}");
         return steps;
     }
 

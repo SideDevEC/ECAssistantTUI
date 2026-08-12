@@ -324,6 +324,10 @@ public class Program
                             case "save-context":  { var p = Path.Combine(workingDir, "transcript.json"); agent.SaveTranscript(p); Gui.BlankLine(); } continue;
 
                          case "single":    EColor.Tag(Info(), "Mode", "Single-turn mode reset."); orchestrator.Reset(); continue;
+                            case "stop":     // v10.9: Stop execution mid-stream
+                              if (agent.IsExecuting) { agent.StopExecution(); EColor.TagBold(EColor.Error(), "Stop", "Cancelling execution..."); }
+                              else { EColor.Tag(Info(), "Stop", "Nothing is running."); }
+                              continue;
 
                                  // --- FILE PICKER: Open native OS dialog, read file as prompt ---
                               case "file-pick":
@@ -658,7 +662,9 @@ public class Program
 
                  try
                                  {
+                              agent.StartExecution();
                               var orchestratorResult = await orchestrator.ExecuteMultiStep(input);
+                              agent.EndExecution();
                                 Gui.BlankLine();
                              var maxTurnsDisplayB = 5;
                                EColor.TagBold(Success(), "Agent", $"Turns: {orchestratorResult.ToolCallsMade}/{maxTurnsDisplayB} | Status: {orchestratorResult.Status}");
@@ -667,6 +673,7 @@ public class Program
                               }
                     catch (Exception ex)
                                  {
+                            agent.EndExecution();
                             EColor.TagBold(Error(), "Error", ex.Message);
                                if (ex.InnerException != null) EColor.Tag(Info(), "Detail", ex.InnerException.Message);
                              }
@@ -699,6 +706,7 @@ public class Program
         EColor.TagBold(Cyan, "Commands", "");
         Gui.BlankLine();
         EColor.WriteLine(Yellow + Bold, "  <type request>       Multi-step agent execution");
+        EColor.WriteLine(Yellow + Bold, "  stop                 Stop execution mid-stream (or press ESC)");
         EColor.WriteLine(Yellow + Bold, "  quit / exit          Exit (saves transcript)");
         EColor.WriteLine(Yellow + Bold, "  help                 Show this help");
         EColor.WriteLine(Yellow + Bold, "  tools                List registered tools");

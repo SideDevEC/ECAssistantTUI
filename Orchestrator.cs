@@ -127,6 +127,17 @@ public sealed class AgentOrchestrator : IAsyncDisposable
 
             while (_turnCount < _maxTurns)
                   {
+                // v10.9: Check for user cancellation before each turn
+                if (_engine.ExecutionToken.IsCancellationRequested)
+                {
+                    EColor.TagBold(EColor.Warn(), "Orchestrator", "Execution cancelled by user. Stopping.");
+                    return new OrchestratorResult
+                    {
+                        FinalOutput = "Execution cancelled by user.",
+                        ToolCallsMade = _turnCount,
+                        Status = OrchestratorStatus.TurnsExhausted
+                    };
+                }
             Logger.Info("Orchestrator", $"Turn {_turnCount + 1}/{_maxTurns}");
 
                  // Step 1: Ask the LLM to decide what to do (with full context of tools + history)

@@ -74,6 +74,15 @@ public sealed class EAgentEngine : IAsyncDisposable
     public int TurnCount => _turnCount;
     public ConversationTranscript Transcript => _transcript;
     public ContextWindow ContextWindow => _contextWindow;
+    
+    // v10.9: Cancellation token for stopping execution mid-stream
+    private CancellationTokenSource? _cts;
+    public CancellationToken ExecutionToken => _cts?.Token ?? CancellationToken.None;
+    public bool IsExecuting => _cts != null;
+    
+    public void StartExecution() { _cts = new CancellationTokenSource(TimeSpan.FromSeconds(300)); }
+    public void StopExecution() { _cts?.Cancel(); _cts = null; }
+    public void EndExecution() { _cts = null; }
 
     /// <summary>Initialize self-correction manager.</summary>
     public void InitializeSelfCorrection(string workingDir)
@@ -962,11 +971,25 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                  try
                     {
                     var stopTags = new[] { "</toolcall>", "</output>" };
-                    EColor.WriteLine(EColor.Yellow + EColor.Bold, $"── Token Stream (Turn {_turnCount}) ──");
+                    EColor.WriteLine(EColor.Yellow + EColor.Bold, $"── Token Stream (Turn {_turnCount}) ── [ESC to stop] ──");
                     Program.Gui.WriteRawDirect(EColor.Dim);
                     var tokenCount = 0;
                     await foreach (var token in _executor.InferAsync(incrementalInput, _inferenceParams, cts.Token))
                          {
+                          // v10.9: Check for ESC key press to stop generation
+                          if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape)
+                          {
+                              Program.Gui.BlankLine();
+                              EColor.TagBold(EColor.Error(), "Stop", "Generation stopped by user (ESC).");
+                              goto inferenceDone;
+                          }
+                          // v10.9: Check cancellation token from orchestrator
+                          if (ExecutionToken.IsCancellationRequested)
+                          {
+                              Program.Gui.BlankLine();
+                              EColor.TagBold(EColor.Warn(), "Stop", "Execution cancelled by user.");
+                              goto inferenceDone;
+                          }
                           Program.Gui.WriteRawDirect(token);
                            sb.Append(token);
                            tokenCount++;

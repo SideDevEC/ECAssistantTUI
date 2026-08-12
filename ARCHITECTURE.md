@@ -278,7 +278,8 @@ ToolPolicy: 3 levels (Allowed / ApprovalRequired / Blocked) checked before every
 | `v10.4.4-working` | v10.4.4 | StatelessExecutor (pre-KV-cache, last stateless working build) |
 | `v10.5.1-working` | v10.5.1 | KV cache + tag structure audit (pre-TaskPlanner) |
 | `v10.6-working` | v10.6 | TaskPlanner keyword-based (pre-secondary-model) |
-| `v10.7.6-working` | v10.7.6 | Secondary model (Phi-4-mini) + TaskPlanner (current known-good) |
+| `v10.7.6-working` | v10.7.6 | Secondary model (Phi-4-mini) + TaskPlanner |
+| `v10.8.2-working` | v10.8.2 | Stability fixes + smart output store (current known-good) |
 
 **If any change breaks multi-turn:**
 ```bash

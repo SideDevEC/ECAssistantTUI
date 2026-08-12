@@ -144,6 +144,26 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                  // Step 1: Ask the LLM to decide what to do (with full context of tools + history)
               var llmResponse = await _engine.GenerateAsync(goal);
 
+             // v10.11.1: Check if generation was stopped by user (ESC) — bail out immediately,
+             // don't attempt format retries on the "(Stopped by user)" string.
+             if (llmResponse == "(Stopped by user)" || _engine.IsExecutionStopped)
+            {
+                EColor.TagBold(EColor.Warn(), "Orchestrator", "Generation was stopped by user (ESC). Not retrying.");
+                // v10.11.1: Clean up stale context from the stopped attempt so the next
+                // command starts fresh. The KV cache static prefix is preserved.
+                _engine.ClearContextWindowOnly();
+                // v10.11.1: Rebuild KV cache to remove stale user message tokens from the stopped attempt.
+                // The static prefix (system prompt + tools) is re-prefilled fresh.
+                await _engine.RebuildCacheAfterStopAsync();
+                var stopSummary = FormatTurnLog();
+                return new OrchestratorResult
+                {
+                    FinalOutput = $"Execution stopped by user (ESC).\n\n{stopSummary}",
+                    ToolCallsMade = _turnCount,
+                    Status = OrchestratorStatus.GoalAchieved  // not an error — user chose to stop
+                };
+            }
+
              // v9.19: Log what the engine returned BEFORE trimming
               EColor.WriteLine(EColor.Dim, $"[Orchestrator] Before trim ({llmResponse.Length} chars): {llmResponse.Substring(0, Math.Min(llmResponse.Length, 200))}");
 

@@ -96,6 +96,20 @@ public sealed class EAgentEngine : IAsyncDisposable
         _isExecuting = false; 
     }
 
+    // v10.11.1: Expose ESC/stopped state so orchestrator can check without coupling to string matching
+    public bool IsExecutionStopped => _escPressed || (_cts?.IsCancellationRequested ?? false);
+
+    // v10.11.1: Rebuild KV cache after an ESC stop or cancellation.
+    // The static prefix is re-prefilled, but all conversation tokens are cleared.
+    // This prevents stale user messages from the stopped attempt leaking into the next command.
+    public async Task RebuildCacheAfterStopAsync()
+    {
+        if (!_isPrefilled) return;  // nothing to rebuild if never prefilled
+        EColor.TagBold(EColor.Warn(), "KVCache", "Rebuilding after ESC stop...");
+        await ResetAndRebuildCacheAsync();
+        EColor.TagBold(EColor.Success(), "KVCache", "Cache rebuilt after stop.");
+    }
+
     /// <summary>Initialize self-correction manager.</summary>
     public void InitializeSelfCorrection(string workingDir)
     {
@@ -838,6 +852,15 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                 _turnCount = 0;
             Program.Gui.WriteLineColored("[Context] History and transcript cleared.");
                 }
+
+    // v10.11.1: Clear only the context window (not transcript) — used after ESC stop
+    // so the next command starts fresh without stale messages polluting the prompt.
+    public void ClearContextWindowOnly()
+    {
+        _contextWindow.Clear();
+        _turnCount = 0;
+        Program.Gui.WriteLineColored("[Context] Context window cleared (transcript preserved).");
+    }
 
       /// <summary>Reset the turn counter for a new user request (v10.4.4).
       /// Called by the orchestrator at the start of each ExecuteMultiStep.

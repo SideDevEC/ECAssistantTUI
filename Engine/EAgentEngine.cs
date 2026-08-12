@@ -709,8 +709,16 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
     private const int MaxToolOutputCode = 8000;         // Code editor, file research (code content)
     private const int MaxToolOutputSearch = 6000;        // Web search, RAG results
 
-    /// <summary>Truncate tool output based on tool type with a helpful message.</summary>
-    private static string TruncateToolOutput(string text, string toolName = "")
+    // v10.8.2: Full output store — when output exceeds the limit, the full
+    // output is saved to disk and the LLM gets a truncated version + instructions
+    // to retrieve specific parts. This prevents context bloat while keeping
+    // the full data available for chained tasks.
+    private readonly Dictionary<string, string> _toolOutputStore = new();
+    private int _outputStoreCounter = 0;
+
+    /// <summary>Truncate tool output based on tool type. If output exceeds the limit,
+    /// store the full output and give the LLM a way to retrieve specific parts.</summary>
+    private string TruncateToolOutput(string text, string toolName = "")
     {
         if (string.IsNullOrEmpty(text)) return text;
 
@@ -723,9 +731,39 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
         };
 
         if (text.Length <= limit) return text;
+
+        // v10.8.2: Store full output and give LLM a retrieval handle
+        _outputStoreCounter++;
+        var storeKey = $"output_{_outputStoreCounter}";
+        _toolOutputStore[storeKey] = text;
+
+        // Save to disk for large outputs (crash recovery + memory)
+        try
+        {
+            var outputPath = Path.Combine(_workingDir, $"tool_outputs/{storeKey}.txt");
+            Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+            File.WriteAllText(outputPath, text);
+        }
+        catch { /* non-critical */ }
+
         var truncated = text.Substring(0, limit);
-        truncated += $"\n... [Output truncated: {text.Length} total chars, showed first {limit}. Use a more specific command or smaller scope to see less.]";
+        truncated += $"\n\n[OUTPUT STORED: {text.Length} total chars. Full output saved as {storeKey}.]";
+        truncated += $"\nTo see more, use: EPowerShellAgent command=Get-Content tool_outputs/{storeKey}.txt -TotalCount N | Select-Object -Skip M";
+        truncated += $"\nOr read a specific part: Get-Content tool_outputs/{storeKey}.txt | Select-Object -Skip {limit/80} -First 50";
         return truncated;
+    }
+
+    /// <summary>Check if a stored output exists and return it (or a portion).</summary>
+    public string? GetStoredOutput(string key, int offset = 0, int maxChars = 4000)
+    {
+        if (!_toolOutputStore.TryGetValue(key, out var full)) return null;
+        if (offset >= full.Length) return "(Offset beyond output length)";
+        var available = full.Length - offset;
+        var take = Math.Min(maxChars, available);
+        var result = full.Substring(offset, take);
+        if (take < available)
+            result += $"\n[Showing {take}/{available} chars from offset {offset}. Use higher offset to see more.]";
+        return result;
     }
 
       /// <summary>Remove the last assistant response from history (for format retries).</summary>

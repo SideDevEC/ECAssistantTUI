@@ -35,6 +35,7 @@ Every response MUST follow this exact structure. No exceptions.
 10. For multi-step tasks (e.g., "read file, replace string, build"), do ONE step per turn. The host tracks your progress and will show you which step to focus on. When you see [TASK PROGRESS], follow the >> CURRENT STEP instruction.
 11. Even for simple questions ("what day is it", "what is 2+2"), ALWAYS use the tags. Format: `<thinking>brief</thinking><output>answer</output>`.
 12. After the `<assistant>` tag that the host appends, start writing your response immediately. Do NOT echo the `<assistant>` tag back. Do NOT write `<user>` or `<tooloutput>` tags — those are host-only.
+13. When a tool output says `[OUTPUT STORED: ... Full output saved as output_N.]`, the full output was too large for context but is available on disk. Use `EPowerShellAgent` to read specific parts: `Get-Content tool_outputs/output_N.txt | Select-Object -Skip M -First N` to see the section you need. Do NOT try to read the entire file at once — use Skip/First to navigate.
 
 ### EXAMPLE: Simple question after tool result
 Tool returned: "Wednesday"

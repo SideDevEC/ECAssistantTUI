@@ -277,7 +277,7 @@ ToolPolicy: 3 levels (Allowed / ApprovalRequired / Blocked) checked before every
 | Project context (scan, deps, impact) | ✅ |
 | Task decomposition (sub-tasks) | ✅ |
 
-**Status:** v10.8.3 — All Tier 1-3 agentic capabilities implemented. 7 tools. KV cache optimization. Secondary model (Phi-4-mini) for decomposition + summarization. TaskPlanner for chained tasks. Stability fixes (overflow, rewind, truncation). Smart output store. Ready for production testing.
+**Status:** v10.9.4 — All Tier 1-3 agentic capabilities implemented. 7 tools. KV cache optimization. Secondary model (Phi-4-mini) for decomposition + summarization. TaskPlanner for chained tasks. Stability fixes (overflow, rewind, truncation). Smart output store. Ready for production testing.
 
 ## 🔖 Known-Good Builds (Git Tags)
 
@@ -288,7 +288,8 @@ ToolPolicy: 3 levels (Allowed / ApprovalRequired / Blocked) checked before every
 | `v10.6-working` | v10.6 | TaskPlanner keyword-based (pre-secondary-model) |
 | `v10.7.6-working` | v10.7.6 | Secondary model (Phi-4-mini) + TaskPlanner |
 | `v10.8.2-working` | v10.8.2 | Stability fixes + smart output store |
-| `v10.8.3-working` | v10.8.3 | Bug audit fixes (current known-good) |
+| `v10.8.3-working` | v10.8.3 | Bug audit fixes |
+| `v10.9.4-working` | v10.9.4 | Cancellation + second audit (current known-good) |
 
 **If any change breaks multi-turn:**
 ```bash

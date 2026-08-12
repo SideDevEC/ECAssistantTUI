@@ -290,8 +290,15 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                 return new LLMDecision(false, null, new Dictionary<string, string?>(), answer);
                   }
 
-             // Neither block found — invalid response
-            return LLMDecision.Unknown();
+             // v9.11: Fallback — if no tags found but we have tool results in history,
+             // treat the raw text as a direct answer (model forgot to use <output> tags)
+             if (!string.IsNullOrWhiteSpace(trimmed) && trimmed.Length > 2)
+             {
+                 Logger.Warn("Orchestrator", $"No tags found — treating raw text as output: {trimmed.Substring(0, Math.Min(trimmed.Length, 80))}");
+                 return new LLMDecision(false, null, new Dictionary<string, string?>(), trimmed);
+             }
+             
+             return LLMDecision.Unknown();
                 }
 
 /// <summary>Parses a single <toolcall> block content to extract tool name and arguments.</summary>

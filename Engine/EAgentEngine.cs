@@ -180,10 +180,14 @@ public sealed class EAgentEngine : IAsyncDisposable
         _contextWindow.SetSummaryService(new SummaryService(async prompt =>
         {
             // v10.7: Use secondary model for summarization if available (no KV cache interference)
+            // v10.7.4: Use GenerateAsync directly — SummaryService.SummarizeAsync already builds
+            // its own prompt. Calling _secondaryModel.SummarizeAsync would double-wrap the prompt.
             if (_secondaryModel != null && _secondaryModel.IsLoaded)
             {
-                var summary = await _secondaryModel.SummarizeAsync(prompt, maxTokens: 200);
+                var summary = await _secondaryModel.GenerateAsync(prompt, maxTokens: 200);
                 summary = System.Text.RegularExpressions.Regex.Replace(summary, @"<[^>]+>", "");
+                // v10.7.4: Escape angle brackets to prevent fake XML tags in context
+                summary = summary.Replace("<", "&lt;").Replace(">", "&gt;");
                 return string.IsNullOrWhiteSpace(summary) ? "(Summary generation failed)" : summary;
             }
             

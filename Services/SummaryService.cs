@@ -38,14 +38,16 @@ public class SummaryService
 
         // Build the summarization prompt from the messages
         var oldContent = BuildBlockString(messages);
-        var prompt = $"Summarize the following conversation in 3-5 sentences. Focus on: key decisions, actions taken, tool results, and current state. Keep it concise but include any important findings:\n\n{oldContent}\n\nSummary:";
+        var prompt = $"Summarize the conversation below. STRICT RULES:\n- Output ONLY a concise summary of what was discussed\n- Keep facts, decisions, and tool results only\n- Do NOT add opinions, suggestions, or extra context\n- Do NOT add greetings, conclusions, or meta-commentary\n- Maximum 3 sentences\n- Plain text only, no formatting\n\nConversation:\n{oldContent}\n\nSummary:";
 
         try
         {
             var summary = await _generateAsync.Invoke(prompt);
             if (string.IsNullOrWhiteSpace(summary))
                 return $"[Summary of {messages.Count} messages (extractive — LLM returned empty)]\n{BuildExtractiveSummary(messages)}";
-            return $"[Summary of {messages.Count} messages]\n{summary.Trim()}";
+            // v10.7.4: Escape angle brackets to prevent fake XML tags in context
+            summary = summary.Trim().Replace("<", "&lt;").Replace(">", "&gt;");
+            return $"[Summary of {messages.Count} messages]\n{summary}";
         }
         catch (Exception ex)
         {

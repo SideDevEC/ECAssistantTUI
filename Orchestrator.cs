@@ -510,7 +510,9 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                     _ => "[ ]"
                 };
                 var marker = i == _currentSubTask ? " >> " : "    ";
-                sb.AppendLine($"{marker}{status} {_subTasks[i].Description}");
+                // v10.7.4: Escape angle brackets in step descriptions to prevent fake XML tags
+            var safeDesc = _subTasks[i].Description.Replace("<", "&lt;").Replace(">", "&gt;");
+            sb.AppendLine($"{marker}{status} {safeDesc}");
             }
             
             // Give explicit instruction for the current step
@@ -520,7 +522,8 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                 if (current.Status == SubTaskStatus.Pending || current.Status == SubTaskStatus.InProgress)
                 {
                     sb.AppendLine();
-                    sb.AppendLine($"> CURRENT STEP: {_subTasks[_currentSubTask].Description}");
+                    var safeCurrent = _subTasks[_currentSubTask].Description.Replace("<", "&lt;").Replace(">", "&gt;");
+                    sb.AppendLine($"> CURRENT STEP: {safeCurrent}");
                     sb.AppendLine("Focus on completing THIS step. If the previous tool result gives you what you need, proceed to this step.");
                 }
             }

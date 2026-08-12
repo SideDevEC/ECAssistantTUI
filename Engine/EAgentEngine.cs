@@ -77,7 +77,7 @@ public sealed class EAgentEngine : IAsyncDisposable
     
     // v10.9: Cancellation token for stopping execution mid-stream
     // v10.9.1: Fixed race condition — don't null _cts in StopExecution
-    private CancellationTokenSource? _cts;
+private CancellationTokenSource? _cts;
     private volatile bool _isExecuting = false;
     private volatile bool _escPressed = false;  // v10.9.2: ESC flag for partial response check
     public CancellationToken ExecutionToken => _cts?.Token ?? CancellationToken.None;

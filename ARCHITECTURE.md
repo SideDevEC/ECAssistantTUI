@@ -1,11 +1,13 @@
-# ECAssistant Architecture (v10.4.2 — 2026-08-12)
+# ECAssistant Architecture (v10.8.3 — 2026-08-12)
 
 **Summary:** A local, offline AI agent in C# .NET 8 using LLamaSharp. Runs GGUF models locally with no external API calls. Uses XML-style response tags (`<thinking>`, `<toolcall>`, `<output>`) for reliable tool parsing. 7 registered tools self-register their rules at runtime. Multi-step autonomous loops with dual memory (keyword + TF-IDF vector), sliding context windows with LLM summarization, self-correction with failure loop detection and file rollback, project context awareness with dependency graph, task decomposition, surgical code editing, background process management, file watching, and structured logging. Token-optimized for 8B models (~2825 tokens for system prompt + tools).
 
 ## Key Facts
 - **Language:** C# .NET 8 console app (`net8.0-windows`, Nullable enabled)
 - **LLM Backend:** LLamaSharp 0.27.0 — loads GGUF models from disk
-- **Executor:** StatelessExecutor (NOT InteractiveExecutor — see Critical Lesson below)
+- **Executor:** InteractiveExecutor with KV cache (see Critical Lessons below)
+- **Secondary Executor:** StatelessExecutor (for summaries, no cache)
+- **Secondary Model:** Phi-4-mini-instruct-Q4_K_M (decomposition + summarization)
 - **Tools:** 7 registered — EPowerShellAgent, EFileResearchTool, EBackgroundExec, EWebSearch, EDotnetBuild, EGitTool, ECodeEditor
 - **Config:** `~/ECAssistant/appsettings.json` (user-editable, bundled as fallback)
 - **System Prompt:** SystemPrompt.md v5.1 (~1300 tokens, tool-agnostic)
@@ -222,11 +224,17 @@ ToolPolicy: 3 levels (Allowed / ApprovalRequired / Blocked) checked before every
 10. **Token optimization** — system prompt ~1300 tokens, tools ~1525, total ~2825
 11. **Project context gated** — only injected for code-related queries (keyword detection)
 12. **Self-correction escalation** — 3 repeated failures → stop and ask user
-13. **StatelessExecutor (v10.4.2)** — full-prompt-rebuild architecture requires stateless executor. InteractiveExecutor's KV cache persistence breaks multi-turn workflows.
+13. **InteractiveExecutor with KV cache (v10.5)** — static prefix (system prompt + tools) prefilled once, only new tokens fed per turn. Major performance improvement. See Critical Lessons for why this replaced StatelessExecutor.
 14. **Turn-1-only user message injection** — GenerateAsync only adds the user prompt to context on turn 1. On turns 2+, context is populated by AddToolResult + InjectFormatRetry.
 15. **Safe anti-prompts only** — never put strings that appear in SystemPrompt.md or conversation history (like `---`, `</toolcall>`, `</output>`) in InferenceParams.AntiPrompts.
 16. **Reset turn counters per request (v10.4.4)** — ExecuteMultiStep calls Reset() + _engine.ResetTurnCount() at start. Two separate _turnCount fields (orchestrator + engine) must both reset between user requests.
-17. **Generation cue tag (v10.4.3)** — Append open `<assistant>` at end of BuildFullPrompt() to tell completion models it's their turn. Without it, the model echoes history instead of generating.
+17. **Generation cue (v10.4.3)** — Append open `<assistant>` at end of BuildFullPrompt() to tell completion models it's their turn. Without it, the model echoes history instead of generating.
+18. **Secondary model for decomposition + summarization (v10.7)** — Phi-4-mini (3.8B) on StatelessExecutor handles task decomposition and context summarization. No KV cache interference with main model. Falls back to keyword-based TaskPlanner if secondary model unavailable.
+19. **TaskPlanner with LLM decomposition (v10.6-10.7)** — Decomposes chained requests into sub-tasks. Dynamic max turns (subTasks * 2 + 2). Step-aware directives with [TASK PROGRESS]. Sub-task failure recovery (skip to next step). Sequential parser stops at first non-matching line.
+20. **KV cache overflow handling (v10.8)** — At 80% context, summarize with secondary model, rebuild cache, re-inject summary. Prevents garbage/crashes on long sessions.
+21. **KV cache rewind on format retry (v10.8)** — SaveState before generation, LoadState to rewind on format retry. Bad generations no longer pollute cache.
+22. **Smart tool output truncation (v10.8)** — Per-tool limits (4000-8000 chars). Full output stored to memory + disk. LLM gets retrieval instructions (Get-Content with Skip/First). No data loss for chained tasks. Store capped at 20 entries.
+23. **Tool output escaping (v10.5.1)** — EscapeToolOutput in AddToolResult escapes < > in ALL tool output. Safety net prevents fake XML tags in history.
 
 ## Feature Status (35 features)
 
@@ -269,7 +277,7 @@ ToolPolicy: 3 levels (Allowed / ApprovalRequired / Blocked) checked before every
 | Project context (scan, deps, impact) | ✅ |
 | Task decomposition (sub-tasks) | ✅ |
 
-**Status:** v10.4.4 — All Tier 1-3 agentic capabilities implemented. 7 tools. Multi-turn workflow fixed (StatelessExecutor + turn counter reset + generation cue). Ready for Windows testing.
+**Status:** v10.8.3 — All Tier 1-3 agentic capabilities implemented. 7 tools. KV cache optimization. Secondary model (Phi-4-mini) for decomposition + summarization. TaskPlanner for chained tasks. Stability fixes (overflow, rewind, truncation). Smart output store. Ready for production testing.
 
 ## 🔖 Known-Good Builds (Git Tags)
 
@@ -279,11 +287,16 @@ ToolPolicy: 3 levels (Allowed / ApprovalRequired / Blocked) checked before every
 | `v10.5.1-working` | v10.5.1 | KV cache + tag structure audit (pre-TaskPlanner) |
 | `v10.6-working` | v10.6 | TaskPlanner keyword-based (pre-secondary-model) |
 | `v10.7.6-working` | v10.7.6 | Secondary model (Phi-4-mini) + TaskPlanner |
-| `v10.8.2-working` | v10.8.2 | Stability fixes + smart output store (current known-good) |
+| `v10.8.2-working` | v10.8.2 | Stability fixes + smart output store |
+| `v10.8.3-working` | v10.8.3 | Bug audit fixes (current known-good) |
 
 **If any change breaks multi-turn:**
 ```bash
-git checkout v10.5.1-working   # KV cache + audited tags (current)
+git checkout v10.8.3-working   # Bug audit fixes (current)
+git checkout v10.8.2-working   # Stability fixes + output store
+git checkout v10.7.6-working   # Secondary model + TaskPlanner
+git checkout v10.6-working     # TaskPlanner keyword-based
+git checkout v10.5.1-working   # KV cache + tag audit
 git checkout v10.4.4-working   # Stateless fallback (pre-KV-cache)
 ```
 

@@ -1,4 +1,4 @@
-# ECAssistant — Project Summary (v10.4.4 — 2026-08-12)
+# ECAssistant — Project Summary (v10.8.3 — 2026-08-12)
 
 **Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Loads GGUF models from disk — no API calls, no cloud, fully self-contained. Uses XML-style tags for tool calling with multi-step autonomous loops, dual memory systems (keyword + vector/semantic), sliding context windows, self-correction with failure loop detection, project context awareness, task decomposition, surgical code editing, structured logging, background process management, and 7 registered tools. PowerShell is the primary tool for all file/system operations.
 
@@ -8,9 +8,11 @@
 - **Runtime:** Self-hosted, offline inference — no external API calls
 - **Default Model:** Qwen3-8B-Q4_K_M (configurable via appsettings.json)
 - **Repo:** `github.com/LLamaDudeX/ECAssistant.git` (branch: `main`)
-- **Latest Commit:** `fd2ed9b` (v10.4.4)
+- **Latest Commit:** `a5e1759` (v10.8.3)
 - **Package deps:** LLamaSharp 0.27.0 + backends (Vulkan/Cuda12/CPU), Microsoft.Extensions.Logging.Abstractions
-- **Executor:** StatelessExecutor (fresh context per call — NOT InteractiveExecutor which caches KV state between calls and breaks full-prompt-rebuild architecture)
+- **Executor:** InteractiveExecutor with KV cache (static prefix prefilled once, incremental feed per turn)
+- **Secondary Executor:** StatelessExecutor (for summaries, no cache state)
+- **Secondary Model:** Phi-4-mini-instruct-Q4_K_M (task decomposition + summarization)
 - **Source files:** 34 .cs files, SystemPrompt.md (5211 chars ~1300 tokens)
 
 ## Working Directory
@@ -39,9 +41,14 @@ Build directory is **read-only** — only fallback for config/SystemPrompt/model
 - **Tools self-register at runtime:** SystemPrompt.md is tool-agnostic. Each tool injects its own rules via `ToSystemPromptBlock()`.
 - **No external deps for memory:** TF-IDF vector search (256-dim, cosine similarity). No FAISS, no Python.
 - **Token-efficient:** System prompt + tools = ~2825 tokens (down from ~3700). Optimized for 8B models.
-- **StatelessExecutor (v10.4.2):** Critical — full-prompt-rebuild architecture requires stateless executor. InteractiveExecutor's KV cache persistence causes zero token output on turn 2+. See ARCHITECTURE.md for full lesson.
-- **Turn counter reset (v10.4.4):** Two separate _turnCount fields (orchestrator + engine) must reset between user requests. Without reset, new questions are invisible to the model.
-- **Generation cue (v10.4.3):** Open `<assistant>` tag appended to prompt tells completion models it's their turn. Without it, the model echoes history.
+- **InteractiveExecutor + KV cache (v10.5):** Static prefix prefilled once, only new tokens fed per turn. Major perf improvement. Replaced StatelessExecutor.
+- **Secondary model (v10.7):** Phi-4-mini on StatelessExecutor for decomposition + summarization. No KV cache interference. Falls back to keywords.
+- **TaskPlanner (v10.6-10.7):** LLM-based decomposition with dynamic turns. Step-aware directives. Failure recovery.
+- **KV cache overflow (v10.8):** At 80%, summarize + rebuild + re-inject. Prevents crashes.
+- **KV cache rewind (v10.8):** SaveState/LoadState for format retries. Bad gen cleaned from cache.
+- **Smart output truncation (v10.8):** Per-tool limits (4-8K). Full output stored to disk. LLM retrieves with Get-Content + Skip/First. No data loss.
+- **Tool output escaping (v10.5.1):** All tool output escaped in AddToolOutput. Safety net.
+- **Bug audit (v10.8.3):** Fixed async prefill, unbounded store, convText overflow, double prefill, context loss after rebuild.
 - **Self-correction:** Failure loop detection, file snapshots/rollback, escalation after 3 repeated failures.
 - **Project awareness:** Auto-scans project on startup, injects file list + dependency graph for code tasks.
 
@@ -212,4 +219,4 @@ cd <project-root>
 git add -A && git commit -m "<message>" && git push
 ```
 
-**Status:** v10.4.4 — 7 tools, self-correction, project context, task planning, token-optimized. Multi-turn workflow fixed (StatelessExecutor + turn counter reset + generation cue).
+**Status:** v10.8.3 — 7 tools, KV cache, secondary model (Phi-4-mini), TaskPlanner, stability fixes (overflow, rewind, truncation, output store). Bug audit complete. Ready for production testing.

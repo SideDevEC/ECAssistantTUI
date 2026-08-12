@@ -128,7 +128,13 @@ public class Program
                     // ── Secondary Model (optional, for summarization) ──
                     if (_config.SecondaryModel.Enabled && !string.IsNullOrEmpty(_config.SecondaryModel.ModelPath))
                     {
-                        var secPath = Path.GetFullPath(_config.SecondaryModel.ModelPath);
+                        var secPath = _config.SecondaryModel.ModelPath;
+                        if (!Path.IsPathRooted(secPath))
+                        {
+                            var secInWork = Path.Combine(userConfigDir, secPath);
+                            var secInBuild = Path.Combine(AppContext.BaseDirectory, secPath);
+                            secPath = File.Exists(secInWork) ? secInWork : (File.Exists(secInBuild) ? secInBuild : secInWork);
+                        }
                         var secondary = SecondaryModelLoader.Load(secPath, 
                             contextSize: _config.SecondaryModel.ContextSize,
                             gpuLayers: _config.SecondaryModel.GpuLayers);

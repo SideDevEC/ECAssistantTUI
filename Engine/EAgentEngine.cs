@@ -480,7 +480,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
             sb.AppendLine();
 
             // First-turn directive
-            sb.AppendLine("-- First token: <llm>. Last token: </llm>. One tool call, then STOP. --");
+            sb.AppendLine("-- Open <llm><thinking>brief</thinking><toolcall>ToolName<arg>value</arg></toolcall></llm> then STOP. --");
 
             // Generation cue
             sb.AppendLine("<assistant>");
@@ -515,11 +515,11 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
             // Context-aware directive
             if (toolResultCount >= 3)
             {
-                sb.AppendLine($"-- First token: <llm>. Last token: </llm>. You have run {toolResultCount} tool calls. Give <output> if done or another <toolcall> if needed. --");
+                sb.AppendLine($"-- Open <llm><thinking>brief</thinking> then <output>answer</output></llm> if done, or <llm><thinking>brief</thinking><toolcall>...</toolcall></llm> if you need more data. You have run {toolResultCount} tool calls. --");
             }
             else
             {
-                sb.AppendLine("-- First token: <llm>. Last token: </llm>. Tool results above. <output> if done or <toolcall> if more data needed. --");
+                sb.AppendLine("-- Open <llm><thinking>brief</thinking> then <output>answer</output></llm> if done, or <llm><thinking>brief</thinking><toolcall>...</toolcall></llm> if you need more data. Tool results above. --");
             }
 
             // Generation cue
@@ -652,17 +652,17 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                    if (toolResultCount >= 3)
                    {
                        // Multiple tool calls done — push toward final answer
-                       sb.AppendLine("-- First token: <llm>. Last token: </llm>. You have run " + toolResultCount + " tool calls. Give <output> if done or <toolcall> if needed. --");
+                       sb.AppendLine("-- Open <llm><thinking>brief</thinking> then <output>answer</output></llm> if done, or <llm><thinking>brief</thinking><toolcall>...</toolcall></llm> if more data needed. You have run " + toolResultCount + " tool calls. --");
                    }
                    else
                    {
                        // 1-2 tool calls done — allow continuing if needed
-                       sb.AppendLine("-- First token: <llm>. Last token: </llm>. Tool results above. <output> if done or <toolcall> if more data needed. --");
+                       sb.AppendLine("-- Open <llm><thinking>brief</thinking> then <output>answer</output></llm> if done, or <llm><thinking>brief</thinking><toolcall>...</toolcall></llm> if you need more data. Tool results above. --");
                    }
                }
               else
                     {
-                       sb.AppendLine("-- First token: <llm>. Last token: </llm>. One tool call, then STOP. --");
+                       sb.AppendLine("-- Open <llm><thinking>brief</thinking><toolcall>ToolName<arg>value</arg></toolcall></llm> then STOP. --");
                           }
 
              // v10.4.3: Open <assistant> tag to cue the model to START generating.

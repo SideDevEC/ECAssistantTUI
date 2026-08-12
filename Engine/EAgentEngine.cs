@@ -679,8 +679,8 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
         {
            // v10.5.1: Escape angle brackets in tool output to prevent fake XML tags
            // in conversation history that would break ExtractCleanResponse and ParseLLMDecision.
-           // v10.8: Truncate + escape tool output
-           var safeOutput = EscapeToolOutput(TruncateToolOutput(output));
+           // v10.8: Truncate (smart per-tool limit) + escape tool output
+           var safeOutput = EscapeToolOutput(TruncateToolOutput(output, toolName));
            
            // Add to transcript AND context window (unified — no legacy string list)
              _transcript.AddToolOutput(safeOutput, toolName);
@@ -703,16 +703,28 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
         return text.Replace("<", "&lt;").Replace(">", "&gt;");
     }
 
-    // v10.8: Maximum tool output size in characters (prevents one verbose command
-    // from eating the entire context budget)
-    private const int MaxToolOutputChars = 2000;
+    // v10.8: Tool output truncation — smart limits based on tool type.
+    // Code/search tools get more room than shell commands.
+    private const int MaxToolOutputDefault = 4000;      // General shell commands
+    private const int MaxToolOutputCode = 8000;         // Code editor, file research (code content)
+    private const int MaxToolOutputSearch = 6000;        // Web search, RAG results
 
-    /// <summary>Truncate tool output to MaxToolOutputChars with a helpful message.</summary>
-    private static string TruncateToolOutput(string text)
+    /// <summary>Truncate tool output based on tool type with a helpful message.</summary>
+    private static string TruncateToolOutput(string text, string toolName = "")
     {
-        if (string.IsNullOrEmpty(text) || text.Length <= MaxToolOutputChars) return text;
-        var truncated = text.Substring(0, MaxToolOutputChars);
-        truncated += $"\n... [Output truncated: {text.Length} total chars. Use a more specific command to see less.]";
+        if (string.IsNullOrEmpty(text)) return text;
+
+        var limit = toolName.ToLowerInvariant() switch
+        {
+            "ecodeeditor" => MaxToolOutputCode,
+            "efileresearchtool" => MaxToolOutputCode,
+            "ewebsearch" => MaxToolOutputSearch,
+            _ => MaxToolOutputDefault
+        };
+
+        if (text.Length <= limit) return text;
+        var truncated = text.Substring(0, limit);
+        truncated += $"\n... [Output truncated: {text.Length} total chars, showed first {limit}. Use a more specific command or smaller scope to see less.]";
         return truncated;
     }
 

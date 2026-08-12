@@ -153,9 +153,89 @@ public sealed class AgentOrchestrator : IAsyncDisposable
 
                  // Step 2: Parse the clean LLM output — detect which block type was returned
               var decision = ParseLLMDecision(llmResponse);
-              EColor.WriteLine(EColor.Dim, $"[Orchestrator] Parse result: WantsToolCall={decision.WantsToolCall}, WantsDirectAnswer={decision.WantsDirectAnswer}, ToolName={decision.ToolName}");
+              // v10.10: Also check for multiple parallel tool calls
+              var allCalls = ParseAllToolCalls(llmResponse);
+              var isParallel = allCalls.Count > 1;
+              EColor.WriteLine(EColor.Dim, $"[Orchestrator] Parse result: WantsToolCall={decision.WantsToolCall}, WantsDirectAnswer={decision.WantsDirectAnswer}, ToolName={decision.ToolName}, ParallelCalls={allCalls.Count}");
 
-              if (decision.WantsToolCall)
+              if (allCalls.Count > 1)
+              {
+                // v10.10: PARALLEL TOOL EXECUTION
+                _formatRetries = 0;
+                Logger.Info("Orchestrator", $"Parallel tool calls: {allCalls.Count} tools");
+                EColor.TagBold(EColor.Info(), "Parallel", $"Running {allCalls.Count} tools in parallel...");
+                
+                // Check cancellation before parallel execution
+                if (_engine.ExecutionToken.IsCancellationRequested)
+                {
+                    return new OrchestratorResult
+                    {
+                        FinalOutput = "Execution cancelled by user.",
+                        ToolCallsMade = _turnCount,
+                        Status = OrchestratorStatus.GoalAchieved
+                    };
+                }
+                
+                // Run all tools in parallel
+                var parallelTasks = allCalls.Select(call =>
+                {
+                    var (toolName, args) = call;
+                    
+                    // Tool policy check
+                    var policyDecision = _toolPolicy.Check(toolName, args);
+                    if (!policyDecision.CanExecute)
+                    {
+                        return Task.FromResult(EToolResult.Failure(toolName, $"[BLOCKED] {policyDecision.Message}"));
+                    }
+                    
+                    Program.Gui.WriteLineColored($"[Parallel] Starting: {toolName}");
+                    return ExecuteTool(toolName, args);
+                }).ToArray();
+                
+                try
+                {
+                    var results = await Task.WhenAll(parallelTasks);
+                    
+                    for (int i = 0; i < results.Length; i++)
+                    {
+                        var result = results[i];
+                        var (toolName, args) = allCalls[i];
+                        var outputLog = result.Output != null ? result.Output.Substring(0, Math.Min(result.Output.Length, 300)) : "(no output)";
+                        
+                        EColor.Tag(result.Succeeded ? EColor.Success() : EColor.Error(), "Parallel", $"{toolName}: {(result.Succeeded ? "OK" : "FAIL")}");
+                        
+                        if (result.Succeeded)
+                        {
+                            _toolCallLog.Add($"Tool:{toolName} (parallel) -> OK\nOutput: {outputLog}");
+                            var stepCmd = args.GetValueOrDefault("command") ?? "";
+                            var stepDesc = $"{toolName}: {stepCmd.Substring(0, Math.Min(stepCmd.Length, 80))}";
+                            _completedSteps.Add(stepDesc);
+                            AdvanceSubTask(true, toolName, stepDesc);
+                            _engine.AddToolResult(toolName, result.Output ?? "(no output)");
+                        }
+                        else
+                        {
+                            _toolCallLog.Add($"Tool:{toolName} (parallel) -> FAIL: {result.Error}");
+                            AdvanceSubTask(false, toolName, $"Tool failed: {result.Error}");
+                            _engine.AddToolResult(toolName, result.Error ?? "(unknown error)");
+                        }
+                    }
+                    
+                    // Inject directive for next turn with all results
+                    var stepDirective = BuildStepDirective();
+                    _engine.InjectFormatRetry(stepDirective);
+                    EColor.WriteLine(EColor.Dim, $"[Orchestrator] Parallel tools done, looping back to LLM (turn {_turnCount + 1})...");
+                }
+                catch (Exception ex)
+                {
+                    Program.Gui.WriteLineColored($"[Orchestrator] Parallel execution error: {ex.Message}");
+                    _engine.AddToolResult("parallel", $"[ERROR] Parallel execution failed: {ex.Message}");
+                }
+                
+                _turnCount++;
+                continue;
+              }
+              else if (decision.WantsToolCall)
                        {
                 _formatRetries = 0; // reset on valid tool call
                     Logger.Info("Orchestrator", $"Tool call: {decision.ToolName}");
@@ -334,34 +414,53 @@ public sealed class AgentOrchestrator : IAsyncDisposable
              {
         if (string.IsNullOrEmpty(rawResponse)) return rawResponse;
 
-        var toolcallCloseIdx = rawResponse.IndexOf("</toolcall>", StringComparison.OrdinalIgnoreCase);
+        // v10.10: For parallel tool calls, we need to keep ALL toolcall blocks.
+        // Find all </toolcall> positions and the first </output>.
+        // If there are multiple </toolcall> tags, cut after the LAST one.
+        // If </output> comes before the last </toolcall>, cut at </output>.
+
+        var toolcallCloseIdxs = new List<int>();
+        int searchFrom = 0;
+        while (true)
+        {
+            var idx = rawResponse.IndexOf("</toolcall>", searchFrom, StringComparison.OrdinalIgnoreCase);
+            if (idx < 0) break;
+            toolcallCloseIdxs.Add(idx);
+            searchFrom = idx + "</toolcall>".Length;
+        }
         var outputCloseIdx = rawResponse.IndexOf("</output>", StringComparison.OrdinalIgnoreCase);
 
-         // Find whichever comes first (ignore negative/unused indices)
+        if (toolcallCloseIdxs.Count == 0 && outputCloseIdx < 0)
+            return rawResponse; // No closing tags
+
         int cutAt = -1;
-        if (toolcallCloseIdx >= 0 && outputCloseIdx >= 0)
-              {
-             // Both present — take the earlier one
-                cutAt = Math.Min(toolcallCloseIdx, outputCloseIdx);
-              }
-        else if (toolcallCloseIdx >= 0)
-              {
-                cutAt = toolcallCloseIdx;
-              }
-        else if (outputCloseIdx >= 0)
-              {
+        int tagNameLen = 0;
+
+        if (toolcallCloseIdxs.Count > 0)
+        {
+            var lastToolcallClose = toolcallCloseIdxs[^1] + "</toolcall>".Length;
+            
+            if (outputCloseIdx >= 0 && outputCloseIdx < toolcallCloseIdxs[^1])
+            {
+                // Output comes before last toolcall — cut at output
                 cutAt = outputCloseIdx;
-              }
+                tagNameLen = "</output>".Length;
+            }
+            else
+            {
+                // Cut after last toolcall
+                cutAt = toolcallCloseIdxs[^1];
+                tagNameLen = "</toolcall>".Length;
+            }
+        }
+        else if (outputCloseIdx >= 0)
+        {
+            cutAt = outputCloseIdx;
+            tagNameLen = "</output>".Length;
+        }
 
-         // No closing tag found — return as-is (nothing to trim)
         if (cutAt < 0) return rawResponse;
-
-         // Cut AFTER the closing tag: include the full </tag> text, drop everything after
-        var tagNameLen = cutAt == toolcallCloseIdx ? "</toolcall>".Length : "</output>".Length;
-        var trimmed = rawResponse.Substring(0, cutAt + tagNameLen);
-
-         // Trim trailing whitespace from the cut point
-        return trimmed.TrimEnd();
+        return rawResponse.Substring(0, cutAt + tagNameLen).TrimEnd();
              }
 
      // ─── Clean Response Parsing (v2.2) ────────────
@@ -419,6 +518,31 @@ public sealed class AgentOrchestrator : IAsyncDisposable
              // Neither block found — invalid response
             return LLMDecision.Unknown();
                 }
+
+// v10.10: Parse ALL toolcall blocks from a response (for parallel execution)
+    private static List<(string toolName, Dictionary<string, string?> args)> ParseAllToolCalls(string response)
+    {
+        var calls = new List<(string, Dictionary<string, string?>)>();
+        var searchFrom = 0;
+        while (true)
+        {
+            var openIdx = response.IndexOf("<toolcall>", searchFrom, StringComparison.OrdinalIgnoreCase);
+            if (openIdx < 0) break;
+            var closeIdx = response.IndexOf("</toolcall>", openIdx + "<toolcall>".Length, StringComparison.OrdinalIgnoreCase);
+            if (closeIdx < 0) break;
+            
+            var blockContent = response.Substring(
+                openIdx + "<toolcall>".Length,
+                closeIdx - openIdx - "<toolcall>".Length).Trim();
+            
+            var decision = ParseToolCallBlock(blockContent);
+            if (decision.WantsToolCall && !string.IsNullOrEmpty(decision.ToolName))
+                calls.Add((decision.ToolName!, decision.Args));
+            
+            searchFrom = closeIdx + "</toolcall>".Length;
+        }
+        return calls;
+    }
 
 /// <summary>Parses a single <toolcall> block content to extract tool name and arguments.</summary>
     private static LLMDecision ParseToolCallBlock(string toolcallContent)

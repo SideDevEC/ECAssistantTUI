@@ -474,16 +474,18 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
         else
         {
             // Subsequent turns: history is already in KV cache.
-            // Feed only the new tool output + directive + generation cue.
+            // Feed only the new tool output(s) + directive + generation cue.
             var windowMessages = _contextWindow.GetWindowMessages();
             var toolResultCount = windowMessages.Count(m => m.Role == "tool_output");
 
-            // Find the last tool_output message (just added by the orchestrator)
-            var lastTool = windowMessages.LastOrDefault(m => m.Role == "tool_output");
-            if (lastTool != null)
+            // v10.10: Feed ALL new tool_output messages (parallel results may have multiple)
+            var newToolMessages = windowMessages.Where(m => m.Role == "tool_output")
+                .Reverse().Take(3).Reverse().ToList(); // Last 3 (max) to avoid context bloat
+            
+            foreach (var toolMsg in newToolMessages)
             {
-                sb.AppendLine($"<tooloutput>{lastTool.Source}<result>");
-                sb.AppendLine(lastTool.Content);
+                sb.AppendLine($"<tooloutput>{toolMsg.Source}<result>");
+                sb.AppendLine(toolMsg.Content);
                 sb.AppendLine("</result></tooloutput>");
                 sb.AppendLine();
             }
@@ -1148,9 +1150,25 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
              sb.AppendLine(thinkContent);
          }
 
-         // Include the action block (toolcall or output) if found
-         if (blockStart >= 0)
+         // v10.10: Include ALL toolcall blocks (for parallel execution) or the first output block
+         if (blockStart >= 0 && blockTag == "<toolcall>")
          {
+             // For toolcall: find ALL toolcall blocks
+             var toolcallSearchFrom = searchStart;
+             while (true)
+             {
+                 var tcStart = raw.IndexOf("<toolcall>", toolcallSearchFrom, StringComparison.OrdinalIgnoreCase);
+                 if (tcStart < 0) break;
+                 var tcClose = raw.IndexOf("</toolcall>", tcStart + "<toolcall>".Length, StringComparison.OrdinalIgnoreCase);
+                 if (tcClose < 0) break;
+                 var blockLen = tcClose - tcStart + "</toolcall>".Length;
+                 sb.Append(raw.Substring(tcStart, blockLen).Trim());
+                 toolcallSearchFrom = tcClose + "</toolcall>".Length;
+             }
+         }
+         else if (blockStart >= 0)
+         {
+             // For output: take the first block
              var closePos = raw.IndexOf(blockCloseTag, blockStart + blockTag.Length, StringComparison.OrdinalIgnoreCase);
              if (closePos >= 0)
              {
@@ -1159,13 +1177,11 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
              }
              else
              {
-                 // Opening tag but no close — take rest of text
                  sb.Append(raw.Substring(blockStart).Trim());
              }
          }
          else if (thinkStart < 0)
          {
-             // No thinking, no toolcall, no output — return raw (will be caught as invalid by orchestrator)
              return raw.Trim();
          }
 

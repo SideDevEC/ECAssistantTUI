@@ -220,7 +220,7 @@ public sealed class EAgentEngine : IAsyncDisposable
             // its own prompt. Calling _secondaryModel.SummarizeAsync would double-wrap the prompt.
             if (_secondaryModel != null && _secondaryModel.IsLoaded)
             {
-                var summary = await _secondaryModel.GenerateAsync(prompt, maxTokens: 200);
+                var summary = await _secondaryModel.GenerateAsync(prompt, maxTokens: Math.Max(100, (int)_secondaryModel.ContextSize / 8));
                 summary = System.Text.RegularExpressions.Regex.Replace(summary, @"<[^>]+>", "");
                 // v10.7.4: Escape angle brackets to prevent fake XML tags in context
                 summary = summary.Replace("<", "&lt;").Replace(">", "&gt;");
@@ -939,11 +939,11 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
             {
                 EColor.TagBold(EColor.Warn(), "KVCache", $"Context at {tokenBudget}/{maxBudget} tokens ({tokenBudget*100/maxBudget}%). Rebuilding cache...");
                 
-                // v10.8.3: Cap convText to fit secondary model context (4096)
-                // Take last N messages that fit in ~3000 chars
+                // v10.12.13: Cap convText relative to secondary model context size (75% of it)
                 var allMessages = _contextWindow.GetWindowMessages();
                 var convSb = new StringBuilder();
-                for (int i = allMessages.Count - 1; i >= 0 && convSb.Length < 3000; i--)
+                var convCharLimit = (int)(_secondaryModel?.ContextSize ?? 4096) * 3 / 4;  // 75% of context as chars
+                for (int i = allMessages.Count - 1; i >= 0 && convSb.Length < convCharLimit; i--)
                     convSb.Insert(0, $"[{allMessages[i].Role}] {allMessages[i].Content}\n");
                 var convText = convSb.ToString();
                 
@@ -953,7 +953,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                 {
                     summaryText = await _secondaryModel.GenerateAsync(
                         $"Summarize this conversation concisely. Keep facts, decisions, and tool results only. Max 3 sentences. Plain text.\n\n{convText}\n\nSummary:",
-                        maxTokens: 200);
+                        maxTokens: Math.Max(100, (int)_secondaryModel.ContextSize / 8));
                     summaryText = System.Text.RegularExpressions.Regex.Replace(summaryText, @"<[^>]+>", "");
                 }
                 

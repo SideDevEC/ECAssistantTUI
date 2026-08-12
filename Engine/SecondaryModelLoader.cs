@@ -82,14 +82,18 @@ public class SecondaryModelLoader : IDisposable
     }
 
     /// <summary>Generate text with the secondary model (non-streaming, simple).</summary>
-    public async Task<string> GenerateAsync(string prompt, int maxTokens = 512)
+    // v10.12.13: Default maxTokens scales with configured MaxTokens
+    public async Task<string> GenerateAsync(string prompt, int? maxTokens = null)
     {
         if (!_loaded || _executor == null || _inferenceParams == null)
             return "(Secondary model not loaded)";
 
+        // Use provided maxTokens, or fall back to configured default
+        var effectiveMaxTokens = maxTokens ?? (int)_inferenceParams.MaxTokens;
+
         var inferenceParams = new InferenceParams
         {
-            MaxTokens = maxTokens,
+            MaxTokens = effectiveMaxTokens,
             OverflowStrategy = LLama.Common.ContextOverflowStrategy.TruncateAndReprefill,
             SamplingPipeline = _inferenceParams.SamplingPipeline,
         };
@@ -110,10 +114,12 @@ public class SecondaryModelLoader : IDisposable
     }
 
     /// <summary>Summarize text using the secondary model.</summary>
-    public async Task<string> SummarizeAsync(string text, int maxTokens = 200)
+    // v10.12.13: Default maxTokens = 25% of configured MaxTokens (min 100)
+    public async Task<string> SummarizeAsync(string text, int? maxTokens = null)
     {
+        var effectiveMax = maxTokens ?? Math.Max(100, (int)(_inferenceParams?.MaxTokens ?? 512) / 4);
         var prompt = $"Summarize the conversation below. STRICT RULES:\n- Output ONLY a concise summary of what was discussed\n- Keep facts, decisions, and tool results only\n- Do NOT add opinions, suggestions, or extra context\n- Do NOT add greetings, conclusions, or meta-commentary\n- Maximum 3 sentences\n- Plain text only, no formatting\n\nConversation:\n{text}\n\nSummary:";
-        return await GenerateAsync(prompt, maxTokens);
+        return await GenerateAsync(prompt, effectiveMax);
     }
 
     /// <summary>
@@ -150,7 +156,8 @@ User: calculate 4+2, write it to a file, then copy the file to a new location
 
 User: " + userRequest + "\n";
 
-        var result = await GenerateAsync(prompt, maxTokens: 256);
+        var effectiveMax = Math.Max(128, (int)(_inferenceParams?.MaxTokens ?? 512) / 2);
+        var result = await GenerateAsync(prompt, maxTokens: effectiveMax);
         
         // v10.7.5: Log raw decomposition output for debugging
         Logger.Info("SecondaryModel", $"Raw decomposition output:\n{result}");

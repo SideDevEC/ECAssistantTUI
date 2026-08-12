@@ -1080,9 +1080,6 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
               // v10.12: Do NOT strip <llm> here — ExtractCleanResponse needs it to
               // detect the container boundary. Stripping here would break noise filtering.
 
-              // v10.12.8: Dump full raw response to debug file for truncation diagnosis
-              try { File.WriteAllText(Path.Combine(_workingDir, "last_response.txt"), rawResult); } catch { }
-
               EColor.WriteLine(EColor.Dim, $"[Engine] Raw ({rawResult.Length} chars): {rawResult.Substring(0, Math.Min(rawResult.Length, 500))}");
 
                    cleanResponse = ExtractCleanResponse(rawResult);

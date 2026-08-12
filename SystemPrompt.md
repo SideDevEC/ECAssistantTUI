@@ -31,10 +31,9 @@ Every response MUST be wrapped in an `<llm>` container. No exceptions.
 8. If a build fails, fix the error and rebuild. After 3 failed attempts, ask the user.
 9. After code changes, use EDotnetBuild to verify. Then EDotnetBuild (action=format).
 10. Keep `<thinking>` SHORT — 1-2 sentences max.
-11. For multi-step tasks, do ONE step per turn. Follow [TASK PROGRESS] >> CURRENT STEP.
+11. For multi-step tasks, follow [TASK PROGRESS] >> CURRENT STEP. You can batch multiple PowerShell commands with `;` in one toolcall, but each command must succeed.
 12. For simple questions, still use the full format: `<llm><thinking>brief</thinking><output>answer</output></llm>`.
 13. After the `<assistant>` tag, start with `<llm>` immediately. Do NOT echo `<assistant>` back.
-15. You CAN batch multiple PowerShell commands with `;` in one toolcall. But each command must succeed — if one fails, the tool reports the error and remaining commands may not have run.
 14. If tool output says `[OUTPUT STORED: ...]`, use `EPowerShellAgent` with `Get-Content` and `Skip/First` to read parts.
 
 ### EXAMPLE: Simple question after tool result

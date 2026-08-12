@@ -164,9 +164,6 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                 };
             }
 
-             // v10.12.7: TrimToFirstClosingTag removed — ExtractCleanResponse in the engine
-             // already extracts content from <llm> container and parses inner tags.
-             // Double-trimming caused over-truncation when </output> appeared inside content.
              EColor.WriteLine(EColor.Dim, $"[Orchestrator] Response ({llmResponse.Length} chars): {llmResponse.Substring(0, Math.Min(llmResponse.Length, 200))}");
 
                  // Step 2: Parse the clean LLM output — detect which block type was returned
@@ -339,40 +336,6 @@ public sealed class AgentOrchestrator : IAsyncDisposable
 
      // ─── Content Cleaning ──────────────────
 
-     /// <summary>
-     /// Trim the raw LLM response at the first closing tag boundary.
-     /// 
-     /// v10.12.6: Cuts after the first </llm> or </output> (whichever comes first).
-     /// </toolcall> is NOT a trim point — it's inside the <llm> container.
-     /// This removes trailing noise/hallucination while preserving complete structured blocks.
-     /// </summary>
-    private static string TrimToFirstClosingTag(string rawResponse)
-             {
-        if (string.IsNullOrEmpty(rawResponse)) return rawResponse;
-
-        // v10.12.6: Only </llm> and </output> are trim points.
-        // </toolcall> removed — it's inside the <llm> container and cutting there
-        // would lose the </llm> close and any content after a toolcall.
-        var outputCloseIdx = rawResponse.IndexOf("</output>", StringComparison.OrdinalIgnoreCase);
-        var llmCloseIdx = rawResponse.IndexOf("</llm>", StringComparison.OrdinalIgnoreCase);
-
-         // Find whichever comes first (ignore negative/unused indices)
-        int cutAt = -1;
-        string cutTag = "";
-        
-        if (llmCloseIdx >= 0) { cutAt = llmCloseIdx; cutTag = "</llm>"; }
-        if (outputCloseIdx >= 0 && (cutAt < 0 || outputCloseIdx < cutAt)) { cutAt = outputCloseIdx; cutTag = "</output>"; }
-
-         // No closing tag found — return as-is (nothing to trim)
-        if (cutAt < 0) return rawResponse;
-
-         // Cut AFTER the closing tag: include the full </tag> text, drop everything after
-        var tagNameLen = cutTag.Length;
-        var trimmed = rawResponse.Substring(0, cutAt + tagNameLen);
-
-         // Trim trailing whitespace from the cut point
-        return trimmed.TrimEnd();
-             }
 
      // ─── Clean Response Parsing (v2.2) ────────────
     

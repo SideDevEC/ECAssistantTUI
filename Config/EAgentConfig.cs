@@ -177,7 +177,7 @@ public class ToolsConfig
 public class AgentConfig
 {
      [JsonPropertyName("working_directory")]
-    public string WorkingDirectory { get; set; } = ".";
+    public string WorkingDirectory { get; set; } = "."; // "." = ~/ECAssistant (auto-resolved at startup)
      [JsonPropertyName("allow_delete")]
     public bool AllowDelete { get; set; } = true;
      [JsonPropertyName("allowed_extensions")]

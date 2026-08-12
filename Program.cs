@@ -36,19 +36,28 @@ public class Program
 
             EColor.TagBold(Cyan, "ECAssistant", "v9.4 — llama-sharp 0.27.0");
 
-                 // Always use user's home directory for appsettings.json
+                 // Always use user's home directory for ECAssistant
             var userConfigDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant");
             Directory.CreateDirectory(userConfigDir);
 
+            // v9.14: Copy appsettings.json from build dir to user dir if not exists
             var configPath = Path.Combine(userConfigDir, "appsettings.json");
+            var bundledConfigPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
             if (!File.Exists(configPath))
-                     {
+            {
+                if (File.Exists(bundledConfigPath))
+                {
+                    EColor.Tag(EColor.Success(), "Setup", $"Copying default config to: {userConfigDir}");
+                    File.Copy(bundledConfigPath, configPath, overwrite: false);
+                }
+                else
+                {
                     EColor.Tag(EColor.Info(), "Setup", "No appsettings.json found. Creating default.");
-                      Gui.WriteLine($"             {userConfigDir}");
                     var defaults = new EAgentConfig();
-                 File.WriteAllText(configPath, System.Text.Json.JsonSerializer.Serialize(
-                         defaults, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
-                     }
+                    File.WriteAllText(configPath, System.Text.Json.JsonSerializer.Serialize(
+                        defaults, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+                }
+            }
 
                  _config = EAgentConfig.Load(configPath);
               EColor.Tag(EColor.Success(), "Config", $"Loaded from: {Path.GetFullPath(configPath)}");
@@ -63,8 +72,12 @@ public class Program
                       EColor.Tag(EColor.Info(), "Hint", "Update appsettings.json or pass --model argument.");
                      }
 
-            var effectiveDir = Path.GetFullPath(_config.AgentSettings.WorkingDirectory);
+            // v9.14: Default working dir to ~/ECAssistant if set to "."
+            var effectiveDir = _config.AgentSettings.WorkingDirectory == "." || string.IsNullOrEmpty(_config.AgentSettings.WorkingDirectory)
+                ? userConfigDir
+                : Path.GetFullPath(_config.AgentSettings.WorkingDirectory);
               Directory.CreateDirectory(effectiveDir);
+            EColor.TagBold(EColor.Info(), "WorkDir", effectiveDir);
 
            var rootDir = Path.GetFullPath(_config.RootPath);
             Directory.CreateDirectory(rootDir);

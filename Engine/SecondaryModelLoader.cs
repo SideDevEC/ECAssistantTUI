@@ -123,14 +123,18 @@ public class SecondaryModelLoader : IDisposable
         if (!_loaded)
             return null;
 
-        var prompt = @"You decompose tasks. Output ONLY numbered steps. Nothing else.
+        var prompt = @"You are a task decomposer. Read the user request. Count the actions they asked for. Output that many numbered steps. Nothing else.
 
-Count the distinct actions the user asked for. Output exactly that many steps. Stop. Do not add any more.
-
-FORBIDDEN:
-- Extra steps not requested (verify, check, clean up, create project, setup)
-- Explanations, reasoning, or text outside numbered steps
-- Steps the user did not explicitly ask for
+ABSOLUTE RULES:
+- Output ONLY numbered steps (1. 2. 3.)
+- Each step = ONE action the user EXPLICITLY asked for
+- Output EXACTLY the number of actions the user requested. Not more. Not less.
+- If user says ""at the same time"" or ""simultaneously"" — those are parallel independent steps
+- Do NOT add any step the user did not ask for
+- Do NOT add setup, verification, cleanup, or ""helpful"" steps
+- Do NOT create projects, users, configs, directories, or files unless explicitly asked
+- Do NOT add explanations, reasoning, or any text outside the numbered steps
+- If the request is a single action, output ONE step
 
 User: read Program.cs then fix line 42 then rebuild
 1. Read Program.cs
@@ -144,6 +148,11 @@ User: calculate 4+2, write it to a file, then copy the file to a new location
 1. Calculate 4+2
 2. Write the result to a file
 3. Copy the file to a new location
+
+User: create file1.txt, file2.txt, and file3.txt at the same time
+1. Create file1.txt
+2. Create file2.txt
+3. Create file3.txt
 
 User: " + userRequest + "\n";
 

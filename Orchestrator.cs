@@ -251,6 +251,38 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                 _formatRetries = 0; // reset on valid tool call
                     Logger.Info("Orchestrator", $"Tool call: {decision.ToolName}");
                 
+                // v10.10.5: If we have multiple pending sub-tasks but LLM only gave 1 toolcall,
+                // remind it to batch independent steps in parallel
+                if (_subTasks != null && _subTasks.Count > 1)
+                {
+                    var pendingCount = 0;
+                    for (int i = _currentSubTask; i < _subTasks.Count; i++)
+                        if (_subTasks[i].Status == SubTaskStatus.Pending || _subTasks[i].Status == SubTaskStatus.InProgress)
+                            pendingCount++;
+                    
+                    if (pendingCount > 1 && allCalls.Count == 1)
+                    {
+                        // LLM did sequential instead of parallel — remind it
+                        var parallelReminder = new StringBuilder();
+                        parallelReminder.AppendLine("You gave only ONE <toolcall> but there are " + pendingCount + " INDEPENDENT steps remaining:");
+                        for (int i = _currentSubTask; i < _subTasks.Count && parallelReminder.Length < 500; i++)
+                        {
+                            if (_subTasks[i].Status == SubTaskStatus.Pending || _subTasks[i].Status == SubTaskStatus.InProgress)
+                            {
+                                var safeDesc = _subTasks[i].Description.Replace("<", "&lt;").Replace(">", "&gt;");
+                                parallelReminder.AppendLine("  - " + safeDesc);
+                            }
+                        }
+                        parallelReminder.AppendLine();
+                        parallelReminder.AppendLine("Do NOT do these one at a time. Output ALL of them as separate <toolcall> blocks in your NEXT response NOW.");
+                        
+                        // Don't execute the single toolcall — ask LLM to redo with all steps
+                        _engine.InjectFormatRetry(parallelReminder.ToString());
+                        _turnCount++;
+                        continue;
+                    }
+                }
+                
                 var argsDict = decision.Args;
 
                 // ── Tool Policy Check ──

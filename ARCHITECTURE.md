@@ -270,3 +270,21 @@ ToolPolicy: 3 levels (Allowed / ApprovalRequired / Blocked) checked before every
 | Task decomposition (sub-tasks) | ✅ |
 
 **Status:** v10.4.4 — All Tier 1-3 agentic capabilities implemented. 7 tools. Multi-turn workflow fixed (StatelessExecutor + turn counter reset + generation cue). Ready for Windows testing.
+
+## 🔖 Known-Good Build: `v10.4.4-working` (Git Tag)
+
+This is the last verified working build. Multi-turn tool calls and sequential questions both work correctly.
+
+**If KV cache optimization (InteractiveExecutor) or any other change breaks multi-turn:**
+```bash
+git checkout v10.4.4-working
+```
+
+**What works in this build:**
+- Multi-turn tool calls (question → tool call → answer)
+- Sequential questions in same session (Q1 answered, Q2 answered)
+- StatelessExecutor (fresh context per call)
+- Turn counter reset between requests
+- `<assistant>` generation cue for completion models
+- Token stream debug output + `last_prompt.txt` dump
+- `log-level debug` for full prompt console output

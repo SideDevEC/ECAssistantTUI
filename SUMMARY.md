@@ -1,107 +1,52 @@
-# ECAssistant — Project Summary (v9.0 — 2026-08-12)
+# ECAssistant — Project Summary (v9.22 — 2026-08-12)
 
-**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Embeds a GGUF model into its own runtime. Uses structured XML-style tags for tool calling and multi-step autonomous loops with persistent memory, sliding context windows, real tokenizer-based token counting, tool policy enforcement, multi-session management, background process execution, and structured logging. PowerShell is the primary tool for all file and system operations — no separate file operation classes needed since all LLMs know PowerShell natively. Tools self-register their rules and examples into the system prompt at runtime — SystemPrompt.md is tool-agnostic.
+**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Loads GGUF models from disk — no API calls, no cloud, fully self-contained. Uses XML-style tags for tool calling with multi-step autonomous loops, persistent memory (keyword + vector/semantic), sliding context windows, structured logging, background process management, and 6 registered tools. PowerShell is the primary tool for all file/system operations.
 
 ## Key Facts
 - **Language:** C# .NET 8 console app (`net8.0-windows`, Nullable enabled)
-- **LLM Backend:** LLamaSharp 0.27.0 — loads GGUF models from disk (Qwen3-8B-Q4_K_M.gguf)
-- **Runtime:** Self-hosted, offline inference — no external API calls, no prerequisites
-- **Model:** Qwen3-8B-Q4_K_M, context: 32768 tokens, temp: 0.3
-- **System Prompt:** `SystemPrompt.md` (v3.2 — tool-agnostic, loaded via `File.ReadAllText()` at startup; tools self-register at runtime)
-- **Tools:** 2 registered — `EPowerShellAgent` (primary, all file/system ops) + `EFileResearchTool` (project-wide scan)
-- **Package deps:** `LLamaSharp`, LLamaSharp.Backend.Vulkan/Cuda12/CPU, Microsoft.Extensions.Logging.Abstractions
+- **LLM Backend:** LLamaSharp 0.27.0 — loads GGUF models from disk
+- **Runtime:** Self-hosted, offline inference — no external API calls
+- **Default Model:** Qwen3-8B-Q4_K_M (configurable via appsettings.json)
+- **Repo:** `github.com/LLamaDudeX/ECAssistant.git` (branch: `main`)
+- **Latest Commit:** `457a584` (v9.22)
+- **Package deps:** LLamaSharp 0.27.0 + backends (Vulkan/Cuda12/CPU), Microsoft.Extensions.Logging.Abstractions
+
+## Working Directory
+
+Everything lives in `~/ECAssistant/` (user home / ECAssistant). The app auto-creates this on first run and copies a default `appsettings.json` from the build output. All disk writes go here:
+
+```
+~/ECAssistant/
+├── appsettings.json          ← User config (editable)
+├── ECAssistant.log            ← Structured log file
+├── transcript.json            ← Conversation transcript (auto-saved)
+├── SystemPrompt.md            ← System prompt (fallback to build dir)
+├── Memory/                    ← Keyword-based memory entries (JSON)
+├── Workspace/                 ← Agent workspace files
+├── vecmem/                    ← Vector memory store (vectors.json)
+└── <model>.gguf               ← Model file (user provides)
+```
+
+The build directory is **read-only** — only used as fallback for `appsettings.json`, `SystemPrompt.md`, and model files on first run.
 
 ## Design Philosophy
 
-**PowerShell as primary tool:** Instead of creating separate C# classes for each file operation (read, write, copy, delete, search), the agent uses `EPowerShellAgent` for everything. Every LLM already knows PowerShell commands (`Get-Content`, `Copy-Item`, `Set-Content`, `Select-String`, etc.), so no extra tool definitions are needed. This keeps the codebase lean and the tool surface small. `EFileResearchTool` is kept for project-wide multi-file scanning that would be inefficient with individual PowerShell commands.
+**PowerShell as primary tool:** Instead of separate C# classes for each file operation, the agent uses `EPowerShellAgent` for everything. Every LLM knows PowerShell natively (`Get-Content`, `Copy-Item`, `-replace`, etc.). Keeps the codebase lean and tool surface small.
 
-## What's New in v9.0
+**Tools self-register at runtime:** `SystemPrompt.md` is tool-agnostic. Each tool class implements `ToSystemPromptBlock()` which injects its own rules, examples, and description into the system prompt at startup. Adding/removing tools requires no SystemPrompt.md edits.
 
-### Background Process Manager (P1)
-- `BackgroundProcessManager` — start, track, and kill long-running processes without blocking
-- CLI commands: `bg-run`, `bg-status`, `bg-output`, `bg-kill`, `bg-cleanup`
-- Each process gets an ID, timeout (default 300s), and async output capture
+**No external dependencies for memory:** Vector memory uses TF-IDF embeddings (256-dim hash-based, L2 normalized, cosine similarity). No FAISS, no Python, no extra NuGet packages. Ships with the build.
 
-### Structured Logging (P2)
-- `Logger` — lightweight file + console logger, no external dependencies
-- Levels: Debug < Info < Warn < Error (default: Info)
-- Logs to `~/ECAssistant/ECAssistant.log` with timestamps
-- Wired into engine (startup, context budget), orchestrator (tool execution), PowerShell agent (success/failure)
-- CLI commands: `log` (show recent), `log-level` (set level)
+## Registered Tools (6)
 
-### EDecisionLoop v2
-- Real user input via EGuiBase (no more hardcoded "B" default)
-- LLM-driven analysis — sends task to LLM, relays questions to user, feeds answers back
-- Max 5 rounds to prevent infinite loops
-- User can type "cancel" to abort
-
-### EContextAnalyzer v2
-- Real project analysis: line counts, file types, TODO detection, class/method counts
-- Circular dependency detection
-- Orphaned file detection (not referenced, not startup)
-- Large file warnings (>500 lines)
-- Human-readable summary with stats breakdown
-
-### Dead Code Removed
-- `EFileOpsTools.cs` deleted — PowerShell handles all file ops (the maintainer's design decision)
-
-## Project Tree
-```
-ECAssistant/
-├── ECAssistant.csproj           ← .NET 8 project (net8.0-windows, Nullable)
-├── SystemPrompt.md               ← v3.2: Response format + operating rules (tool-agnostic)
-├── appsettings.json              ← Runtime config (model, tools, memory, workspace settings)
-├── SUMMARY.md                    ← This file
-├── ARCHITECTURE.md               ← Architecture documentation
-├── GAP_ANALYSIS.md               ← P0-P3 gap analysis vs OpenClaw
-├── GAP_FILTERED.md               ← Filtered gap analysis (local agent scope)
-│
-├── Program.cs                    ← Entry point: CLI loop, session mgmt, bg exec, logging init
-├── Orchestrator.cs                ← v2.3: Block detection + tool policy + approval gates + logging
-├── EColor.cs                      ← ANSI-colored console output helpers
-│
-├── Engine/
-│   ├── EAgentEngine.cs           ← Core LLM engine: GGUF model, prompt building, inference
-│   ├── ContextWindow.cs          ← Sliding window with real token counting + auto-summarize at 75%
-│   ├── ConversationTranscript.cs  ← JSON transcript persistence for session resumption
-│   ├── TokenCounter.cs            ← LLamaSharp tokenizer-based counting with char fallback
-│   └── EDecisionLoop.cs           ← v2: Interactive decision loop with real user input
-│
-├── Orchestration/
-│   (in Orchestrator.cs)           ← AgentOrchestrator: multi-step loop, tool policy, logging
-│
-├── Tools/
-│   ├── EToolBase.cs               ← Abstract base class for all tools
-│   ├── ToolPolicy.cs              ← Permission system: Allowed / ApprovalRequired / Blocked
-│   ├── EPowerShell/
-│   │   └── EPowerShellAgent.cs    ← PRIMARY TOOL: all file/system ops via PowerShell
-│   ├── EResearch/
-│   │   └── EFileResearchTool.cs   ← Project-wide file scan + content read
-│   └── EExample/
-│       └── EFileAnalyzer.cs       ← Example tool (template for new tools)
-│
-├── Session/
-│   └── AgentSession.cs            ← AgentSession + SessionManager (main, isolated, named)
-│
-├── Services/
-│   ├── SummaryService.cs          ← LLM-based context summarization
-│   ├── BackgroundProcessManager.cs ← Non-blocking process execution + tracking
-│   └── Logger.cs                  ← Structured logging (file + console, no deps)
-│
-├── Memory/
-│   └── EMemoryManager.cs          ← Persistent keyword-based memory across sessions
-│
-├── Config/
-│   ├── EAgentConfig.cs            ← Full config model (nested JSON, matches appsettings.json)
-│   └── ContextParams.cs           ← Context parameter helpers
-│
-├── Analysis/
-│   └── EContextAnalyzer.cs        ← v2: Project analysis (lines, TODOs, deps, orphans, cycles)
-│
-└── UI/
-    ├── EGuiBase.cs                ← Abstract UI interface (swap console → GUI → web)
-    └── EGuiConsole.cs             ← Console implementation
-```
+| Tool | Purpose | Key Feature |
+|------|---------|-------------|
+| **EPowerShellAgent** | File/system ops, any shell command | 60s timeout, temp .ps1 scripts, XML escaping |
+| **EFileResearchTool** | Project-wide file scan | Multi-file content scan with extension filter |
+| **EBackgroundExec** | Background process management | start/status/output/kill — non-blocking |
+| **EWebSearch** | Web search | DuckDuckGo API, no auth needed |
+| **EDotnetBuild** | .NET build/test with error parsing | Structured errors (file, line, code, message) |
+| **EGitTool** | Git operations | status/diff/commit/push/pull/log/branch/checkout |
 
 ## CLI Commands
 
@@ -109,69 +54,160 @@ ECAssistant/
 |---------|-------------|
 | `<type request>` | Multi-step agent execution |
 | `quit` / `exit` | Exit (saves transcript) |
-| `help` | Show help |
-| `tools` | List registered tools |
-| `clear-history` / `clear-context` | Clear conversation context |
+| `help` | Show help (grouped by category) |
+| `tools` | List registered tools with descriptions |
+| `clear-history` | Clear conversation history |
 | `save-context` | Save transcript to disk |
-| `memory-save` / `memory-query` / `memory-stats` | Memory commands |
 | `file-pick` | Open file picker, send content to LLM |
-| `sessions` / `session-status` / `session-create` / `session-cleanup` | Session commands |
-| `bg-run` / `bg-status` / `bg-output` / `bg-kill` / `bg-cleanup` | Background exec |
-| `log` / `log-level` | Logging commands |
-| `analyze-project` | Run context analyzer on project |
+| `memory-save` / `memory-query` / `memory-stats` | Keyword memory |
+| `vecmem-stats` / `vecmem-search` / `vecmem-add` | Vector/semantic memory |
+| `sessions` / `session-status` / `session-create` / `session-cleanup` | Session mgmt |
+| `bg-run` / `bg-status` / `bg-output` / `bg-kill` / `bg-cleanup` | Background processes |
+| `watch` / `watch-start` / `watch-stop` | File watcher |
+| `reload-config` | Reload appsettings.json without restart |
+| `swap-model` | Switch GGUF model at runtime |
+| `clipboard-read` / `clipboard-write` | Windows clipboard (Windows only) |
+| `log` / `log-level` | View logs / set log level |
 
-## Components
+## Configuration (appsettings.json)
 
-### EPowerShellAgent (Primary Tool)
-- Executes ANY PowerShell command via temp `.ps1` script file
-- Sets `WorkingDirectory` so relative paths work correctly
-- Escapes `<` and `>` in output to prevent XML tag confusion
-- Handles all file operations: read, write, copy, move, delete, search, compile
-- Logs success/failure to structured logger
+```json
+{
+  "llm": {
+    "model_path": "Qwen3-8B-Q4_K_M.gguf",  // relative to ~/ECAssistant/ or absolute
+    "context_size": 8192,                     // safe default (was 32768, caused OOM)
+    "gpu_layers": 15,                          // safe default (was 35, caused memory corrupt)
+    "threads": -1,                             // -1 = auto
+    "batch_size": 256,
+    "ubatch_size": 128
+  },
+  "secondary_model": {                         // optional, for summarization
+    "enabled": false,
+    "model_path": "",                          // e.g. Qwen3-1.7B-Q4_K_M.gguf
+    "context_size": 4096,
+    "gpu_layers": 0                            // CPU only, doesn't compete with main model
+  },
+  "vector_memory": {
+    "enabled": true,                           // semantic search on by default
+    "directory": "vecmem",                     // relative to working dir
+    "max_results": 5,
+    "auto_index": true
+  },
+  "inference": {
+    "max_tokens": 2048,                        // per turn (was 8192, caused repetition)
+    "temperature": 0.3,
+    "anti_prompts": ["</toolcall>", "</output>", ...]
+  },
+  "context_management": {
+    "strategy": "SummaryAndShift",
+    "keep_last": 20,
+    "summarize_prompt": "Summarize the key decisions...",
+    "max_summary_length": 2000
+  }
+}
+```
 
-### BackgroundProcessManager
-- Start long-running processes without blocking the main loop
-- Track process status (Running, Completed, Failed, TimedOut)
-- Get output (stdout + stderr) from finished/running processes
-- Kill processes by ID
-- Auto-timeout (default 300s)
-- Cleanup finished processes from tracking
+## System Prompt (SystemPrompt.md v5)
 
-### Logger
-- File-based logging to `~/ECAssistant/ECAssistant.log`
-- 4 levels: Debug, Info, Warn, Error
-- Console output for Warn/Error only (avoid spam)
-- Thread-safe (locked writes)
-- No external dependencies
+Tuned specifically for Qwen3-8B:
+- Strict response format: `<thinking>` then `<toolcall>` OR `<output>` — no exceptions
+- 8 critical rules including "NEVER output text outside tags"
+- Tool selection guide table (which tool for which job)
+- PowerShell file operation patterns with examples
+- Error handling instructions (read → fix → rebuild)
+- Multi-step example (4-turn workflow: read → replace → build → confirm)
+- After tool result: MUST respond with `<output>` tags
 
-### Tool Policy
-- 3 permission levels: `Allowed`, `ApprovalRequired`, `Blocked`
-- Checked before every tool execution in orchestrator
+## Orchestration
 
-### Session Management
-- `AgentSession`: owns engine, orchestrator, policy, state
-- `SessionManager`: creates/tracks main, isolated, named sessions
+The `AgentOrchestrator.ExecuteMultiStep()` loop:
+1. Send user request to LLM → get response
+2. `ExtractCleanResponse`: extract first `<thinking>` + first `<toolcall>` or `<output>` block only
+3. `TrimToFirstClosingTag`: cut at first closing tag
+4. `ParseLLMDecision`: detect tool call, direct answer, or invalid
+5. If tool call → check policy → execute → add result to history → loop
+6. If direct answer → return to user
+7. If invalid → format retry (up to 2 times, remove bad response from history, inject as user msg)
+8. Max 5 turns per task
 
-### Context Management
-- `ContextWindow`: sliding window with real LLamaSharp token counting
-- Auto-summarize at 75% budget threshold
-- `SummaryService` wired to engine's own LLM for real summarization
+**Key behaviors:**
+- After tool result, appends directive: "You MUST respond with <thinking>...</thinking><output>...</output>"
+- Multi-step tasks: allows up to 3 tool calls before pushing for final answer
+- Format retry: removes bad tagless response from history, injects format error as user message
+- Auto-save transcript on every tool call
+- Manual anti-prompt enforcement: streaming loop checks for `</toolcall>`/`</output>` after each token
 
-### EContextAnalyzer v2
-- Scans project files (excludes bin/obj/.git/node_modules)
-- Counts lines, classes, methods, TODOs per file
-- Detects circular dependencies
-- Finds orphaned files (unreferenced, non-startup)
-- Warns on large files (>500 lines) and high TODO counts (>3)
-- Produces human-readable summary with file type breakdown
+## Project Tree
 
-**Status:** v9.0 — PowerShell as primary tool. Background exec active. Structured logging active. DecisionLoop v2 with real user input. ContextAnalyzer v2 with real analysis.
+```
+ECAssistant/
+├── ECAssistant.csproj               ← .NET 8 project (net8.0-windows)
+├── SystemPrompt.md                  ← v5: Response format + tool selection guide + examples
+├── appsettings.json                  ← Runtime config (bundled in build, copied to ~/ECAssistant/)
+├── SUMMARY.md                        ← This file
+├── ARCHITECTURE.md                   ← Architecture documentation
+├── GAP_ANALYSIS.md                   ← Full gap analysis vs OpenClaw (40+ items)
+├── GAP_FILTERED.md                   ← Filtered gap analysis (all items completed)
+│
+├── Program.cs                        ← Entry point: CLI loop, startup, tool registration
+├── Orchestrator.cs                   ← Multi-step loop, tool policy, format retry, auto-fix
+├── EColor.cs                         ← ANSI color helpers
+│
+├── Engine/
+│   ├── EAgentEngine.cs               ← Core LLM engine: GGUF model, prompt building, inference
+│   │                                     ExtractCleanResponse, TfidfEmbed, VectorMemory init
+│   ├── ContextWindow.cs               ← Sliding window, auto-summarize at 50%, RemoveLastAssistant
+│   ├── ConversationTranscript.cs      ← JSON transcript persistence
+│   ├── TokenCounter.cs                ← LLamaSharp tokenizer-based counting
+│   ├── EDecisionLoop.cs               ← v2: Interactive decision loop with real user input
+│   ├── SecondaryModelLoader.cs        ← Optional second small model for summarization
+│   └── SummaryService.cs              ← LLM-based context summarization
+│
+├── Tools/
+│   ├── EToolBase.cs                   ← Abstract base: Name, Description, Rules, Examples
+│   ├── ToolPolicy.cs                  ← 3-level permission: Allowed / ApprovalRequired / Blocked
+│   ├── EPowerShell/
+│   │   └── EPowerShellAgent.cs         ← PRIMARY TOOL: all file/system ops, 60s timeout
+│   ├── EResearch/
+│   │   └── EFileResearchTool.cs        ← Project-wide file scan
+│   ├── EBackground/
+│   │   └── EBackgroundExecTool.cs      ← Background process management (LLM-callable)
+│   ├── EWeb/
+│   │   └── EWebSearchTool.cs           ← DuckDuckGo web search (no auth)
+│   ├── EDotnet/
+│   │   └── EDotnetBuildTool.cs         ← Build + parse errors into structured output
+│   ├── EGit/
+│   │   └── EGitTool.cs                 ← Git operations with structured output
+│   └── EExample/
+│       └── EFileAnalyzer.cs           ← Example/template for new tools
+│
+├── Session/
+│   └── AgentSession.cs                ← AgentSession + SessionManager (main, isolated, named)
+│
+├── Services/
+│   ├── BackgroundProcessManager.cs    ← Non-blocking process execution + tracking
+│   ├── FileWatcherService.cs          ← Workspace file change monitoring
+│   └── Logger.cs                      ← Structured logging (file + console, 4 levels, no deps)
+│
+├── Memory/
+│   ├── EMemoryManager.cs              ← Keyword memory with relevance scoring
+│   └── VectorMemoryStore.cs           ← Semantic memory (TF-IDF, cosine similarity, JSON storage)
+│
+├── Config/
+│   ├── EAgentConfig.cs                ← Full config model (nested JSON)
+│   └── ContextParams.cs               ← Context parameter helpers
+│
+├── Analysis/
+│   └── EContextAnalyzer.cs            ← v2: Project analysis (lines, TODOs, deps, orphans, cycles)
+│
+└── UI/
+    ├── EGuiBase.cs                    ← Abstract UI interface
+    └── EGuiConsole.cs                 ← Console implementation
+```
 
-## 🔧 Git Workflow
+## Git Workflow
 
 **Repo:** `https://github.com/LLamaDudeX/ECAssistant.git` (branch: `main`)
-
-**Rule:** Always commit and push all changes to GitHub after completing work on this project. This ensures the code is testable on Windows.
 
 ```bash
 cd <project-root>
@@ -179,3 +215,7 @@ git add -A
 git commit -m "<descriptive message>"
 git push
 ```
+
+Always commit and push after changes — the maintainer tests on Windows.
+
+**Status:** v9.22 — All gap items completed. 6 tools registered. Ready for Windows testing.

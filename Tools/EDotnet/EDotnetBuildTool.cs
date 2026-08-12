@@ -40,10 +40,9 @@ public class EDotnetBuildTool : EToolBase
         "EDotnetBuild(project=\"MyProject.csproj\")";
 
     public override string GetToolRules() =>
-        "RULE: <action> = build|test|test-filter|restore|clean|format|format-check (default: build). " +
-        "Optional <project> = path to .csproj or .sln file. " +
-        "Optional <configuration> = Debug|Release (default: Debug). " +
-        "Returns structured errors with file, line, and error code for easy fixing.";
+        "<action>=build|test|test-filter|restore|clean|format (default:build). " +
+        "+<project>? +<configuration>? +<filter>? Returns structured errors (file,line,code).";
+
 
     public override string GetToolExample() =>
         "<toolcall>EDotnetBuild<project>ECAssistant.csproj</project></toolcall>\n" +

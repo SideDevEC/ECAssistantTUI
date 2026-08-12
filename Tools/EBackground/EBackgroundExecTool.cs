@@ -36,16 +36,12 @@ public class EBackgroundExecTool : EToolBase
         "EBackgroundExec(command=\"dotnet build\", action=\"start\")";
 
     public override string GetToolRules() =>
-        "RULE: <action> = start|status|output|kill. " +
-        "For start: provide <command> with the PowerShell command. " +
-        "For status: no other args needed. " +
-        "For output/kill: provide <id> (the process ID like bg-1). " +
-        "Use this for long-running commands (dotnet build, npm install, etc).";
+        "<action>=start|status|output|kill. start:+<command>. output/kill:+<id>. For long commands.";
+
 
     public override string GetToolExample() =>
         "<toolcall>EBackgroundExec<command>dotnet build</command><action>start</action></toolcall>\n" +
-        "<toolcall>EBackgroundExec<action>status</action></toolcall>\n" +
-        "<toolcall>EBackgroundExec<id>bg-1</id><action>output</action></toolcall>";
+        "<toolcall>EBackgroundExec<action>status</action></toolcall>";
 
     public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments)
     {

@@ -31,18 +31,13 @@ public class EGitTool : EToolBase
         "EGitTool(action=\"status\")";
 
     public override string GetToolRules() =>
-        "RULE: <action> = status|diff|commit|push|pull|log|add|branch|checkout (required). " +
-        "For commit: provide <message> with commit message. " +
-        "For add: provide <files> with file paths (or 'all' for -A). " +
-        "For log: optional <max_entries> (default 10). " +
-        "For checkout: provide <branch> with branch name.";
+        "<action>=status|diff|commit|push|pull|log|add|branch|checkout. " +
+        "commit: +<message>. add: +<files>('all'=-A). log: +<max_entries>. checkout: +<branch>.";
+
 
     public override string GetToolExample() =>
         "<toolcall>EGitTool<action>status</action></toolcall>\n" +
-        "<toolcall>EGitTool<action>add</action><files>all</files></toolcall>\n" +
-        "<toolcall>EGitTool<action>commit</action><message>fix: update config</message></toolcall>\n" +
-        "<toolcall>EGitTool<action>push</action></toolcall>\n" +
-        "<toolcall>EGitTool<action>log</action><max_entries>5</max_entries></toolcall>";
+        "<toolcall>EGitTool<action>commit</action><message>fix: update</message></toolcall>";
 
     public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments)
     {

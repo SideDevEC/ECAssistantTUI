@@ -33,18 +33,14 @@ public class ECodeEditorTool : EToolBase
         "ECodeEditor(action=\"patch\", file=\"Program.cs\", old_text=\"old code\", new_text=\"new code\")";
 
     public override string GetToolRules() =>
-        "RULE: <action> = diff|patch|search|replace-all|insert|delete-lines (required). " +
-        "For patch: <file> + <old_text> + <new_text> (replaces old_text with new_text, multi-line OK). " +
-        "For search: <pattern> + optional <file_filter> (e.g. *.cs). " +
-        "For replace-all: <pattern> + <replacement> + optional <file_filter>. " +
-        "For insert: <file> + <line> (line number) + <text>. " +
-        "For delete-lines: <file> + <start_line> + <end_line>. " +
-        "ALWAYS use exact text matching — include surrounding context for uniqueness.";
+        "patch: <file>+<old_text>+<new_text> (multi-line, unique match). " +
+        "search: <pattern>+<file_filter>. replace-all: <pattern>+<replacement>+<file_filter>. " +
+        "insert: <file>+<line>+<text>. delete-lines: <file>+<start_line>+<end_line>.";
+
 
     public override string GetToolExample() =>
-        "<toolcall>ECodeEditor<action>patch</action><file>Program.cs</file><old_text>var x = 1;</old_text><new_text>var x = 2;</new_text></toolcall>\n" +
-        "<toolcall>ECodeEditor<action>search</action><pattern>TODO</pattern><file_filter>*.cs</file_filter></toolcall>\n" +
-        "<toolcall>ECodeEditor<action>replace-all</action><pattern>oldName</pattern><replacement>newName</replacement><file_filter>*.cs</file_filter></toolcall>";
+        "<toolcall>ECodeEditor<action>patch</action><file>Program.cs</file><old_text>var x=1;</old_text><new_text>var x=2;</new_text></toolcall>\n" +
+        "<toolcall>ECodeEditor<action>search</action><pattern>TODO</pattern></toolcall>";
 
     public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments)
     {

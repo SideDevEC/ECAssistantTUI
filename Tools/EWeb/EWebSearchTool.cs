@@ -31,9 +31,8 @@ public class EWebSearchTool : EToolBase
         "EWebSearch(query=\"how to parse JSON in C#\")";
 
     public override string GetToolRules() =>
-        "RULE: <query> is your search query (required). " +
-        "Optional <max_results> = number of results (default 5, max 10). " +
-        "Use this when you need information not available in local files.";
+        "<query>=search terms. <max_results>?(default 5). Use for external info.";
+
 
     public override string GetToolExample() =>
         "<toolcall>EWebSearch<query>how to parse JSON in C#</query></toolcall>\n" +

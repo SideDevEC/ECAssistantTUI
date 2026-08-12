@@ -664,7 +664,6 @@ public class Program
                                  {
                               agent.StartExecution();
                               var orchestratorResult = await orchestrator.ExecuteMultiStep(input);
-                              agent.EndExecution();
                                 Gui.BlankLine();
                              var maxTurnsDisplayB = 5;
                                EColor.TagBold(Success(), "Agent", $"Turns: {orchestratorResult.ToolCallsMade}/{maxTurnsDisplayB} | Status: {orchestratorResult.Status}");
@@ -673,10 +672,14 @@ public class Program
                               }
                     catch (Exception ex)
                                  {
-                            agent.EndExecution();
                             EColor.TagBold(Error(), "Error", ex.Message);
                                if (ex.InnerException != null) EColor.Tag(Info(), "Detail", ex.InnerException.Message);
                              }
+                    finally
+                    {
+                            // v10.9.1: Always clean up execution state — prevents stuck IsExecuting
+                            agent.EndExecution();
+                    }
 
                     if (_config.Interface.ShowElapsedTime)
                                   {

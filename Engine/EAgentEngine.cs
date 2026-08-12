@@ -76,13 +76,24 @@ public sealed class EAgentEngine : IAsyncDisposable
     public ContextWindow ContextWindow => _contextWindow;
     
     // v10.9: Cancellation token for stopping execution mid-stream
+    // v10.9.1: Fixed race condition — don't null _cts in StopExecution
     private CancellationTokenSource? _cts;
+    private volatile bool _isExecuting = false;
     public CancellationToken ExecutionToken => _cts?.Token ?? CancellationToken.None;
-    public bool IsExecuting => _cts != null;
+    public bool IsExecuting => _isExecuting;
     
-    public void StartExecution() { _cts = new CancellationTokenSource(TimeSpan.FromSeconds(300)); }
-    public void StopExecution() { _cts?.Cancel(); _cts = null; }
-    public void EndExecution() { _cts = null; }
+    public void StartExecution() 
+    { 
+        _cts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+        _isExecuting = true;
+    }
+    public void StopExecution() { _cts?.Cancel(); }
+    public void EndExecution() 
+    { 
+        try { _cts?.Dispose(); } catch { }
+        _cts = null; 
+        _isExecuting = false; 
+    }
 
     /// <summary>Initialize self-correction manager.</summary>
     public void InitializeSelfCorrection(string workingDir)
@@ -1033,6 +1044,13 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
 
               if (string.IsNullOrEmpty(cleanResponse))
                   cleanResponse = timedOut ? "(Response truncated — model timed out)" : "(Empty response from model)";
+
+                 // v10.9.1: Don't store partial/cancelled responses in transcript
+                 if (ExecutionToken.IsCancellationRequested)
+                 {
+                     EColor.TagBold(EColor.Dim, "Engine", "Cancellation requested — not storing partial response.");
+                     return "(Cancelled by user)";
+                 }
 
                  if (!string.IsNullOrEmpty(cleanResponse) && cleanResponse.Contains("<"))
                     {

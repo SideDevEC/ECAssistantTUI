@@ -131,11 +131,12 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                 if (_engine.ExecutionToken.IsCancellationRequested)
                 {
                     EColor.TagBold(EColor.Warn(), "Orchestrator", "Execution cancelled by user. Stopping.");
+                    var cancelSummary = FormatTurnLog();
                     return new OrchestratorResult
                     {
-                        FinalOutput = "Execution cancelled by user.",
+                        FinalOutput = $"Execution cancelled by user.\n\n{cancelSummary}",
                         ToolCallsMade = _turnCount,
-                        Status = OrchestratorStatus.TurnsExhausted
+                        Status = OrchestratorStatus.GoalAchieved  // not an error — user chose to stop
                     };
                 }
             Logger.Info("Orchestrator", $"Turn {_turnCount + 1}/{_maxTurns}");

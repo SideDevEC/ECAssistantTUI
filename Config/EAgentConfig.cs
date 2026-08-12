@@ -246,7 +246,16 @@ public class EAgentConfig
         try
          {
             if (File.Exists(filePath))
-                return JsonSerializer.Deserialize<EAgentConfig>(File.ReadAllText(filePath))!;
+            {
+                var json = File.ReadAllText(filePath);
+                var config = JsonSerializer.Deserialize<EAgentConfig>(json);
+                if (config != null) return config;
+                Program.Gui.InfoColored($"[!] Config parse returned null — using defaults.");
+            }
+            else
+            {
+                Program.Gui.InfoColored($"[!] Config not found: {filePath} — using defaults.");
+            }
          }
         catch (Exception ex)
          {

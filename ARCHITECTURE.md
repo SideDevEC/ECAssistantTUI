@@ -276,7 +276,8 @@ ToolPolicy: 3 levels (Allowed / ApprovalRequired / Blocked) checked before every
 | Tag | Version | Description |
 |-----|---------|-------------|
 | `v10.4.4-working` | v10.4.4 | StatelessExecutor (pre-KV-cache, last stateless working build) |
-| `v10.5.1-working` | v10.5.1 | KV cache + tag structure audit (current known-good) |
+| `v10.5.1-working` | v10.5.1 | KV cache + tag structure audit (pre-TaskPlanner) |
+| `v10.6-working` | v10.6 | TaskPlanner wired in for chained tasks (current known-good) |
 
 **If any change breaks multi-turn:**
 ```bash

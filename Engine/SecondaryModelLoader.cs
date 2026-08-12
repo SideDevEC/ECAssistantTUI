@@ -32,7 +32,8 @@ public class SecondaryModelLoader : IDisposable
     public bool IsLoaded => _loaded;
 
     /// <summary>Load a secondary model from disk.</summary>
-    public static SecondaryModelLoader? Load(string modelPath, uint contextSize = 4096, int gpuLayers = 0)
+    public static SecondaryModelLoader? Load(string modelPath, uint contextSize = 4096, int gpuLayers = 0,
+        float temperature = 0.1f, float topP = 0.8f, int topK = 40, float repeatPenalty = 1.1f, int maxTokens = 512)
     {
         var loader = new SecondaryModelLoader();
 
@@ -56,12 +57,14 @@ public class SecondaryModelLoader : IDisposable
             loader._executor = new StatelessExecutor(loader._weights, parameters, new Microsoft.Extensions.Logging.Abstractions.NullLogger<StatelessExecutor>());
             loader._inferenceParams = new InferenceParams
             {
-                MaxTokens = 512,
+                MaxTokens = maxTokens,
                 OverflowStrategy = LLama.Common.ContextOverflowStrategy.TruncateAndReprefill,
                 SamplingPipeline = new DefaultSamplingPipeline
                 {
-                    Temperature = 0.3f,
-                    TopP = 0.9f,
+                    Temperature = temperature,
+                    TopP = topP,
+                    TopK = topK,
+                    RepeatPenalty = repeatPenalty,
                 }
             };
             loader._loaded = true;

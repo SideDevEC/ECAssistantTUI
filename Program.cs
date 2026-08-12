@@ -161,9 +161,14 @@ public class Program
                             var secInBuild = Path.Combine(AppContext.BaseDirectory, secPath);
                             secPath = File.Exists(secInWork) ? secInWork : (File.Exists(secInBuild) ? secInBuild : secInWork);
                         }
-                        var secondary = SecondaryModelLoader.Load(secPath, 
+                        var secondary = SecondaryModelLoader.Load(secPath,
                             contextSize: _config.SecondaryModel.ContextSize,
-                            gpuLayers: _config.SecondaryModel.GpuLayers);
+                            gpuLayers: _config.SecondaryModel.GpuLayers,
+                            temperature: _config.SecondaryModel.Temperature,
+                            topP: _config.SecondaryModel.TopP,
+                            topK: _config.SecondaryModel.TopK,
+                            repeatPenalty: _config.SecondaryModel.RepeatPenalty,
+                            maxTokens: _config.SecondaryModel.MaxTokens);
                         if (secondary != null)
                         {
                             agent.SetSecondaryModel(secondary);

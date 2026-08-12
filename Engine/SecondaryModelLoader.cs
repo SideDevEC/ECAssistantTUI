@@ -25,6 +25,7 @@ public class SecondaryModelLoader : IDisposable
     // prompting for decomposition, summarization, etc. without state leakage.
     private StatelessExecutor? _executor;
     private InferenceParams? _inferenceParams;
+    private string[] _antiPrompts = new[] { "User:", "Question:" };
     private bool _loaded = false;
 
     public string ModelPath { get; private set; } = "";
@@ -33,7 +34,8 @@ public class SecondaryModelLoader : IDisposable
 
     /// <summary>Load a secondary model from disk.</summary>
     public static SecondaryModelLoader? Load(string modelPath, uint contextSize = 4096, int gpuLayers = 0,
-        float temperature = 0.1f, float topP = 0.8f, int topK = 40, float repeatPenalty = 1.1f, int maxTokens = 512)
+        float temperature = 0.1f, float topP = 0.8f, int topK = 40, float repeatPenalty = 1.1f, int maxTokens = 512,
+        string[]? antiPrompts = null)
     {
         var loader = new SecondaryModelLoader();
 
@@ -55,9 +57,11 @@ public class SecondaryModelLoader : IDisposable
             loader._modelParams = parameters;
             // v10.7.1: StatelessExecutor — fresh context per call, no KV cache
             loader._executor = new StatelessExecutor(loader._weights, parameters, new Microsoft.Extensions.Logging.Abstractions.NullLogger<StatelessExecutor>());
+            loader._antiPrompts = antiPrompts ?? new[] { "User:", "Question:" };
             loader._inferenceParams = new InferenceParams
             {
                 MaxTokens = maxTokens,
+                AntiPrompts = loader._antiPrompts,
                 OverflowStrategy = LLama.Common.ContextOverflowStrategy.TruncateAndReprefill,
                 SamplingPipeline = new DefaultSamplingPipeline
                 {
@@ -94,6 +98,7 @@ public class SecondaryModelLoader : IDisposable
         var inferenceParams = new InferenceParams
         {
             MaxTokens = effectiveMaxTokens,
+            AntiPrompts = _antiPrompts,
             OverflowStrategy = LLama.Common.ContextOverflowStrategy.TruncateAndReprefill,
             SamplingPipeline = _inferenceParams.SamplingPipeline,
         };

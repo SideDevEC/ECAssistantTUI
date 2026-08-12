@@ -168,7 +168,8 @@ public class Program
                             topP: _config.SecondaryModel.TopP,
                             topK: _config.SecondaryModel.TopK,
                             repeatPenalty: _config.SecondaryModel.RepeatPenalty,
-                            maxTokens: _config.SecondaryModel.MaxTokens);
+                            maxTokens: _config.SecondaryModel.MaxTokens,
+                            antiPrompts: _config.SecondaryModel.AntiPrompts);
                         if (secondary != null)
                         {
                             agent.SetSecondaryModel(secondary);

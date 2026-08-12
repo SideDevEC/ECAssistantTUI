@@ -41,6 +41,8 @@ public class SecondaryModelConfig
     public float RepeatPenalty { get; set; } = 1.1f;
      [JsonPropertyName("max_tokens")]
     public int MaxTokens { get; set; } = 512;
+     [JsonPropertyName("anti_prompts")]
+    public string[] AntiPrompts { get; set; } = new[] { "User:", "Question:", "\n```,\n" };
 }
 
 public class VectorMemoryConfig

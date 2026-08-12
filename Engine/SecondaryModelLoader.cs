@@ -123,19 +123,15 @@ public class SecondaryModelLoader : IDisposable
         if (!_loaded)
             return null;
 
-        var prompt = @"Break the user request into steps. Output ONLY what the user asked for.
+        var prompt = @"You decompose tasks. Output ONLY numbered steps. Nothing else.
 
-STRICT RULES:
-- One step per line, numbered: 1. 2. 3.
-- ONLY include actions the user EXPLICITLY asked for
-- Do NOT add setup, cleanup, verification, or ""helpful"" extra steps
-- Do NOT create projects, files, configs, or directories unless asked
-- Do NOT include thinking, reasoning, or explanation
-- If the user asked for N things, output exactly N steps (or fewer if one action covers multiple)
-- Keep each step under 15 words
-- If it is a single action, output one line
+Count the distinct actions the user asked for. Output exactly that many steps. Stop. Do not add any more.
 
-Examples:
+FORBIDDEN:
+- Extra steps not requested (verify, check, clean up, create project, setup)
+- Explanations, reasoning, or text outside numbered steps
+- Steps the user did not explicitly ask for
+
 User: read Program.cs then fix line 42 then rebuild
 1. Read Program.cs
 2. Fix the bug at line 42
@@ -144,7 +140,7 @@ User: read Program.cs then fix line 42 then rebuild
 User: what day is today
 1. Get the current date
 
-User: calculate 4+2, write it to a file, then copy the file to C:\temp
+User: calculate 4+2, write it to a file, then copy the file to a new location
 1. Calculate 4+2
 2. Write the result to a file
 3. Copy the file to a new location
@@ -183,25 +179,6 @@ User: " + userRequest + "\n";
                 // This catches extra steps, explanations, or commentary after the real steps
                 break;
             }
-        }
-
-        // v10.7.5: Hard cap — count action verbs in the original request
-        var actionWords = new[] { "calculate", "build", "create", "add", "remove", "update", "fix", 
-            "replace", "refactor", "test", "delete", "move", "copy", "write", "read", "run", 
-            "compile", "deploy", "install", "config", "edit", "find", "search", "check", "get" };
-        var requestActions = 0;
-        var lowerRequest = userRequest.ToLower();
-        foreach (var word in actionWords)
-            if (lowerRequest.Contains(word))
-                requestActions++;
-        
-        // Allow at most requestActions + 1 steps (one extra for implicit actions)
-        var maxSteps = Math.Max(1, requestActions + 1);
-        if (steps.Count > maxSteps)
-        {
-            Logger.Warn("SecondaryModel", $"Decomposition produced {steps.Count} steps but request has ~{requestActions} actions — trimming to {maxSteps}.");
-            EColor.TagBold(EColor.Warn(), "Secondary", $"Trimmed {steps.Count} steps to {maxSteps} (matched request actions).");
-            steps = steps.Take(maxSteps).ToList();
         }
 
         // If we found no numbered steps, return null (use keyword fallback)

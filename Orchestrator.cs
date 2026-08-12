@@ -25,6 +25,8 @@ public sealed class AgentOrchestrator : IAsyncDisposable
     private readonly List<string> _toolCallLog = new();
     private string? _originalGoal = null;
     private readonly List<string> _completedSteps = new();
+    private int _formatRetries = 0;
+    private const int MaxFormatRetries = 2;
 
      // ─── Hard Limits ──────────────────────
     private readonly int _maxTurns;
@@ -78,7 +80,8 @@ public sealed class AgentOrchestrator : IAsyncDisposable
 
               if (decision.WantsToolCall)
                        {
-                Logger.Info("Orchestrator", $"Tool call: {decision.ToolName}");
+                _formatRetries = 0; // reset on valid tool call
+                    Logger.Info("Orchestrator", $"Tool call: {decision.ToolName}");
                 
                 var argsDict = decision.Args;
 

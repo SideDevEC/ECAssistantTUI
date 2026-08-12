@@ -370,6 +370,14 @@ public sealed class EAgentEngine : IAsyncDisposable
            // Add to transcript AND context window (unified — no legacy string list)
              _transcript.AddToolOutput(output, toolName);
               _contextWindow.AddToolOutput(output, toolName);
+              
+              // v9.8: Auto-save transcript on every tool call to prevent data loss on crash
+              try
+              {
+                  var transcriptPath = Path.Combine(AppContext.BaseDirectory, "transcript.json");
+                  _transcript.SaveToDisk(transcriptPath);
+              }
+              catch { /* don't crash on save failure */ }
               }
 
       /// <summary>Clear context window and transcript.</summary>

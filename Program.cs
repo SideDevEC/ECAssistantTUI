@@ -6,6 +6,8 @@ using ECAssistant.Orchestration;
 using ECAssistant.Tools.PowerShell;
 using ECAssistant.Tools.Research;
 using ECAssistant.Tools.Background;
+using ECAssistant.Tools.Web;
+using ECAssistant.Tools.Build;
 using ECAssistant.Tools;
 using ECAssistant.Analysis;
 using ECAssistant.UI;
@@ -127,6 +129,8 @@ public class Program
                     var psAgent = new EPowerShellAgent(effectiveDir);
                       agent.RegisterTool(psAgent);
                     agent.RegisterTool(new EBackgroundExecTool(bgMgr, effectiveDir));
+                    agent.RegisterTool(new EWebSearchTool());
+                    agent.RegisterTool(new EDotnetBuildTool(effectiveDir));
 
                     // EFileResearchTool — project-wide file scan for analysis
                        {
@@ -437,6 +441,54 @@ public class Program
                                 continue;
                             }
 
+                           // ── Config Hot-Reload ──
+                            case "reload-config": {
+                                var configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "appsettings.json");
+                                if (File.Exists(configPath)) {
+                                    _config = EAgentConfig.Load(configPath);
+                                    EColor.TagBold(EColor.Success(), "Config", $"Reloaded from: {configPath}");
+                                    EColor.WriteLine(Dim, $"  Model: {Path.GetFileName(_config.Llm.ModelPath)} | Ctx: {_config.Llm.ContextSize} | Tokens: {_config.Inference.MaxTokens} | Temp: {_config.Sampling.Temperature}");
+                                } else {
+                                    EColor.TagBold(EColor.Error(), "Config", $"Not found: {configPath}");
+                                }
+                                continue;
+                            }
+
+                           // ── Model Hot-Swap ──
+                            case "swap-model": {
+                                var newModel = Gui.PromptRaw("Model path (or filename in app dir): ")?.Trim();
+                                if (!string.IsNullOrEmpty(newModel)) {
+                                    if (!File.Exists(newModel)) {
+                                        newModel = Path.Combine(AppContext.BaseDirectory, newModel);
+                                    }
+                                    if (File.Exists(newModel)) {
+                                        EColor.TagBold(EColor.Info(), "Swap", $"Unloading current model...");
+                                        await agent.DisposeAsync();
+                                        var newParams = new InferenceParams {
+                                            MaxTokens = _config.Inference.MaxTokens,
+                                            AntiPrompts = _config.Inference.AntiPrompts.Length > 0
+                                                ? _config.Inference.AntiPrompts
+                                                : new string[] { "</s>" },
+                                            OverflowStrategy = LLama.Common.ContextOverflowStrategy.TruncateAndReprefill,
+                                            SamplingPipeline = new DefaultSamplingPipeline {
+                                                Temperature = _config.Sampling.Temperature,
+                                                TopP = _config.Sampling.TopP,
+                                                TopK = _config.Sampling.TopK,
+                                                RepeatPenalty = _config.Sampling.RepeatPenalty
+                                            }
+                                        };
+                                        agent = new EAgentEngine(newModel, _config.Llm.ContextSize, _config.Llm.GpuLayers, _config.Llm.Threads == -1 ? Environment.ProcessorCount : _config.Llm.Threads, newParams);
+                                        agent.LoadContext();
+                                        agent.WireSummaryService();
+                                        foreach (var t in agent.Tools) { } // tools already registered in constructor
+                                        EColor.TagBold(EColor.Success(), "Swap", $"Model loaded: {Path.GetFileName(newModel)}");
+                                    } else {
+                                        EColor.TagBold(EColor.Error(), "Swap", $"Model not found: {newModel}");
+                                    }
+                                }
+                                continue;
+                            }
+
                            // ── Logging Commands (P2) ──
                             case "log": {
                                 Gui.BlankLine();
@@ -515,6 +567,8 @@ public class Program
            EColor.WriteLine(Yellow + Bold, "   watch                 Show recent file changes");
           EColor.WriteLine(Yellow + Bold, "   watch-start           Start watching for file changes");
          EColor.WriteLine(Yellow + Bold, "   watch-stop            Stop watching");
+           EColor.WriteLine(Yellow + Bold, "   reload-config         Reload appsettings.json without restart");
+          EColor.WriteLine(Yellow + Bold, "   swap-model            Switch to a different GGUF model at runtime");
            EColor.WriteLine(Yellow + Bold, "   log                   Show recent log entries");
           EColor.WriteLine(Yellow + Bold, "   log-level             Set log level (debug/info/warn/error)");
              Gui.BlankLine();

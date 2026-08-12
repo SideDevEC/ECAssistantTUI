@@ -37,6 +37,36 @@ Also removed `</toolcall>`, `</output>`, and `---` from `InferenceParams.AntiPro
 **Safe anti-prompts:** `User:`, `\n```\n`, `Question:` — these don't appear in our prompt format.
 **Never use as anti-prompts:** `---`, `</toolcall>`, `</output>` — these appear in SystemPrompt.md and conversation history.
 
+## 🚨 CRITICAL LESSON — Turn Counter Reset Between Requests (2026-08-12)
+
+**This bug caused the model to repeat the old question when a new one was asked in the same session.**
+
+### The Problem
+There are two separate `_turnCount` fields:
+1. **`AgentOrchestrator._turnCount`** — tracks turns within one `ExecuteMultiStep` call
+2. **`EAgentEngine._turnCount`** — tracks which `GenerateAsync` call we're on (used by the `if (_turnCount == 1)` guard that adds the user message to context)
+
+After question 1 took 2 turns, the engine's `_turnCount` was at 2. When the user asked a **new** question, `GenerateAsync` incremented it to 3 — so the `if (_turnCount == 1)` guard **never fired**. The new user message was **never added to the context window**. The model only saw the old conversation and kept repeating it.
+
+### The Fix
+`ExecuteMultiStep` now calls `Reset()` + `_engine.ResetTurnCount()` at the start of every new user request. This ensures the first `GenerateAsync` of each new question runs the turn-1 logic (add user message to context).
+
+### Rules to Remember
+1. **Any state that affects per-request logic must be reset at the start of each new request.**
+2. When you have a turn-1 guard (e.g., `if (_turnCount == 1)`), ensure the counter resets between requests.
+3. Don't assume instance fields reset themselves — orchestrators and engines maintain state across calls.
+4. Test with sequential questions, not just single questions — single-question tests miss this bug.
+
+## 🚨 CRITICAL LESSON — Generation Cue for Completion Models (2026-08-12)
+
+**This bug caused the model to echo history instead of generating its own response.**
+
+### The Problem
+Completion-style LLMs (like Qwen3-8B) need an explicit cue to know when it's their turn to generate. Without a cue, the model sees history ending with `<user>...</user>` and simply echoes it back: `</user><user>what day is today</user>` — repeating the first user message from history.
+
+### The Fix
+Append an open `<assistant>` tag at the end of `BuildFullPrompt()` as a generation cue. This tells the model: "history ends here, now it's your turn to respond as the assistant." Also strip leading `<assistant>` and trailing `</assistant>` from raw model output in case the model echoes the cue tag back.
+
 ## Architecture Overview
 
 ```
@@ -195,6 +225,8 @@ ToolPolicy: 3 levels (Allowed / ApprovalRequired / Blocked) checked before every
 13. **StatelessExecutor (v10.4.2)** — full-prompt-rebuild architecture requires stateless executor. InteractiveExecutor's KV cache persistence breaks multi-turn workflows.
 14. **Turn-1-only user message injection** — GenerateAsync only adds the user prompt to context on turn 1. On turns 2+, context is populated by AddToolResult + InjectFormatRetry.
 15. **Safe anti-prompts only** — never put strings that appear in SystemPrompt.md or conversation history (like `---`, `</toolcall>`, `</output>`) in InferenceParams.AntiPrompts.
+16. **Reset turn counters per request (v10.4.4)** — ExecuteMultiStep calls Reset() + _engine.ResetTurnCount() at start. Two separate _turnCount fields (orchestrator + engine) must both reset between user requests.
+17. **Generation cue tag (v10.4.3)** — Append open `<assistant>` at end of BuildFullPrompt() to tell completion models it's their turn. Without it, the model echoes history instead of generating.
 
 ## Feature Status (35 features)
 
@@ -237,4 +269,4 @@ ToolPolicy: 3 levels (Allowed / ApprovalRequired / Blocked) checked before every
 | Project context (scan, deps, impact) | ✅ |
 | Task decomposition (sub-tasks) | ✅ |
 
-**Status:** v10.4.2 — All Tier 1-3 agentic capabilities implemented. 7 tools. Multi-turn workflow fixed. Ready for Windows testing.
+**Status:** v10.4.4 — All Tier 1-3 agentic capabilities implemented. 7 tools. Multi-turn workflow fixed (StatelessExecutor + turn counter reset + generation cue). Ready for Windows testing.

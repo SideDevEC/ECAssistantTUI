@@ -19,8 +19,11 @@ namespace ECAssistant.Engine;
 public class SecondaryModelLoader : IDisposable
 {
     private LLamaWeights? _weights;
-    private LLamaContext? _context;
-    private InteractiveExecutor? _executor;
+    private ModelParams? _modelParams;
+    // v10.7.1: StatelessExecutor — no KV cache between calls.
+    // Each GenerateAsync call gets a fresh context. This allows dynamic
+    // prompting for decomposition, summarization, etc. without state leakage.
+    private StatelessExecutor? _executor;
     private InferenceParams? _inferenceParams;
     private bool _loaded = false;
 
@@ -48,8 +51,9 @@ public class SecondaryModelLoader : IDisposable
             };
 
             loader._weights = LLamaWeights.LoadFromFile(parameters);
-            loader._context = loader._weights.CreateContext(parameters);
-            loader._executor = new InteractiveExecutor(loader._context, new Microsoft.Extensions.Logging.Abstractions.NullLogger<InteractiveExecutor>());
+            loader._modelParams = parameters;
+            // v10.7.1: StatelessExecutor — fresh context per call, no KV cache
+            loader._executor = new StatelessExecutor(loader._weights, parameters, new Microsoft.Extensions.Logging.Abstractions.NullLogger<StatelessExecutor>());
             loader._inferenceParams = new InferenceParams
             {
                 MaxTokens = 512,
@@ -176,7 +180,7 @@ User: " + userRequest + "\n";
 
     public void Dispose()
     {
-        try { _context?.Dispose(); } catch { }
+        try { _weights?.Dispose(); } catch { }
         ECAssistant.Services.Logger.Info("SecondaryModel", "Disposed.");
     }
 }

@@ -70,13 +70,16 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                  // Step 1: Ask the LLM to decide what to do (with full context of tools + history)
               var llmResponse = await _engine.GenerateAsync(goal);
 
+             // v9.19: Log what the engine returned BEFORE trimming
+              EColor.WriteLine(EColor.Dim, $"[Orchestrator] Before trim ({llmResponse.Length} chars): {llmResponse.Substring(0, Math.Min(llmResponse.Length, 200))}");
+
              // Trim pass: cut at first </toolcall> or </output> boundary, keep tags included
               llmResponse = TrimToFirstClosingTag(llmResponse);
-
-                Program.Gui.WriteLineColored($"[Orchestrator] LLM response ({llmResponse.Length} chars):\n{llmResponse}\n");
+              EColor.WriteLine(EColor.Dim, $"[Orchestrator] After trim ({llmResponse.Length} chars): {llmResponse.Substring(0, Math.Min(llmResponse.Length, 200))}");
 
                  // Step 2: Parse the clean LLM output — detect which block type was returned
               var decision = ParseLLMDecision(llmResponse);
+              EColor.WriteLine(EColor.Dim, $"[Orchestrator] Parse result: WantsToolCall={decision.WantsToolCall}, WantsDirectAnswer={decision.WantsDirectAnswer}, ToolName={decision.ToolName}");
 
               if (decision.WantsToolCall)
                        {

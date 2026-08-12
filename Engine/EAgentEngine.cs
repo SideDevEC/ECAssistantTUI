@@ -534,14 +534,16 @@ public sealed class EAgentEngine : IAsyncDisposable
               var rawResult = sb.ToString().Trim();
                   string cleanResponse;
 
-              Logger.Debug("Engine", $"Raw output: {rawResult.Length} chars");
+              // v9.19: Show raw model output on console for debugging
+              EColor.WriteLine(EColor.Dim, $"[Engine] Raw ({rawResult.Length} chars): {rawResult.Substring(0, Math.Min(rawResult.Length, 300))}");
 
                      // Extract clean response — ONLY the last well-formed structured block:
                      // Prefer <output>...</output> or <toolcall>...</toolcall>
                   // Strip everything outside structural tags (hallucination noise).
                    cleanResponse = ExtractCleanResponse(rawResult);
 
-              Logger.Debug("Engine", $"Clean response: {cleanResponse.Length} chars");
+              // v9.19: Show clean response on console for debugging
+              EColor.WriteLine(EColor.Dim, $"[Engine] Clean ({cleanResponse.Length} chars): {cleanResponse.Substring(0, Math.Min(cleanResponse.Length, 300))}");
 
               if (string.IsNullOrEmpty(cleanResponse))
                   cleanResponse = timedOut ? "(Response truncated — model timed out)" : "(Empty response from model)";
@@ -572,6 +574,15 @@ public sealed class EAgentEngine : IAsyncDisposable
             // v9.1: Only extract the FIRST complete meaningful block to prevent repetition loops.
             // The model sometimes generates multiple <thinking>+<toolcall> blocks in one response.
             // We take only the first <thinking>...</thinking> + first <toolcall> or <output> after it.
+
+         // v9.19: Debug logging in ExtractCleanResponse
+         Logger.Debug("Extract", $"Input length: {raw.Length}");
+         Logger.Debug("Extract", $"Contains <thinking>: {raw.Contains("<thinking>", StringComparison.OrdinalIgnoreCase)}");
+         Logger.Debug("Extract", $"Contains </thinking>: {raw.Contains("</thinking>", StringComparison.OrdinalIgnoreCase)}");
+         Logger.Debug("Extract", $"Contains <toolcall>: {raw.Contains("<toolcall>", StringComparison.OrdinalIgnoreCase)}");
+         Logger.Debug("Extract", $"Contains </toolcall>: {raw.Contains("</toolcall>", StringComparison.OrdinalIgnoreCase)}");
+         Logger.Debug("Extract", $"Contains <output>: {raw.Contains("<output>", StringComparison.OrdinalIgnoreCase)}");
+         Logger.Debug("Extract", $"Contains </output>: {raw.Contains("</output>", StringComparison.OrdinalIgnoreCase)}");
 
          // Find the first <thinking> block
          var thinkStart = raw.IndexOf("<thinking>", StringComparison.OrdinalIgnoreCase);
@@ -628,7 +639,9 @@ public sealed class EAgentEngine : IAsyncDisposable
              return raw.Trim();
          }
 
-         return sb.ToString().Trim();
+         var result = sb.ToString().Trim();
+         Logger.Debug("Extract", $"Output: {result.Length} chars, starts with: {result.Substring(0, Math.Min(result.Length, 80))}");
+         return result;
            }
 
 

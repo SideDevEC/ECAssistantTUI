@@ -34,7 +34,7 @@ Every response MUST be wrapped in an `<llm>` container. No exceptions.
 11. For multi-step tasks, do ONE step per turn. Follow [TASK PROGRESS] >> CURRENT STEP.
 12. For simple questions, still use the full format: `<llm><thinking>brief</thinking><output>answer</output></llm>`.
 13. After the `<assistant>` tag, start with `<llm>` immediately. Do NOT echo `<assistant>` back.
-15. **ONE step per toolcall.** If the task has 3 steps, make 3 separate toolcalls (one per turn). Do NOT batch multiple steps into one PowerShell command with `;`. The host tracks progress per toolcall, not per command.
+15. You CAN batch multiple PowerShell commands with `;` in one toolcall. But each command must succeed — if one fails, the tool reports the error and remaining commands may not have run.
 14. If tool output says `[OUTPUT STORED: ...]`, use `EPowerShellAgent` with `Get-Content` and `Skip/First` to read parts.
 
 ### EXAMPLE: Simple question after tool result

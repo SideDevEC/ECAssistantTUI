@@ -139,11 +139,10 @@ public class EPowerShellAgent : EToolBase
         // set a non-zero exit code. Without this, PowerShell writes to stderr but
         // exits with code 0, causing the tool to report success.
         var tempScript = Path.Combine(Path.GetTempPath(), $"ecagent_{Guid.NewGuid():N}.ps1");
-        // v10.12.9: Wrap in try/catch so errors are caught and reported, not silently swallowed.
-        // $ErrorActionPreference = 'Stop' makes non-terminating errors terminating, but
-        // without try/catch, a terminating error kills the script and the remaining commands
-        // never execute — but the exit code might still be 0 in some cases.
-        var scriptContent = "$ErrorActionPreference = 'Stop'\ntry {\n" + command + "\n} catch {\n  Write-Error $_.Exception.Message\n  exit 1\n}";
+        // v10.12.10: Don't use $ErrorActionPreference = 'Stop' — it kills the script on the
+        // first error, so remaining commands in a ; chain never execute. Instead, use 'Continue'
+        // so all commands run, collect errors, and report them at the end.
+        var scriptContent = "$ErrorActionPreference = 'Continue'\n" + command + "\n\nif ($error.Count -gt 0) {\n  Write-Error ($error -join '`n')\n  exit 1\n}";
         await File.WriteAllTextAsync(tempScript, scriptContent);
 
         try

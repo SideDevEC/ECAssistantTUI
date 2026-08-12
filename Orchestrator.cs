@@ -152,9 +152,9 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                                     
                                     // v10.1: Inject directive as SEPARATE user message (not inside tooloutput tags)
                                     _engine.InjectFormatRetry(
-                                        "The tool has returned its result above. Now you MUST answer the user. " +
-                                        "Respond with <thinking>brief reasoning</thinking><output>your answer</output>. " +
-                                        "Do NOT call another tool. Do NOT write plain text. Use the tags.");
+                                        "The tool has returned its result above. Now respond to the user. " +
+                                        "Use <thinking>brief reasoning</thinking> followed by either <output>your answer</output> (if done) or another <toolcall> (if you need more data). " +
+                                        "Do NOT write plain text. Use the tags.");
 
                                 EColor.WriteLine(EColor.Dim, $"[Orchestrator] Tool succeeded, looping back to LLM (turn {_turnCount + 1})...");
                                 }

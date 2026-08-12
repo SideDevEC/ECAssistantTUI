@@ -655,9 +655,13 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
       /// <summary>Add tool result to both transcript and context window.</summary>
       public void AddToolResult(string toolName, string output)
         {
+           // v10.5.1: Escape angle brackets in tool output to prevent fake XML tags
+           // in conversation history that would break ExtractCleanResponse and ParseLLMDecision.
+           var safeOutput = EscapeToolOutput(output);
+           
            // Add to transcript AND context window (unified — no legacy string list)
-             _transcript.AddToolOutput(output, toolName);
-              _contextWindow.AddToolOutput(output, toolName);
+             _transcript.AddToolOutput(safeOutput, toolName);
+              _contextWindow.AddToolOutput(safeOutput, toolName);
               
               // v9.8: Auto-save transcript on every tool call to prevent data loss on crash
               try
@@ -667,6 +671,14 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
               }
               catch { /* don't crash on save failure */ }
               }
+
+      /// <summary>Escape < and > in tool output to prevent fake XML tags in history.
+      /// Safety net — ensures all tool output is escaped even if a tool forgets.</summary>
+    private static string EscapeToolOutput(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        return text.Replace("<", "&lt;").Replace(">", "&gt;");
+    }
 
       /// <summary>Remove the last assistant response from history (for format retries).</summary>
      public void RemoveLastAssistantResponse()

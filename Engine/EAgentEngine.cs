@@ -1019,11 +1019,10 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
               bool timedOut = false;
                  try
                     {
-                    // v10.12.1: </llm> is the primary stop tag. </output> kept as fallback (only ever one output,
-                    // no conflict with future parallel toolcalls). </toolcall> removed — would stop after
-                    // first toolcall in future parallel mode. If model forgets both, generation runs to
-                    // max_tokens (2048) then stops — ExtractCleanResponse still parses whatever is inside <llm>.
-                    var stopTags = new[] { "</llm>", "</output>" };
+                    // v10.12.15: Only </llm> is a stop tag. No fallbacks.
+                    // </output> removed - if model writes </output> inside content (code, HTML),
+                    // it would stop early. If model forgets </llm>, generation runs to max_tokens.
+                    var stopTags = new[] { "</llm>" };
                     EColor.WriteLine(EColor.Yellow + EColor.Bold, $"── Token Stream (Turn {_turnCount}) ── [ESC to stop] ──");
                     Program.Gui.WriteRawDirect(EColor.Dim);
                     var tokenCount = 0;

@@ -154,8 +154,8 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                  // Step 2: Parse the clean LLM output — detect which block type was returned
               var decision = ParseLLMDecision(llmResponse);
               // v10.10: Also check for multiple parallel tool calls
-              var allCalls = ParseAllToolCalls(llmResponse);
-              var isParallel = allCalls.Count > 1;
+              // v10.10.2: If LLM gave <output>, honor it first — don't run parallel tools
+              var allCalls = decision.WantsDirectAnswer ? new List<(string, Dictionary<string, string?>)>() : ParseAllToolCalls(llmResponse);
               EColor.WriteLine(EColor.Dim, $"[Orchestrator] Parse result: WantsToolCall={decision.WantsToolCall}, WantsDirectAnswer={decision.WantsDirectAnswer}, ToolName={decision.ToolName}, ParallelCalls={allCalls.Count}");
 
               if (allCalls.Count > 1)
@@ -537,7 +537,8 @@ public sealed class AgentOrchestrator : IAsyncDisposable
         // v10.10.1: Skip past </thinking> to avoid parsing toolcalls from the thinking block
         var thinkEnd = response.IndexOf("</thinking>", StringComparison.OrdinalIgnoreCase);
         var searchFrom = thinkEnd >= 0 ? thinkEnd + "</thinking>".Length : 0;
-        while (true)
+        // v10.10.2: Cap at 3 parallel calls (matches BuildIncrementalInput feed limit)
+        while (calls.Count < 3)
         {
             var openIdx = response.IndexOf("<toolcall>", searchFrom, StringComparison.OrdinalIgnoreCase);
             if (openIdx < 0) break;
@@ -607,7 +608,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
               {
         if (_toolCallLog.Count < threshold) return false;
         var lastN = _toolCallLog.TakeLast(threshold);
-            return lastN.All(log => log.Contains("ERR") || log.Contains("EXCEPTION"));
+            return lastN.All(log => log.Contains("ERR") || log.Contains("EXCEPTION") || log.Contains("FAIL") || log.Contains("FAILURE"));
               }
 
      /// <summary>Execute a tool call by name with args dictionary.</summary>

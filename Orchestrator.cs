@@ -73,10 +73,41 @@ public sealed class AgentOrchestrator : IAsyncDisposable
         await _engine.PrefillStaticPrefix();
         
         // v10.6: Decompose the request into sub-tasks using TaskPlanner
+        // v10.7: Try secondary model (LLM) first, fall back to keyword-based
         var planner = _engine.TaskPlanner;
         if (planner != null)
         {
-            _subTasks = planner.Decompose(goal);
+            List<SubTask>? decomposed = null;
+            
+            // v10.7: Try secondary model for LLM-based decomposition
+            var secondary = _engine.SecondaryModel;
+            if (secondary != null && secondary.IsLoaded)
+            {
+                EColor.TagBold(EColor.Info(), "Decompose", "Using secondary model for task decomposition...");
+                var steps = await secondary.DecomposeTaskAsync(goal);
+                if (steps != null && steps.Count > 0)
+                {
+                    decomposed = steps.Select(s => new SubTask { Description = s, Status = SubTaskStatus.Pending }).ToList();
+                    EColor.TagBold(EColor.Success(), "Decompose", $"Secondary model produced {decomposed.Count} steps.");
+                }
+                else
+                {
+                    EColor.TagBold(EColor.Warn(), "Decompose", "Secondary model failed — falling back to keywords.");
+                }
+            }
+            
+            // Fallback: keyword-based decomposition
+            if (decomposed == null || decomposed.Count == 0)
+            {
+                decomposed = planner.Decompose(goal);
+            }
+            else
+            {
+                // Populate planner with LLM-generated steps so GetProgressContext works
+                planner.Decompose(string.Join(" then ", decomposed.Select(s => s.Description)));
+            }
+            
+            _subTasks = decomposed;
             _currentSubTask = 0;
             
             if (_subTasks.Count > 1)

@@ -44,6 +44,7 @@ public sealed class EAgentEngine : IAsyncDisposable
     private SelfCorrectionManager? _selfCorrection = null;
     private ProjectContextManager? _projectContext = null;
     private TaskPlanner? _taskPlanner = null;
+    private SecondaryModelLoader? _secondaryModel = null;  // v10.7: for LLM-based decomposition + summarization
 
        // ── Context Window (replaces raw string list) ───────────
     private readonly ContextWindow _contextWindow;
@@ -67,6 +68,7 @@ public sealed class EAgentEngine : IAsyncDisposable
     public SelfCorrectionManager? SelfCorrection => _selfCorrection;
     public ProjectContextManager? ProjectContext => _projectContext;
     public TaskPlanner? TaskPlanner => _taskPlanner;
+    public SecondaryModelLoader? SecondaryModel => _secondaryModel;  // v10.7
     public IReadOnlyList<EToolBase> Tools => _tools;
     public int TurnCount => _turnCount;
     public ConversationTranscript Transcript => _transcript;
@@ -91,6 +93,13 @@ public sealed class EAgentEngine : IAsyncDisposable
     public void InitializeTaskPlanner()
     {
         _taskPlanner = new TaskPlanner();
+    }
+
+    /// <summary>Set the secondary model for decomposition + summarization (v10.7).</summary>
+    public void SetSecondaryModel(SecondaryModelLoader secondary)
+    {
+        _secondaryModel = secondary;
+        EColor.TagBold(EColor.Success(), "Secondary", "Secondary model attached to engine.");
     }
 
     /// <summary>Inject project context into prompt — only for code-related tasks.</summary>
@@ -170,8 +179,15 @@ public sealed class EAgentEngine : IAsyncDisposable
     {
         _contextWindow.SetSummaryService(new SummaryService(async prompt =>
         {
-            // v10.5: Use a separate StatelessExecutor for summaries so we don't
-            // interfere with the main InteractiveExecutor's KV cache state.
+            // v10.7: Use secondary model for summarization if available (no KV cache interference)
+            if (_secondaryModel != null && _secondaryModel.IsLoaded)
+            {
+                var summary = await _secondaryModel.SummarizeAsync(prompt, maxTokens: 200);
+                summary = System.Text.RegularExpressions.Regex.Replace(summary, @"<[^>]+>", "");
+                return string.IsNullOrWhiteSpace(summary) ? "(Summary generation failed)" : summary;
+            }
+            
+            // Fallback: use a separate StatelessExecutor (doesn't interfere with main KV cache)
             if (_weights == null || _modelParams == null) return "(Summary generation failed)";
             var summaryExecutor = new StatelessExecutor(_weights, _modelParams, new NullLogger());
             var sb = new StringBuilder();
@@ -189,7 +205,8 @@ public sealed class EAgentEngine : IAsyncDisposable
             result = System.Text.RegularExpressions.Regex.Replace(result, @"<[^>]+>", "");
             return string.IsNullOrWhiteSpace(result) ? "(Summary generation failed)" : result;
         }));
-        Program.Gui.WriteLineColored("[Context] SummaryService wired to LLM engine (stateless side-executor).");
+        var mode = (_secondaryModel != null && _secondaryModel.IsLoaded) ? "secondary model" : "stateless side-executor";
+        Program.Gui.WriteLineColored($"[Context] SummaryService wired to {mode}.");
     }
 
        /// <summary>Create engine with context window support and auto-injected memory.</summary>

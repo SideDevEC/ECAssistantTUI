@@ -165,7 +165,10 @@ public class Program
                             contextSize: _config.SecondaryModel.ContextSize,
                             gpuLayers: _config.SecondaryModel.GpuLayers);
                         if (secondary != null)
+                        {
+                            agent.SetSecondaryModel(secondary);
                             EColor.TagBold(EColor.Success(), "Secondary", $"Model loaded: {Path.GetFileName(secPath)}");
+                        }
                         else
                             EColor.Tag(EColor.Info(), "Secondary", "Failed to load — will use primary model for summarization.");
                     }

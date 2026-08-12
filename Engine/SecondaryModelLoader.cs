@@ -109,6 +109,71 @@ public class SecondaryModelLoader : IDisposable
         return await GenerateAsync(prompt, maxTokens);
     }
 
+    /// <summary>
+    /// Decompose a user request into sub-tasks using the secondary model.
+    /// Returns a list of step descriptions.
+    /// Falls back to null if decomposition fails (caller should use keyword fallback).
+    /// </summary>
+    public async Task<List<string>?> DecomposeTaskAsync(string userRequest)
+    {
+        if (!_loaded)
+            return null;
+
+        var prompt = @"You are a task decomposer. Break the user's request into individual steps.
+Each step must be a single action that can be done in one tool call.
+
+Rules:
+- Output ONE step per line
+- Each line starts with a number and a period (1. 2. 3.)
+- Keep each step short and specific
+- Do NOT include thinking, reasoning, or explanation
+- Do NOT include the original request
+- If the task is simple (one action), output just one line
+
+Examples:
+User: read Program.cs then fix the bug in line 42 then rebuild
+1. Read Program.cs to see the bug at line 42
+2. Fix the bug in line 42
+3. Rebuild the project
+
+User: what day is today
+1. Get the current date
+
+User: " + userRequest + "\n";
+
+        var result = await GenerateAsync(prompt, maxTokens: 256);
+        
+        if (string.IsNullOrWhiteSpace(result))
+            return null;
+
+        // Parse numbered lines: "1. ...", "2. ...", etc.
+        var steps = new List<string>();
+        var lines = result.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        foreach (var line in lines)
+        {
+            var trimmed = line.Trim();
+            // Match "N. ..." pattern
+            var match = System.Text.RegularExpressions.Regex.Match(trimmed, @"^\d+\.\s*(.+)$");
+            if (match.Success)
+            {
+                var step = match.Groups[1].Value.Trim();
+                if (!string.IsNullOrWhiteSpace(step))
+                    steps.Add(step);
+            }
+        }
+
+        // Also strip any non-step content (model might add explanation)
+        // If we found no numbered steps, return null (use keyword fallback)
+        if (steps.Count == 0)
+        {
+            Logger.Warn("SecondaryModel", "Decomposition produced no numbered steps — falling back to keywords.");
+            return null;
+        }
+
+        Logger.Info("SecondaryModel", $"Decomposed into {steps.Count} steps: {string.Join(" | ", steps.Select(s => s.Substring(0, Math.Min(s.Length, 50))))}");
+        return steps;
+    }
+
     public void Dispose()
     {
         try { _context?.Dispose(); } catch { }

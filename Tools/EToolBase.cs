@@ -23,7 +23,7 @@ public abstract class EToolBase
                 /// Execute the tool with given arguments.
                  /// </summary>
              /// <param name="arguments">Dictionary of argument key/value pairs from the LLM</param>
-    public abstract Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments);
+    public abstract Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments, CancellationToken cancellationToken = default);
 
                 /// <summary>
                 /// Override to provide additional tool-specific system prompt text.

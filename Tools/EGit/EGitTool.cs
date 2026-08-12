@@ -39,7 +39,7 @@ public class EGitTool : EToolBase
         "<toolcall>EGitTool<action>status</action></toolcall>\n" +
         "<toolcall>EGitTool<action>commit</action><message>fix: update</message></toolcall>";
 
-    public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments)
+    public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments, CancellationToken cancellationToken = default)
     {
         var action = arguments.GetValueOrDefault("action")?.ToLower().Trim();
         if (string.IsNullOrEmpty(action))
@@ -69,7 +69,20 @@ public class EGitTool : EToolBase
 
             var stdout = await process.StandardOutput.ReadToEndAsync();
             var stderr = await process.StandardError.ReadToEndAsync();
-            await process.WaitForExitAsync();
+            // v10.9.3: Cancellation support
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, cancellationToken);
+            try
+            {
+                await process.WaitForExitAsync(linkedCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                try { process.Kill(entireProcessTree: true); } catch { }
+                if (cancellationToken.IsCancellationRequested)
+                    return EToolResult.Failure(Name, "[CANCELLED] Git operation was cancelled by user.");
+                return EToolResult.Failure(Name, "[TIMEOUT] Git operation exceeded 60 second limit.");
+            }
 
             if (process.ExitCode != 0 && !string.IsNullOrWhiteSpace(stderr))
             {

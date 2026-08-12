@@ -51,7 +51,7 @@ public class EDotnetBuildTool : EToolBase
         "<toolcall>EDotnetBuild<action>format</action></toolcall>\n" +
         "<toolcall>EDotnetBuild<action>build</action><configuration>Release</configuration></toolcall>";
 
-    public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments)
+    public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments, CancellationToken cancellationToken = default)
     {
         var action = arguments.GetValueOrDefault("action")?.ToLower().Trim() ?? "build";
         var project = arguments.GetValueOrDefault("project") ?? "";
@@ -98,7 +98,20 @@ public class EDotnetBuildTool : EToolBase
 
         var stdout = await process.StandardOutput.ReadToEndAsync();
         var stderr = await process.StandardError.ReadToEndAsync();
-        await process.WaitForExitAsync();
+        // v10.9.3: Cancellation support — builds can take minutes, allow user to stop
+        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(300));
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, cancellationToken);
+        try
+        {
+            await process.WaitForExitAsync(linkedCts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            try { process.Kill(entireProcessTree: true); } catch { }
+            if (cancellationToken.IsCancellationRequested)
+                return EToolResult.Failure(Name, "[CANCELLED] Build was cancelled by user.");
+            return EToolResult.Failure(Name, "[TIMEOUT] Build exceeded 5 minute limit.");
+        }
 
         var exitCode = process.ExitCode;
         var allOutput = stdout + "\n" + stderr;

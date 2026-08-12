@@ -38,7 +38,7 @@ public class EWebSearchTool : EToolBase
         "<toolcall>EWebSearch<query>how to parse JSON in C#</query></toolcall>\n" +
         "<toolcall>EWebSearch<query>dotnet build error CS0006</query><max_results>3</max_results></toolcall>";
 
-    public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments)
+    public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments, CancellationToken cancellationToken = default)
     {
         var query = arguments.GetValueOrDefault("query");
         if (string.IsNullOrWhiteSpace(query))
@@ -52,7 +52,10 @@ public class EWebSearchTool : EToolBase
         {
             // ── Strategy 1: DuckDuckGo Instant Answer API ──
             var ddgUrl = $"https://api.duckduckgo.com/?q={HttpUtility.UrlEncode(query)}&format=json&no_html=1&skip_disambig=1";
-            var ddgResponse = await _httpClient.GetStringAsync(ddgUrl);
+                        // v10.9.3: Cancellation support
+            if (cancellationToken.IsCancellationRequested)
+                return EToolResult.Failure(Name, "[CANCELLED] Web search was cancelled by user.");
+            var ddgResponse = await _httpClient.GetStringAsync(ddgUrl, cancellationToken);
             var ddgJson = JsonDocument.Parse(ddgResponse);
 
             var sb = new StringBuilder();
@@ -104,7 +107,7 @@ public class EWebSearchTool : EToolBase
             {
                 // Try the lite HTML endpoint as fallback
                 var liteUrl = $"https://lite.duckduckgo.com/lite/?q={HttpUtility.UrlEncode(query)}";
-                var liteResponse = await _httpClient.GetStringAsync(liteUrl);
+                var liteResponse = await _httpClient.GetStringAsync(liteUrl, cancellationToken);
 
                 // Parse simple HTML links from lite response
                 var linkMatches = System.Text.RegularExpressions.Regex.Matches(

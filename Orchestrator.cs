@@ -191,6 +191,17 @@ public sealed class AgentOrchestrator : IAsyncDisposable
 
                     try
                          {
+                        // v10.9.3: Check cancellation before executing tool
+                        if (_engine.ExecutionToken.IsCancellationRequested)
+                        {
+                            EColor.TagBold(EColor.Warn(), "Orchestrator", "Execution cancelled before tool call.");
+                            return new OrchestratorResult
+                            {
+                                FinalOutput = "Execution cancelled by user.",
+                                ToolCallsMade = _turnCount,
+                                Status = OrchestratorStatus.GoalAchieved
+                            };
+                        }
                         var result = await ExecuteTool(decision.ToolName, argsDict);
                         var elapsedMs = (long)((DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond) - startMs);
                         
@@ -470,7 +481,8 @@ public sealed class AgentOrchestrator : IAsyncDisposable
             throw new InvalidOperationException($"Unknown tool: {toolName}");
 
         Logger.Debug("Orchestrator", $"Executing: {tool.Name}");
-            return await tool.ExecuteAsync(args);
+        // v10.9.3: Pass execution cancellation token to tool
+        return await tool.ExecuteAsync(args, _engine.ExecutionToken);
              }
 
      /// <summary>Format tool call log for final summary output.</summary>

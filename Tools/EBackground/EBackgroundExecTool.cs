@@ -43,7 +43,7 @@ public class EBackgroundExecTool : EToolBase
         "<toolcall>EBackgroundExec<command>dotnet build</command><action>start</action></toolcall>\n" +
         "<toolcall>EBackgroundExec<action>status</action></toolcall>";
 
-    public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments)
+    public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments, CancellationToken cancellationToken = default)
     {
         var action = arguments.GetValueOrDefault("action")?.ToLower().Trim();
 
@@ -55,6 +55,9 @@ public class EBackgroundExecTool : EToolBase
                 if (string.IsNullOrWhiteSpace(command))
                     return EToolResult.Failure(Name, "Missing 'command' argument for action=start.");
 
+                // v10.9.3: Cancellation support
+                if (cancellationToken.IsCancellationRequested)
+                    return EToolResult.Failure(Name, "[CANCELLED] Background process start was cancelled by user.");
                 var id = await _mgr.StartAsync(command, _workingDir);
                 return EToolResult.Success(Name,
                     $"Background process started: {id}\nCommand: {command}\nUse EBackgroundExec with action=output and id={id} to check results.",

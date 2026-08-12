@@ -33,7 +33,7 @@ public class EFileAnalyzer : EToolBase
     public override string UsageExample => 
                       @"EFileAnalyzer.Analyze(filePath=""config.json"");";
 
-     public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments)
+     public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments, CancellationToken cancellationToken = default)
             {
             var filePath = arguments.GetValueOrDefault("filePath");
                if (string.IsNullOrWhiteSpace(filePath))

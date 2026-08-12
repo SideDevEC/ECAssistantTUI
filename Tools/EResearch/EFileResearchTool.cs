@@ -25,7 +25,7 @@ public class EFileResearchTool : EToolBase
 
     public override string UsageExample => "EFileResearchTool.Research(query=\"find all async methods\", extensions=[\".cs\",\".md\"])";
 
-    public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments)
+    public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -35,6 +35,9 @@ public class EFileResearchTool : EToolBase
                 ? new HashSet<string>(exStr!.Split(',', StringSplitOptions.RemoveEmptyEntries), StringComparer.OrdinalIgnoreCase)
                 : _defaultExtensions;
 
+            // v10.9.3: Cancellation support
+            if (cancellationToken.IsCancellationRequested)
+                return EToolResult.Failure(Name, "[CANCELLED] File research was cancelled by user.");
             var allFiles = Directory.GetFiles(_searchRoot, "*.*", SearchOption.AllDirectories);
             var filtered = allFiles.Where(f =>
                 extensionsList.Any(ext => Path.GetExtension(f).Equals(ext, StringComparison.OrdinalIgnoreCase)))
@@ -48,7 +51,12 @@ public class EFileResearchTool : EToolBase
                 try
                 {
                     var relativePath = Path.GetRelativePath(_searchRoot, filePath);
-                    var content = await File.ReadAllTextAsync(filePath);
+                                        if (cancellationToken.IsCancellationRequested)
+                    {
+                        EColor.TagBold(EColor.Warn(), "FileResearch", "Cancelled mid-scan.");
+                        break;
+                    }
+                    var content = await File.ReadAllTextAsync(filePath, cancellationToken);
                     if (content.Length > _maxCharsPerFile)
                         content = content.Substring(0, _maxCharsPerFile) + "\n... [truncated]";
                     // Escape angle brackets to prevent XML tag confusion in LLM history

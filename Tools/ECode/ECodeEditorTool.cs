@@ -42,7 +42,7 @@ public class ECodeEditorTool : EToolBase
         "<toolcall>ECodeEditor<action>patch</action><file>Program.cs</file><old_text>var x=1;</old_text><new_text>var x=2;</new_text></toolcall>\n" +
         "<toolcall>ECodeEditor<action>search</action><pattern>TODO</pattern></toolcall>";
 
-    public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments)
+    public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments, CancellationToken cancellationToken = default)
     {
         var action = arguments.GetValueOrDefault("action")?.ToLower().Trim();
         if (string.IsNullOrEmpty(action))
@@ -50,19 +50,19 @@ public class ECodeEditorTool : EToolBase
 
         return action switch
         {
-            "diff" => await DoDiff(arguments),
-            "patch" => await DoPatch(arguments),
-            "search" => await DoSearch(arguments),
-            "replace-all" => await DoReplaceAll(arguments),
-            "insert" => await DoInsert(arguments),
-            "delete-lines" => await DoDeleteLines(arguments),
+            "diff" => await DoDiff(arguments, cancellationToken),
+            "patch" => await DoPatch(arguments, cancellationToken),
+            "search" => await DoSearch(arguments, cancellationToken),
+            "replace-all" => await DoReplaceAll(arguments, cancellationToken),
+            "insert" => await DoInsert(arguments, cancellationToken),
+            "delete-lines" => await DoDeleteLines(arguments, cancellationToken),
             _ => EToolResult.Failure(Name, $"Unknown action: {action}")
         };
     }
 
     // ─── Patch: replace old_text with new_text in a file ─────────
 
-    private async Task<EToolResult> DoPatch(Dictionary<string, string?> args)
+    private async Task<EToolResult> DoPatch(Dictionary<string, string?> args, CancellationToken ct)
     {
         var file = args.GetValueOrDefault("file");
         var oldText = args.GetValueOrDefault("old_text");
@@ -75,7 +75,8 @@ public class ECodeEditorTool : EToolBase
         if (!File.Exists(fullPath))
             return EToolResult.Failure(Name, $"File not found: {file}");
 
-        var content = await File.ReadAllTextAsync(fullPath);
+        if (ct.IsCancellationRequested) return EToolResult.Failure(Name, "[CANCELLED] Operation cancelled by user.");
+            var content = await File.ReadAllTextAsync(fullPath, ct);
 
         if (!content.Contains(oldText))
         {
@@ -102,7 +103,7 @@ public class ECodeEditorTool : EToolBase
         // Generate diff
         var diff = GenerateDiff(content, newContent, file);
 
-        await File.WriteAllTextAsync(fullPath, newContent);
+        await File.WriteAllTextAsync(fullPath, newContent, ct);
 
         Logger.Info("CodeEditor", $"Patched {file}: {oldText.Length} chars → {newText.Length} chars");
 
@@ -113,7 +114,7 @@ public class ECodeEditorTool : EToolBase
 
     // ─── Diff: show what would change ─────────────────────────────
 
-    private async Task<EToolResult> DoDiff(Dictionary<string, string?> args)
+    private async Task<EToolResult> DoDiff(Dictionary<string, string?> args, CancellationToken ct)
     {
         var file = args.GetValueOrDefault("file");
         var newText = args.GetValueOrDefault("new_text");
@@ -125,7 +126,7 @@ public class ECodeEditorTool : EToolBase
         if (!File.Exists(fullPath))
             return EToolResult.Failure(Name, $"File not found: {file}");
 
-        var oldContent = await File.ReadAllTextAsync(fullPath);
+        var oldContent = await File.ReadAllTextAsync(fullPath, ct);
         var diff = GenerateDiff(oldContent, newText, file);
 
         return EToolResult.Success(Name, $"Diff for {file}:\n\n{diff}");
@@ -133,7 +134,7 @@ public class ECodeEditorTool : EToolBase
 
     // ─── Search: find pattern across files ────────────────────────
 
-    private async Task<EToolResult> DoSearch(Dictionary<string, string?> args)
+    private async Task<EToolResult> DoSearch(Dictionary<string, string?> args, CancellationToken ct)
     {
         var pattern = args.GetValueOrDefault("pattern");
         var filter = args.GetValueOrDefault("file_filter") ?? "*.*";
@@ -149,7 +150,7 @@ public class ECodeEditorTool : EToolBase
         {
             try
             {
-                var content = await File.ReadAllTextAsync(filePath);
+                var content = await File.ReadAllTextAsync(filePath, ct);
                 var lines = content.Split('\n');
                 var relPath = Path.GetRelativePath(_workingDir, filePath);
 
@@ -176,7 +177,7 @@ public class ECodeEditorTool : EToolBase
 
     // ─── Replace-All: replace pattern across files ────────────────
 
-    private async Task<EToolResult> DoReplaceAll(Dictionary<string, string?> args)
+    private async Task<EToolResult> DoReplaceAll(Dictionary<string, string?> args, CancellationToken ct)
     {
         var pattern = args.GetValueOrDefault("pattern");
         var replacement = args.GetValueOrDefault("replacement") ?? "";
@@ -198,7 +199,7 @@ public class ECodeEditorTool : EToolBase
 
                 var count = CountOccurrences(content, pattern);
                 var newContent = content.Replace(pattern, replacement);
-                await File.WriteAllTextAsync(filePath, newContent);
+                await File.WriteAllTextAsync(filePath, newContent, ct);
                 modifiedFiles.Add(Path.GetRelativePath(_workingDir, filePath));
                 totalReplacements += count;
             }
@@ -216,7 +217,7 @@ public class ECodeEditorTool : EToolBase
 
     // ─── Insert: insert text at specific line ─────────────────────
 
-    private async Task<EToolResult> DoInsert(Dictionary<string, string?> args)
+    private async Task<EToolResult> DoInsert(Dictionary<string, string?> args, CancellationToken ct)
     {
         var file = args.GetValueOrDefault("file");
         var lineStr = args.GetValueOrDefault("line");
@@ -229,7 +230,8 @@ public class ECodeEditorTool : EToolBase
         if (!File.Exists(fullPath))
             return EToolResult.Failure(Name, $"File not found: {file}");
 
-        var lines = (await File.ReadAllLinesAsync(fullPath)).ToList();
+        if (ct.IsCancellationRequested) return EToolResult.Failure(Name, "[CANCELLED] Operation cancelled by user.");
+            var lines = (await File.ReadAllLinesAsync(fullPath, ct)).ToList();
         var insertAt = Math.Clamp(line - 1, 0, lines.Count); // 1-indexed to 0-indexed
         lines.Insert(insertAt, text);
         await File.WriteAllLinesAsync(fullPath, lines);
@@ -240,7 +242,7 @@ public class ECodeEditorTool : EToolBase
 
     // ─── Delete-Lines: remove a range of lines ──────────────────────
 
-    private async Task<EToolResult> DoDeleteLines(Dictionary<string, string?> args)
+    private async Task<EToolResult> DoDeleteLines(Dictionary<string, string?> args, CancellationToken ct)
     {
         var file = args.GetValueOrDefault("file");
         var startStr = args.GetValueOrDefault("start_line");

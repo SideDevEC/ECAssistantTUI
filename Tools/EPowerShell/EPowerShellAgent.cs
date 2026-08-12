@@ -58,7 +58,7 @@ public class EPowerShellAgent : EToolBase
         "<toolcall>EPowerShellAgent<command>Select-String -Pattern \"TODO\" -Path *.cs</command></toolcall>\n" +
         "<toolcall>EPowerShellAgent<command>Set-Content -Path notes.txt -Value 'Hello World'</command></toolcall>";
 
-    public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments)
+    public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments, CancellationToken cancellationToken = default)
     {
         var psCommand = arguments.GetValueOrDefault("command");
         if (string.IsNullOrWhiteSpace(psCommand))
@@ -68,7 +68,7 @@ public class EPowerShellAgent : EToolBase
 
         try
         {
-            var result = await RunPowerShellAsync(psCommand!, _workingDirectory);
+            var result = await RunPowerShellAsync(psCommand!, _workingDirectory, cancellationToken);
 
             var metadata = new Dictionary<string, string>
             {
@@ -111,7 +111,7 @@ public class EPowerShellAgent : EToolBase
     /// Run a PowerShell command with proper working directory.
     /// Uses a temp script file to avoid quoting issues with cmd.exe.
     /// </summary>
-    private static async Task<PSProcessResult> RunPowerShellAsync(string command, string workingDir)
+    private static async Task<PSProcessResult> RunPowerShellAsync(string command, string workingDir, CancellationToken cancellationToken = default)
     {
         // Write command to a temp .ps1 file to avoid all quoting issues
         var tempScript = Path.Combine(Path.GetTempPath(), $"ecagent_{Guid.NewGuid():N}.ps1");
@@ -134,14 +134,18 @@ public class EPowerShellAgent : EToolBase
                 ?? throw new InvalidOperationException("Failed to start PowerShell process.");
 
             // v9.9: Tool timeout — 60s default, prevent hanging commands
+            // v10.9.3: Also linked to external cancellation token (ESC/stop)
             using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, cancellationToken);
             try
             {
-                await proc.WaitForExitAsync(timeoutCts.Token);
+                await proc.WaitForExitAsync(linkedCts.Token);
             }
             catch (OperationCanceledException)
             {
                 try { proc.Kill(entireProcessTree: true); } catch { }
+                if (cancellationToken.IsCancellationRequested)
+                    return new PSProcessResult("", "[CANCELLED] Command was cancelled by user.", -1);
                 return new PSProcessResult("", "[TIMEOUT] Command exceeded 60 second limit and was killed.", -1);
             }
             var stdout = await proc.StandardOutput.ReadToEndAsync();

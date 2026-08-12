@@ -164,7 +164,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                 };
             }
 
-             EColor.WriteLine(EColor.Dim, $"[Orchestrator] Response ({llmResponse.Length} chars): {llmResponse.Substring(0, Math.Min(llmResponse.Length, 200))}");
+             EColor.WriteLine(EColor.Dim, $"[Orchestrator] Response ({llmResponse.Length} chars): {llmResponse.Substring(0, Math.Min(llmResponse.Length, 200))}{(llmResponse.Length > 200 ? " [...]" : "")}");
 
                  // Step 2: Parse the clean LLM output — detect which block type was returned
               var decision = ParseLLMDecision(llmResponse);
@@ -225,10 +225,10 @@ public sealed class AgentOrchestrator : IAsyncDisposable
 
                         if (result.Succeeded)
                                 {
-                                Program.Gui.WriteLineColored($"[Orchestrator] Output:\n{result.Output?.Substring(0, Math.Min(result.Output.Length, 2000))}");
+                                Program.Gui.WriteLineColored($"[Orchestrator] Output:\n{result.Output?.Substring(0, Math.Min(result.Output.Length, 2000))}{(result.Output != null && result.Output.Length > 2000 ? "\n[...]" : "")}");
 
                                     // Log for LLM context
-                                    var logEntry = $"Tool:{decision.ToolName} \u2192 OK\nOutput: {(result.Output != null ? result.Output.Substring(0, Math.Min(result.Output.Length, 1000)) : "(no output)")}";
+                                    var logEntry = $"Tool:{decision.ToolName} \u2192 OK\nOutput: {(result.Output != null ? result.Output.Substring(0, Math.Min(result.Output.Length, 1000)) + (result.Output.Length > 1000 ? " [...]" : "") : "(no output)")}";
                                        _toolCallLog.Add(logEntry);
 
                                     // Add tool result to conversation history
@@ -236,7 +236,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                                             
                                     // Track completed step
                                     var stepCmd = argsDict.GetValueOrDefault("command") ?? "";
-                                    var stepDesc = $"{decision.ToolName}: {stepCmd.Substring(0, Math.Min(stepCmd.Length, 80))}";
+                                    var stepDesc = $"{decision.ToolName}: {stepCmd.Substring(0, Math.Min(stepCmd.Length, 80))}{(stepCmd.Length > 80 ? " [...]" : "")}";
                                     _completedSteps.Add(stepDesc);
                                     
                                     // v10.6: Advance sub-task tracking on success
@@ -415,7 +415,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                {
                 var key = m.Groups[1].Value;
                 var value = m.Groups[2].Value;
-                Program.Gui.WriteLineColored($"[Parse] Arg: {key} = {value.Substring(0, Math.Min(value.Length, 100))}");
+                Program.Gui.WriteLineColored($"[Parse] Arg: {key} = {value.Substring(0, Math.Min(value.Length, 100))}{(value.Length > 100 ? " [...]" : "")}");
                 if (!string.IsNullOrEmpty(key)) args[key] = value;
                }
 

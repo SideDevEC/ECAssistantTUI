@@ -554,22 +554,43 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                 }
 
        /// <summary>Generate text from the LLM, with conversation context.</summary>
+    /// <param name="userPrompt">The user's original goal/request. Only added to context on turn 1.
+    /// On subsequent turns, the context is already populated by AddToolResult + InjectFormatRetry.</param>
     public async Task<string> GenerateAsync(string userPrompt)
            {
                _turnCount++;
 
-            // Add user message to transcript + context window (unified — no separate string list)
-              _transcript.AddUser(userPrompt);
+            // v10.4 FIX: Only add user message to context on turn 1.
+            // On turns 2+, the "user message" is already injected by the orchestrator
+            // via AddToolResult() + InjectFormatRetry(). Adding the original goal again
+            // creates a duplicate user message that confuses the LLM.
+            if (_turnCount == 1)
+            {
+                _transcript.AddUser(userPrompt);
                 _contextWindow.AddUserMessage(userPrompt);
+            }
 
              Logger.Debug("Context", $"Turn {_turnCount} | Budget: {_contextWindow.GetTotalTokens()}/{_contextWindow.MaxTokens} tokens");
-            Logger.Debug("Context", $"Turn {_turnCount} | Budget: {_contextWindow.GetTotalTokens()}/{_contextWindow.MaxTokens} tokens");
 
            var fullPrompt = BuildFullPrompt(userPrompt);
 
             try
               {
+              // v10.4: Log full prompt to log file (always) and console (when debug logging enabled)
               Logger.Debug("Engine", $"Prompt: {fullPrompt.Length} chars, Turn: {_turnCount}");
+              
+              // v10.4: Always dump the full prompt to a debug file for inspection
+              var promptDumpPath = Path.Combine(_workingDir, "last_prompt.txt");
+              try { File.WriteAllText(promptDumpPath, fullPrompt); } catch { }
+              
+              // v10.4: Print full prompt to console when log level is Debug
+              if (Logger.IsDebugEnabled)
+              {
+                  EColor.TagBold(EColor.Info(), "PromptDump", $"Turn {_turnCount} — {fullPrompt.Length} chars — saved to {promptDumpPath}");
+                  EColor.WriteLine(EColor.Dim, new string('=', 60));
+                  EColor.WriteLine(EColor.Dim, fullPrompt);
+                  EColor.WriteLine(EColor.Dim, new string('=', 60));
+              }
 
               var sb = new StringBuilder();
 
@@ -582,11 +603,15 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                     // LLamaSharp's built-in anti-prompt matching may not catch all cases
                     // with tokenized tags like </toolcall>. We check the accumulated output.
                     var stopTags = new[] { "</toolcall>", "</output>" };
+                    // v10.4: Clear token stream marker — shows exactly what the LLM outputs
+                    EColor.WriteLine(EColor.Yellow + EColor.Bold, $"── Token Stream (Turn {_turnCount}) ──");
                     Program.Gui.WriteRawDirect(EColor.Dim);
+                    var tokenCount = 0;
                     await foreach (var token in _executor.InferAsync(fullPrompt, _inferenceParams, cts.Token))
                          {
                           Program.Gui.WriteRawDirect(token);
                            sb.Append(token);
+                           tokenCount++;
                            // Check if accumulated output contains a stop tag
                            var soFar = sb.ToString();
                            foreach (var stopTag in stopTags)
@@ -594,13 +619,14 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                                if (soFar.Contains(stopTag, StringComparison.OrdinalIgnoreCase))
                                {
                                    Program.Gui.BlankLine();
-                                   EColor.TagBold(EColor.Info(), "Stop", $"Manual anti-prompt hit: {stopTag}");
+                                   EColor.TagBold(EColor.Info(), "Stop", $"Manual anti-prompt hit: {stopTag} (after {tokenCount} tokens)");
                                    goto inferenceDone;
                                }
                            }
                               }
                         inferenceDone:
                     Program.Gui.WriteRawDirect(EColor.Reset);
+                    EColor.WriteLine(EColor.Yellow + EColor.Bold, $"── End Token Stream ({tokenCount} tokens) ──");
                     Program.Gui.BlankLine();
                                }
                           catch (OperationCanceledException)

@@ -43,6 +43,9 @@ public static class Logger
     /// <summary>Set the minimum log level at runtime.</summary>
     public static void SetLevel(LogLevel level) => _minLevel = level;
 
+    /// <summary>Check if debug logging is currently enabled.</summary>
+    public static bool IsDebugEnabled => _minLevel <= LogLevel.Debug;
+
     /// <summary>Debug log (suppressed unless level is Debug).</summary>
     public static void Debug(string tag, string message) => Log(LogLevel.Debug, tag, message);
 

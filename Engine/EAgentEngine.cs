@@ -16,8 +16,8 @@ namespace ECAssistant.Engine;
 internal sealed class NullLogger : ILogger
 {
     public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null!;
-    public bool IsEnabled(LogLevel logLevel) => false;
-    public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? ex, Func<TState, Exception?, string> formatter) { }
+    public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => false;
+    public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, EventId eventId, TState state, Exception? ex, Func<TState, Exception?, string> formatter) { }
 }
 
 public sealed class ToolCallResult
@@ -165,6 +165,7 @@ public sealed class EAgentEngine : IAsyncDisposable
                     }
 
             EColor.TagBold(Cyan, "Engine", $"Model loaded: {modelPath}");
+            Logger.Info("Engine", $"Model loaded: {modelPath} | Context: {contextSize} | GPU: {gpuLayers} | Threads: {threadCount}");
              EColor.TagBold(EColor.Info(), "Config", $"ContextSize: {contextSize} tokens | GPU Layers: {_gpuLayers}");
 
            // Load memory and show how many entries are active
@@ -372,6 +373,7 @@ public sealed class EAgentEngine : IAsyncDisposable
                 _contextWindow.AddUserMessage(userPrompt);
 
              Program.Gui.WriteLineColored($"[Context] Turn {_turnCount} | Budget: {_contextWindow.GetTotalTokens()}/{_contextWindow.MaxTokens} tokens");
+            Logger.Debug("Context", $"Turn {_turnCount} | Budget: {_contextWindow.GetTotalTokens()}/{_contextWindow.MaxTokens} tokens");
 
            var fullPrompt = BuildFullPrompt(userPrompt);
 

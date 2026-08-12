@@ -1,6 +1,6 @@
-# ECAssistant Architecture (v8.2 — 2026-08-12)
+# ECAssistant Architecture (v9.0 — 2026-08-12)
 
-**Summary:** A local, offline AI agent in C# .NET 8 using LLamaSharp. Runs GGUF models locally. Uses XML-style response tags (`<toolcall>`, `<output>`, `<thinking>`) for reliable tool parsing. PowerShell is the primary and only tool needed for all file/system operations — no separate file operation classes since all LLMs know PowerShell natively. Multi-step autonomous loops with persistent memory, sliding context windows, real tokenizer-based token counting, tool policy enforcement, and multi-session management. Tools self-register their rules and examples into the system prompt at runtime — SystemPrompt.md is tool-agnostic.
+**Summary:** A local, offline AI agent in C# .NET 8 using LLamaSharp. Runs GGUF models locally. Uses XML-style response tags (`<toolcall>`, `<output>`, `<thinking>`) for reliable tool parsing. PowerShell is the primary and only tool needed for all file/system operations. Multi-step autonomous loops with persistent memory, sliding context windows, real tokenizer-based token counting, tool policy enforcement, multi-session management, background process execution, and structured logging. Tools self-register their rules and examples into the system prompt at runtime.
 
 ## Key Facts
 - **Language:** C# .NET 8 console app (`net8.0-windows`, Nullable enabled)
@@ -12,7 +12,9 @@
 ## Architecture Overview
 
 ```
-Program.cs (entry point, CLI loop, session management)
+Program.cs (entry point, CLI loop, session mgmt, bg exec, logging init)
+    │
+    ├── Logger.Initialize() — structured logging to file + console
     │
     ├── SessionManager (creates/manages sessions)
     │       └── AgentSession (main, isolated, named)
@@ -23,38 +25,37 @@ Program.cs (entry point, CLI loop, session management)
     │               │       │
     │               │       ├── EAgentEngine.GenerateAsync(prompt)
     │               │       │       │
-    │               │       │       ├── BuildFullPrompt(): system prompt (incl. runtime tool blocks) → memory → windowed history → stop directive
-    │               │       │       │       (tools self-register via ToSystemPromptBlock() — SystemPrompt.md has no hardcoded tool docs)
+    │               │       │       ├── BuildFullPrompt(): system prompt → memory → windowed history
+    │               │       │       │       (tools self-register via ToSystemPromptBlock())
     │               │       │       │
-    │               │       │       └── _executor.InferAsync(fullPrompt) — LLamaSharp InteractiveExecutor
+    │               │       │       └── _executor.InferAsync() — LLamaSharp InteractiveExecutor
     │               │       │               │
-    │               │       │               └── ExtractCleanResponse() — strips noise, extracts structured blocks
-    │               │       │                       │
-    │               │       │                       └── Store in transcript + context window
+    │               │       │               └── ExtractCleanResponse() — strips noise
     │               │       │
-    │               │       ├── TrimToFirstClosingTag() — cuts drift after first </toolcall> or </output>
+    │               │       ├── TrimToFirstClosingTag() — cuts drift
     │               │       ├── ParseLLMDecision() — detects <toolcall>, <output>, or error
-    │               │       └── ExecuteTool(toolName, args) — via tool policy check → execute
+    │               │       └── ExecuteTool() — via tool policy → execute → log result
     │               │
     │               ├── ContextWindow — sliding window with real token counting
     │               │       └── SummaryService (LLM-based compaction at 75% budget)
     │               │
     │               └── EMemoryManager — persistent keyword memory, injected every turn
     │
-    ├── CLI Commands: quit/exit, help, tools, sessions, session-status,
-    │                  clear-history, save-context, memory-save/query/stats,
-    │                  file-pick, analyze-project, interactive-decision
+    ├── BackgroundProcessManager — non-blocking process execution
+    │       └── Start, track, kill, get output for long-running commands
+    │
+    ├── CLI Commands: quit/exit, help, tools, sessions, session-*,
+    │                  bg-run/status/output/kill/cleanup, log, log-level,
+    │                  memory-save/query/stats, file-pick, analyze-project
     │
     └── Tool System
             ├── EPowerShellAgent (PRIMARY — all file/system operations)
-            │       ├── Writes command to temp .ps1 file (avoids quoting issues)
-            │       ├── Sets WorkingDirectory on process (relative paths work)
-            │       ├── Escapes <> in output (prevents XML tag confusion in LLM history)
-            │       └── Handles: Get-Content, Set-Content, Copy-Item, Move-Item,
-            │           Remove-Item, Get-ChildItem, Select-String, dotnet build, etc.
+            │       ├── Temp .ps1 script (no quoting issues)
+            │       ├── WorkingDirectory set (relative paths work)
+            │       ├── Escapes <> in output (prevents XML confusion)
+            │       └── Logs success/failure to Logger
             │
-            ├── EFileResearchTool (project-wide file scan for analysis)
-            │       └── Escapes <> in file content output
+            ├── EFileResearchTool (project-wide file scan)
             │
             └── EToolBase (abstract base: Name, Description, ExecuteAsync, ToSystemPromptBlock)
 ```
@@ -71,89 +72,56 @@ Program.cs (entry point, CLI loop, session management)
 - Smaller tool surface = less confusion for the LLM
 - Adding new file operations = zero code changes (just use a different PowerShell command)
 
-**Implementation:**
-- Command written to temp `.ps1` file → executed with `powershell.exe -File`
-- `WorkingDirectory` set on `ProcessStartInfo` so relative paths work
-- Output escaped (`<` → `&lt;`, `>` → `&gt;`) to prevent XML tag confusion
-
 ### 2. Tool Self-Registration in System Prompt (v8.2)
-**Decision:** SystemPrompt.md is tool-agnostic. Tools self-register their Name, Description, Rules, and Examples at runtime via `ToSystemPromptBlock()`.
+**Decision:** SystemPrompt.md is tool-agnostic. Tools self-register at runtime.
 
-**Rationale:**
-- Adding/removing tools requires no SystemPrompt.md edits
-- Tool definitions are co-located with the tool implementation (single source of truth)
-- SystemPrompt.md stays clean and focused on response format + operating rules
-- Each tool owns its own documentation — no drift between docs and code
+**Rationale:** Adding/removing tools requires no SystemPrompt.md edits. Tool definitions are co-located with implementation.
 
-**Implementation:**
-- `EToolBase.ToSystemPromptBlock()` assembles Name + Description + Rules + Examples
-- `EAgentEngine.BuildSystemToolsPrompt()` iterates registered tools and appends their blocks
-- `SystemPrompt.md` v3.2 has a placeholder section: `## REGISTERED TOOLS` (filled at runtime)
+### 3. Background Process Manager (v9.0)
+**Decision:** Add non-blocking process execution for long-running commands.
 
-### 3. XML Escaping on Tool Output (v8.1)
-**Decision:** All tool output that may contain `<` or `>` characters is escaped before returning to the LLM.
+**Rationale:** PowerShell tool blocks the main loop. Background exec enables:
+- Starting `dotnet build` without freezing the agent
+- Checking status later via `bg-status`
+- Getting output via `bg-output`
+- Killing via `bg-kill`
 
-**Rationale:** File content with angle brackets (C# generics, HTML, XML) was being interpreted as XML tags by the LLM's response parser, causing "no valid block detected" errors.
+### 4. Structured Logging (v9.0)
+**Decision:** Lightweight built-in logger instead of Serilog.
 
-### 4. Tool Policy with Approval Gates (v8)
-**Decision:** 3-level permission system (Allowed/ApprovalRequired/Blocked) checked before every tool execution.
+**Rationale:** No external dependency, matches the project's self-contained philosophy. File + console output, 4 levels, thread-safe. Sufficient for debugging without adding NuGet packages.
 
-**Rationale:** Safety-by-default without blocking useful operations. Currently `EPowerShellAgent` is `Allowed` (agent needs command access to be useful).
+### 5. DecisionLoop v2 (v9.0)
+**Decision:** Replace placeholder with real interactive loop.
 
-### 5. Session Abstraction (v8)
-**Decision:** `AgentSession` + `SessionManager` as first-class objects.
+**Rationale:** v1 always picked "B" with no real user input. v2 sends task to LLM, relays questions to user, feeds answers back. Max 5 rounds, user can cancel.
 
-**Rationale:** Enables future multi-session support (main, isolated sub-agents, named persistent sessions). Currently all sessions share the same LLamaSharp engine.
+### 6. EContextAnalyzer v2 (v9.0)
+**Decision:** Real project analysis instead of placeholder.
 
-## Component Details
-
-### EPowerShellAgent — The Primary Tool
-- Writes command to temp `.ps1` script (no `cmd.exe` quoting issues)
-- Sets `WorkingDirectory` on process so relative paths work
-- Escapes `<>` in output to prevent XML confusion
-- Handles ALL file operations: read, write, copy, move, delete, search, compile, run
-
-### ToolPolicy — Permission System
-- `Allowed`: tool runs freely
-- `ApprovalRequired`: user sees command, must approve with [y/N]
-- `Blocked`: tool cannot run
-- Checked in orchestrator before every tool call
-
-### SessionManager + AgentSession
-- `SessionManager`: creates, tracks, cleans up sessions
-- `AgentSession`: owns engine ref, orchestrator, policy, state, metadata
-- Types: Main (primary), Isolated (sub-agent), Named (persistent)
-- CLI: `sessions`, `session-status`, `session-create`, `session-cleanup`
-
-### ContextWindow + SummaryService
-- Real token counting via LLamaSharp tokenizer
-- Auto-summarize at 75% budget (drops oldest 40%, LLM summarizes)
-- `SummaryService` wired to engine's own LLM via `WireSummaryService()`
-
-### EMemoryManager
-- Keyword-based persistent memory (JSON files on disk)
-- Injected into every prompt via `GetMemoryInjection()`
-- Categories: bugs, solutions, general, user
+**Rationale:** v1 only parsed `using` statements. v2 counts lines, classes, methods, TODOs, detects circular deps, finds orphaned files, warns on large files.
 
 ## Feature Status
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Local GGUF inference | ✅ Live | LLamaSharp 0.27.0, Vulkan/CPU/CUDA backends |
-| PowerShell tool (primary) | ✅ Live | Temp .ps1 script, WorkingDirectory, XML escaping |
-| EFileResearchTool | ✅ Live | Project-wide scan, XML-escaped output |
+| Local GGUF inference | ✅ Live | LLamaSharp 0.27.0 |
+| PowerShell tool (primary) | ✅ Live | All file/system ops |
+| EFileResearchTool | ✅ Live | Project-wide scan |
 | XML-style response parsing | ✅ Live | `<thinking>`, `<toolcall>`, `<output>` |
-| Tool self-registration | ✅ Live | Tools inject rules+examples via ToSystemPromptBlock() at runtime |
-| Multi-step orchestration | ✅ Live | Fail-fast on 3 consecutive failures |
-| Tool policy + approval gates | ✅ Live | 3 levels, checked before every tool call |
-| Session management | ✅ Live | Main, isolated, named. CLI commands |
-| Real tokenizer counting | ✅ Live | LLamaSharp `.Tokenize().ToList().Count` |
-| Memory injection into prompts | ✅ Live | Keyword query, injected every turn |
-| Sliding context window | ✅ Live | Auto-summarize at 75%, drops 40% oldest |
+| Tool self-registration | ✅ Live | Runtime via ToSystemPromptBlock() |
+| Multi-step orchestration | ✅ Live | Fail-fast on 3 failures |
+| Tool policy + approval gates | ✅ Live | 3 levels |
+| Session management | ✅ Live | Main, isolated, named |
+| Real tokenizer counting | ✅ Live | LLamaSharp .Tokenize() |
+| Memory injection into prompts | ✅ Live | Keyword query every turn |
+| Sliding context window | ✅ Live | Auto-summarize at 75% |
 | LLM-based summarization | ✅ Live | SummaryService wired to engine |
 | Transcript persistence | ✅ Live | JSON disk save/load |
-| Abstract UI layer | ✅ Live | EGuiBase interface, EGuiConsole concrete |
-| DecisionLoop | ⚠️ WIP | Placeholder — defaults "B", no real user input |
-| EContextAnalyzer | ⚠️ WIP | Basic `using` parsing only |
+| Abstract UI layer | ✅ Live | EGuiBase interface |
+| Background process manager | ✅ Live | Start/track/kill, CLI commands |
+| Structured logging | ✅ Live | File+console, 4 levels |
+| DecisionLoop v2 | ✅ Live | Real user input, LLM-driven |
+| EContextAnalyzer v2 | ✅ Live | Lines, TODOs, deps, orphans, cycles |
 
-**Status:** v8.2 — builds successfully (0 errors, 10 warnings). PowerShell as primary tool. Tools self-register into system prompt.
+**Status:** v9.0 — all gap analysis items addressed. Ready for Windows testing.

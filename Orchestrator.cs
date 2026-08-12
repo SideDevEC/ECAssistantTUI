@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using ECAssistant.Engine;
 using ECAssistant.Tools;
+using ECAssistant.Services;
 
 namespace ECAssistant.Orchestration;
 
@@ -112,6 +113,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                         var elapsedMs = (long)((DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond) - startMs);
                         
                             Program.Gui.WriteLineColored($"[Orchestrator] Tool result: {(result.Succeeded ? "SUCCESS" : "FAILURE")} ({elapsedMs}ms)");
+                            Logger.Info("Orchestrator", $"Tool: {decision.ToolName} = {(result.Succeeded ? "SUCCESS" : "FAILURE")} ({elapsedMs}ms)");
 
                         if (result.Succeeded)
                                 {

@@ -6,6 +6,7 @@ using System.Text;
 using ECAssistant.Tools;
 using ECAssistant;
 using ECAssistant.UI;
+using ECAssistant.Services;
 
 namespace ECAssistant.Tools.PowerShell;
 
@@ -94,6 +95,7 @@ public class EPowerShellAgent : EToolBase
             {
                 var safeErr = EscapeXml(result.StandardError);
                 var safeCmd = EscapeXml(psCommand!);
+                Logger.Error("PowerShell", $"Command failed (exit={result.ExitCode}): {psCommand?.Substring(0, Math.Min(psCommand.Length, 100))}");
                 return EToolResult.Failure(Name,
                     $"[PS Error (Exit {result.ExitCode})]\nSTDERR: {safeErr}\nCommand: {safeCmd}",
                     metadata);

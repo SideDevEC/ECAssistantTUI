@@ -5,11 +5,11 @@ using ECAssistant.Engine;
 using ECAssistant.Orchestration;
 using ECAssistant.Tools.PowerShell;
 using ECAssistant.Tools.Research;
-using ECAssistant.Tools.FileOps;
 using ECAssistant.Tools;
 using ECAssistant.Analysis;
 using ECAssistant.UI;
 using ECAssistant.Session;
+using ECAssistant.Services;
 using LLama.Common;
 using LLama.Sampling;
 
@@ -25,6 +25,10 @@ public class Program
             {
                  // ── UI initialisation — single line, swap anywhere ──
              Gui = new EGuiConsole();
+
+            // ── Initialize structured logging (P2) ──
+            var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "ECAssistant.log");
+            Logger.Initialize(logPath, (EGuiBase)Gui, LogLevel.Info);
 
             EColor.TagBold(Cyan, "ECAssistant", "llama-sharp 0.27.0");
              EColor.TagBold(Cyan, "Tools", "PowerShell - Extensible");
@@ -134,7 +138,11 @@ public class Program
                     var sessionManager = new SessionManager(agent, orchestrator.Policy);
                     EColor.TagBold(EColor.Info(), "Session", $"Main session created. Sessions: {sessionManager.List().Count}");
 
-                   await RunAgentLoop(agent, orchestrator, effectiveDir, psAgent, sessionManager);
+                    // ── Background Process Manager (P1: non-blocking exec) ──
+                    var bgMgr = new BackgroundProcessManager();
+                    EColor.TagBold(EColor.Info(), "Background", "Process manager ready.");
+
+                   await RunAgentLoop(agent, orchestrator, effectiveDir, psAgent, sessionManager, bgMgr);
                         }
             else
                      {
@@ -200,7 +208,8 @@ public class Program
            AgentOrchestrator orchestrator,
          string workingDir,
         EPowerShellAgent psAgent,
-        SessionManager sessionManager)
+        SessionManager sessionManager,
+        BackgroundProcessManager bgMgr)
               {
             Gui.BlankLine();
              EColor.TagBold(Cyan, "ECLoop", "Type your request (help | quit)");
@@ -356,6 +365,71 @@ public class Program
                                 continue;
                             }
 
+                           // ── Background Exec Commands (P1) ──
+                            case "bg-run": case "bg": {
+                                var cmd = Gui.PromptRaw("Command: ")?.Trim() ?? "";
+                                if (!string.IsNullOrEmpty(cmd)) {
+                                    var bgId = await bgMgr.StartAsync(cmd, workingDir);
+                                    EColor.TagBold(EColor.Success(), "Background", $"Started: {bgId} — {cmd}");
+                                }
+                                continue;
+                            }
+                            case "bg-status": {
+                                var list = bgMgr.List();
+                                Gui.BlankLine();
+                                EColor.TagBold(Cyan, "Background", $"{list.Count} process(es):");
+                                foreach (var p in list) Gui.WriteLineColored($"  {p}");
+                                Gui.BlankLine();
+                                continue;
+                            }
+                            case "bg-output": {
+                                var bgId = Gui.PromptRaw("Process ID: ")?.Trim() ?? "";
+                                if (!string.IsNullOrEmpty(bgId)) {
+                                    var output = bgMgr.GetOutput(bgId);
+                                    var status = bgMgr.GetStatus(bgId);
+                                    EColor.TagBold(Cyan, "Background", $"{bgId} — {status}");
+                                    Gui.WriteLineColored(output);
+                                }
+                                continue;
+                            }
+                            case "bg-kill": {
+                                var bgId = Gui.PromptRaw("Process ID: ")?.Trim() ?? "";
+                                if (!string.IsNullOrEmpty(bgId)) {
+                                    var killed = bgMgr.Kill(bgId);
+                                    EColor.TagBold(killed ? EColor.Success() : EColor.Error(), "Background", killed ? $"Killed: {bgId}" : $"Failed to kill: {bgId}");
+                                }
+                                continue;
+                            }
+                            case "bg-cleanup": {
+                                bgMgr.CleanupFinished();
+                                EColor.TagBold(EColor.Info(), "Background", "Finished processes cleaned up.");
+                                continue;
+                            }
+
+                           // ── Logging Commands (P2) ──
+                            case "log": {
+                                Gui.BlankLine();
+                                EColor.TagBold(Cyan, "Log", $"File: {Logger.LogFilePath} ({Logger.LogFileSize} bytes)");
+                                Gui.BlankLine();
+                                var recent = Logger.GetRecentLines(30);
+                                Gui.WriteLineColored(recent);
+                                Gui.BlankLine();
+                                continue;
+                            }
+                            case "log-level": {
+                                var lvl = Gui.PromptRaw("Level (debug/info/warn/error): ")?.Trim().ToLower() ?? "";
+                                var parsed = lvl switch {
+                                    "debug" => LogLevel.Debug,
+                                    "info" => LogLevel.Info,
+                                    "warn" => LogLevel.Warn,
+                                    "error" => LogLevel.Error,
+                                    _ => LogLevel.Info
+                                };
+                                Logger.SetLevel(parsed);
+                                EColor.TagBold(EColor.Success(), "Log", $"Level set to: {parsed}");
+                                continue;
+                            }
+
                            case "?":  case "/?": PrintUsage(); continue;
 
                          default: break;
@@ -402,6 +476,13 @@ public class Program
                 EColor.WriteLine(Yellow + Bold, "   session-status        Show main session status");
                 EColor.WriteLine(Yellow + Bold, "   session-create        Create a named session");
                 EColor.WriteLine(Yellow + Bold, "   session-cleanup       Clean up idle/isolated sessions");
+             EColor.WriteLine(Yellow + Bold, "   bg-run <cmd>          Start a background process");
+            EColor.WriteLine(Yellow + Bold, "   bg-status             List background processes");
+           EColor.WriteLine(Yellow + Bold, "   bg-output <id>        Get output from a background process");
+           EColor.WriteLine(Yellow + Bold, "   bg-kill <id>          Kill a background process");
+          EColor.WriteLine(Yellow + Bold, "   bg-cleanup            Remove finished processes from tracking");
+           EColor.WriteLine(Yellow + Bold, "   log                   Show recent log entries");
+          EColor.WriteLine(Yellow + Bold, "   log-level             Set log level (debug/info/warn/error)");
              Gui.BlankLine();
             EColor.Tag(Info(), "Response", "Agent uses XML-style tags: <thinking>, <toolcall>, <output>.");
              }

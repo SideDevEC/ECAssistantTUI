@@ -60,6 +60,13 @@ public sealed class AgentOrchestrator : IAsyncDisposable
      /// <summary>Execute multi-step workflow autonomously.</summary>
     public async Task<OrchestratorResult> ExecuteMultiStep(string goal)
              {
+        // v10.4.4: Reset turn counters at the start of each new user request.
+        // The engine's _turnCount tracks which turn we are on within a single request.
+        // Without this, the second question's user message never gets added to context
+        // (the if _turnCount == 1 guard in GenerateAsync fails).
+        Reset();
+        _engine.ResetTurnCount();
+        
         Program.Gui.WriteLineColored($"[Orchestrator] Starting for: {goal}");
         Program.Gui.WriteLineColored($"[Orchestrator] Max turns: {_maxTurns}, Failures limit: {_maxFailuresBeforeStop}\n");
 

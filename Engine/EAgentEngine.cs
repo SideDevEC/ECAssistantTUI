@@ -568,6 +568,14 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
             Program.Gui.WriteLineColored("[Context] History and transcript cleared.");
                 }
 
+      /// <summary>Reset the turn counter for a new user request (v10.4.4).
+      /// Called by the orchestrator at the start of each ExecuteMultiStep.
+      /// This ensures the first GenerateAsync call adds the user message to context.</summary>
+    public void ResetTurnCount()
+    {
+        _turnCount = 0;
+    }
+
        /// <summary>Generate text from the LLM, with conversation context.</summary>
     /// <param name="userPrompt">The user's original goal/request. Only added to context on turn 1.
     /// On subsequent turns, the context is already populated by AddToolResult + InjectFormatRetry.</param>

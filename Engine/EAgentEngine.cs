@@ -77,7 +77,7 @@ public sealed class EAgentEngine : IAsyncDisposable
     
     // v10.9: Cancellation token for stopping execution mid-stream
     // v10.9.1: Fixed race condition — don't null _cts in StopExecution
-private CancellationTokenSource? _cts;
+    private CancellationTokenSource? _cts;
     private volatile bool _isExecuting = false;
     private volatile bool _escPressed = false;  // v10.9.2: ESC flag for partial response check
     public CancellationToken ExecutionToken => _cts?.Token ?? CancellationToken.None;
@@ -466,11 +466,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
             sb.AppendLine();
 
             // First-turn directive
-            // v10.10.4: If multiple sub-tasks exist, tell LLM to parallelize independent ones
-            if (!string.IsNullOrEmpty(taskProgress))
-                sb.AppendLine("-- Multiple steps detected. Run INDEPENDENT steps in PARALLEL (multiple <toolcall> blocks in ONE response). Run DEPENDENT steps sequentially. --");
-            else
-                sb.AppendLine("-- Call tools in PARALLEL (multiple <toolcall> blocks) when steps are independent. Call sequentially when one needs the result of another. After results, decide: give <output> if done, or call more tools. --");
+            sb.AppendLine("-- Use ONE tool call per response. After the result returns, decide: give <output> if done, or call another tool if needed. --");
 
             // Generation cue
             sb.AppendLine("<assistant>");
@@ -478,24 +474,16 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
         else
         {
             // Subsequent turns: history is already in KV cache.
-            // Feed only the new tool output(s) + directive + generation cue.
+            // Feed only the new tool output + directive + generation cue.
             var windowMessages = _contextWindow.GetWindowMessages();
-            // v10.10.1: Count only the latest batch of tool outputs (consecutive from the end)
-            var toolResultCount = 0;
-            for (int i = windowMessages.Count - 1; i >= 0; i--)
-            {
-                if (windowMessages[i].Role == "tool_output") toolResultCount++;
-                else break;
-            }
+            var toolResultCount = windowMessages.Count(m => m.Role == "tool_output");
 
-            // v10.10: Feed ALL new tool_output messages (parallel results may have multiple)
-            var newToolMessages = windowMessages.Where(m => m.Role == "tool_output")
-                .Reverse().Take(3).Reverse().ToList(); // Last 3 (max) to avoid context bloat
-            
-            foreach (var toolMsg in newToolMessages)
+            // Find the last tool_output message (just added by the orchestrator)
+            var lastTool = windowMessages.LastOrDefault(m => m.Role == "tool_output");
+            if (lastTool != null)
             {
-                sb.AppendLine($"<tooloutput>{toolMsg.Source}<result>");
-                sb.AppendLine(toolMsg.Content);
+                sb.AppendLine($"<tooloutput>{lastTool.Source}<result>");
+                sb.AppendLine(lastTool.Content);
                 sb.AppendLine("</result></tooloutput>");
                 sb.AppendLine();
             }
@@ -513,11 +501,11 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
             // Context-aware directive
             if (toolResultCount >= 3)
             {
-                sb.AppendLine($"-- You have run {toolResultCount} tool calls. If you have enough information, give your final answer with <output>. If you need more data, call tools in PARALLEL if independent. --");
+                sb.AppendLine($"-- You have run {toolResultCount} tool calls. If you have enough information, give your final answer with <output>. Only call another tool if you still need more data. --");
             }
             else
             {
-                sb.AppendLine("-- Tool results are in history above. If you have the answer, use <output>. If you need more data, call tools in PARALLEL if independent, or sequentially if dependent. --");
+                sb.AppendLine("-- Tool results are in history above. If you have the answer, use <output>. If you need another tool call to complete the task, you may call one more. --");
             }
 
             // Generation cue
@@ -641,30 +629,24 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
 
                // ── Step 6: Context-aware directive ─────────────────────────────
                var hasToolResults = windowMessages.Any(m => m.Role == "tool_output");
-               // v10.10.1: Count only the latest batch of tool outputs (consecutive from the end)
-            var toolResultCount = 0;
-            for (int i = windowMessages.Count - 1; i >= 0; i--)
-            {
-                if (windowMessages[i].Role == "tool_output") toolResultCount++;
-                else break;
-            }
+               var toolResultCount = windowMessages.Count(m => m.Role == "tool_output");
                
                if (hasToolResults)
                {
                    if (toolResultCount >= 3)
                    {
                        // Multiple tool calls done — push toward final answer
-                       sb.AppendLine("-- You have run " + toolResultCount + " tool calls. If you have enough information, give your final answer with <output>. If you need more data, call tools in PARALLEL if independent. --");
+                       sb.AppendLine("-- You have run " + toolResultCount + " tool calls. If you have enough information, give your final answer with <output>. Only call another tool if you still need more data. --");
                    }
                    else
                    {
                        // 1-2 tool calls done — allow continuing if needed
-                       sb.AppendLine("-- Tool results are in history above. If you have the answer, use <output>. If you need more data, call tools in PARALLEL if independent, or sequentially if dependent. --");
+                       sb.AppendLine("-- Tool results are in history above. If you have the answer, use <output>. If you need another tool call to complete the task, you may call one more. --");
                    }
                }
               else
                     {
-                       sb.AppendLine("-- Call tools in PARALLEL (multiple <toolcall> blocks) when steps are independent. Call sequentially when one needs the result of another. After results, decide: give <output> if done, or call more tools. --");
+                       sb.AppendLine("-- Use ONE tool call per response. After the result returns, decide: give <output> if done, or call another tool if needed. --");
                           }
 
              // v10.4.3: Open <assistant> tag to cue the model to START generating.
@@ -1166,25 +1148,9 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
              sb.AppendLine(thinkContent);
          }
 
-         // v10.10: Include ALL toolcall blocks (for parallel execution) or the first output block
-         if (blockStart >= 0 && blockTag == "<toolcall>")
+         // Include the action block (toolcall or output) if found
+         if (blockStart >= 0)
          {
-             // For toolcall: find ALL toolcall blocks
-             var toolcallSearchFrom = searchStart;
-             while (true)
-             {
-                 var tcStart = raw.IndexOf("<toolcall>", toolcallSearchFrom, StringComparison.OrdinalIgnoreCase);
-                 if (tcStart < 0) break;
-                 var tcClose = raw.IndexOf("</toolcall>", tcStart + "<toolcall>".Length, StringComparison.OrdinalIgnoreCase);
-                 if (tcClose < 0) break;
-                 var blockLen = tcClose - tcStart + "</toolcall>".Length;
-                 sb.Append(raw.Substring(tcStart, blockLen).Trim());
-                 toolcallSearchFrom = tcClose + "</toolcall>".Length;
-             }
-         }
-         else if (blockStart >= 0)
-         {
-             // For output: take the first block
              var closePos = raw.IndexOf(blockCloseTag, blockStart + blockTag.Length, StringComparison.OrdinalIgnoreCase);
              if (closePos >= 0)
              {
@@ -1193,11 +1159,13 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
              }
              else
              {
+                 // Opening tag but no close — take rest of text
                  sb.Append(raw.Substring(blockStart).Trim());
              }
          }
          else if (thinkStart < 0)
          {
+             // No thinking, no toolcall, no output — return raw (will be caught as invalid by orchestrator)
              return raw.Trim();
          }
 

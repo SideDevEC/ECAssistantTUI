@@ -483,7 +483,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
             sb.AppendLine("-- Open <llm><thinking>brief</thinking><toolcall>ToolName<arg>value</arg></toolcall></llm> then STOP. --");
 
             // Generation cue
-            sb.AppendLine("<assistant>");
+            sb.AppendLine("<assistant><llm>");
         }
         else
         {
@@ -523,7 +523,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
             }
 
             // Generation cue
-            sb.AppendLine("<assistant>");
+            sb.AppendLine("<assistant><llm>");
         }
 
         return sb.ToString();
@@ -669,7 +669,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
              // Without this, the model sees history ending with <user>...</user> and
              // echoes it instead of producing its own response. The open tag tells
              // the model: "now it's your turn to respond as the assistant."
-             sb.AppendLine("<assistant>");
+             sb.AppendLine("<assistant><llm>");
 
              return sb.ToString();
                   }
@@ -1078,10 +1078,8 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                   rawResult = rawResult.Substring("<assistant>".Length).Trim();
               if (rawResult.EndsWith("</assistant>", StringComparison.OrdinalIgnoreCase))
                   rawResult = rawResult.Substring(0, rawResult.Length - "</assistant>".Length).Trim();
-              // v10.12: Strip leading <llm> echo if model echoed the container opening back.
-              // (ExtractCleanResponse handles this too, but strip early so logs are cleaner.)
-              if (rawResult.StartsWith("<llm>", StringComparison.OrdinalIgnoreCase))
-                  EColor.WriteLine(EColor.Dim, "[Engine] Stripped leading <llm> echo");
+              // v10.12: Do NOT strip <llm> here — ExtractCleanResponse needs it to
+              // detect the container boundary. Stripping here would break noise filtering.
 
               EColor.WriteLine(EColor.Dim, $"[Engine] Raw ({rawResult.Length} chars): {rawResult.Substring(0, Math.Min(rawResult.Length, 300))}");
 

@@ -167,7 +167,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
              // v9.19: Log what the engine returned BEFORE trimming
               EColor.WriteLine(EColor.Dim, $"[Orchestrator] Before trim ({llmResponse.Length} chars): {llmResponse.Substring(0, Math.Min(llmResponse.Length, 200))}");
 
-             // Trim pass: cut at first </toolcall> or </output> boundary, keep tags included
+             // Trim pass: cut at first </llm> or </output> boundary, keep tags included
               llmResponse = TrimToFirstClosingTag(llmResponse);
               EColor.WriteLine(EColor.Dim, $"[Orchestrator] After trim ({llmResponse.Length} chars): {llmResponse.Substring(0, Math.Min(llmResponse.Length, 200))}");
 
@@ -344,28 +344,25 @@ public sealed class AgentOrchestrator : IAsyncDisposable
      /// <summary>
      /// Trim the raw LLM response at the first closing tag boundary.
      /// 
-     /// Cuts everything AFTER the first </toolcall> or </output> (whichever comes first).
-     /// The closing tag itself IS kept — truncation happens after it closes.
+     /// v10.12.6: Cuts after the first </llm> or </output> (whichever comes first).
+     /// </toolcall> is NOT a trim point — it's inside the <llm> container.
      /// This removes trailing noise/hallucination while preserving complete structured blocks.
-     /// 
-     /// No changes to EAgentEngine or ExtractCleanResponse — this is orchestration-only.
      /// </summary>
     private static string TrimToFirstClosingTag(string rawResponse)
              {
         if (string.IsNullOrEmpty(rawResponse)) return rawResponse;
 
-        var toolcallCloseIdx = rawResponse.IndexOf("</toolcall>", StringComparison.OrdinalIgnoreCase);
+        // v10.12.6: Only </llm> and </output> are trim points.
+        // </toolcall> removed — it's inside the <llm> container and cutting there
+        // would lose the </llm> close and any content after a toolcall.
         var outputCloseIdx = rawResponse.IndexOf("</output>", StringComparison.OrdinalIgnoreCase);
-        // v10.12: Also check for </llm> container close
         var llmCloseIdx = rawResponse.IndexOf("</llm>", StringComparison.OrdinalIgnoreCase);
 
          // Find whichever comes first (ignore negative/unused indices)
         int cutAt = -1;
         string cutTag = "";
         
-        // Find the earliest of all three closing tags
         if (llmCloseIdx >= 0) { cutAt = llmCloseIdx; cutTag = "</llm>"; }
-        if (toolcallCloseIdx >= 0 && (cutAt < 0 || toolcallCloseIdx < cutAt)) { cutAt = toolcallCloseIdx; cutTag = "</toolcall>"; }
         if (outputCloseIdx >= 0 && (cutAt < 0 || outputCloseIdx < cutAt)) { cutAt = outputCloseIdx; cutTag = "</output>"; }
 
          // No closing tag found — return as-is (nothing to trim)

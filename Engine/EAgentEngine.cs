@@ -466,7 +466,11 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
             sb.AppendLine();
 
             // First-turn directive
-            sb.AppendLine("-- Call tools in PARALLEL (multiple <toolcall> blocks) when steps are independent. Call sequentially when one needs the result of another. After results, decide: give <output> if done, or call more tools. --");
+            // v10.10.4: If multiple sub-tasks exist, tell LLM to parallelize independent ones
+            if (!string.IsNullOrEmpty(taskProgress))
+                sb.AppendLine("-- Multiple steps detected. Run INDEPENDENT steps in PARALLEL (multiple <toolcall> blocks in ONE response). Run DEPENDENT steps sequentially. --");
+            else
+                sb.AppendLine("-- Call tools in PARALLEL (multiple <toolcall> blocks) when steps are independent. Call sequentially when one needs the result of another. After results, decide: give <output> if done, or call more tools. --");
 
             // Generation cue
             sb.AppendLine("<assistant>");

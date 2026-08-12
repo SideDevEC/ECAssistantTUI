@@ -667,7 +667,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
         var sb = new StringBuilder();
         
         sb.AppendLine("The tool has returned its result above. Now respond to the user.");
-        sb.AppendLine("Use <thinking>brief reasoning</thinking> followed by either <output>your answer</output> (if done) or another <toolcall> (if you need more data).");
+        sb.AppendLine("Use <thinking>brief reasoning</thinking> followed by either <output>your answer</output> (if done) or <toolcall> blocks for more tools.");
         sb.AppendLine("Do NOT write plain text. Use the tags.");
         
         // v10.6: If we have sub-tasks, inject step context
@@ -691,8 +691,29 @@ public sealed class AgentOrchestrator : IAsyncDisposable
             sb.AppendLine($"{marker}{status} {safeDesc}");
             }
             
-            // Give explicit instruction for the current step
-            if (_currentSubTask < _subTasks.Count)
+            // v10.10.4: Find all pending steps — if multiple are pending, they may be parallel
+            var pendingSteps = new List<int>();
+            for (int i = _currentSubTask; i < _subTasks.Count; i++)
+            {
+                if (_subTasks[i].Status == SubTaskStatus.Pending || _subTasks[i].Status == SubTaskStatus.InProgress)
+                    pendingSteps.Add(i);
+            }
+            
+            if (pendingSteps.Count > 1)
+            {
+                // v10.10.4: Multiple pending steps — tell LLM to run them in PARALLEL
+                sb.AppendLine();
+                sb.AppendLine($"> {pendingSteps.Count} INDEPENDENT STEPS REMAINING:");
+                foreach (var idx in pendingSteps.Take(3))
+                {
+                    var safeStep = _subTasks[idx].Description.Replace("<", "&lt;").Replace(">", "&gt;");
+                    sb.AppendLine($"  - {safeStep}");
+                }
+                sb.AppendLine();
+                sb.AppendLine("These steps are INDEPENDENT. Output MULTIPLE <toolcall> blocks in ONE response to run them in PARALLEL.");
+                sb.AppendLine("Do NOT wait for one to finish before calling the next. Put ALL independent toolcalls in this response.");
+            }
+            else if (_currentSubTask < _subTasks.Count)
             {
                 var current = _subTasks[_currentSubTask];
                 if (current.Status == SubTaskStatus.Pending || current.Status == SubTaskStatus.InProgress)
@@ -700,7 +721,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                     sb.AppendLine();
                     var safeCurrent = _subTasks[_currentSubTask].Description.Replace("<", "&lt;").Replace(">", "&gt;");
                     sb.AppendLine($"> CURRENT STEP: {safeCurrent}");
-                    sb.AppendLine("Focus on completing THIS step. If the previous tool result gives you what you need, proceed to this step.");
+                    sb.AppendLine("Focus on completing THIS step.");
                 }
             }
             

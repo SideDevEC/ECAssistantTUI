@@ -480,7 +480,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
             sb.AppendLine();
 
             // First-turn directive
-            sb.AppendLine("-- Use ONE tool call per response. After the result returns, decide: give <output> if done, or call another tool if needed. --");
+            sb.AppendLine("-- ALWAYS start with <llm> and close with </llm>. ONE tool call per response. After result, give <output> if done or another <toolcall> if needed. --");
 
             // Generation cue
             sb.AppendLine("<assistant>");
@@ -515,11 +515,11 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
             // Context-aware directive
             if (toolResultCount >= 3)
             {
-                sb.AppendLine($"-- You have run {toolResultCount} tool calls. If you have enough information, give your final answer with <output>. Only call another tool if you still need more data. --");
+                sb.AppendLine($"-- ALWAYS start with <llm> and close with </llm>. You have run {toolResultCount} tool calls. Give <output> if done or another <toolcall> if needed. --");
             }
             else
             {
-                sb.AppendLine("-- Tool results are in history above. If you have the answer, use <output>. If you need another tool call to complete the task, you may call one more. --");
+                sb.AppendLine("-- ALWAYS start with <llm> and close with </llm>. Tool results above. Use <output> if done or <toolcall> if you need more data. --");
             }
 
             // Generation cue
@@ -652,17 +652,17 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                    if (toolResultCount >= 3)
                    {
                        // Multiple tool calls done — push toward final answer
-                       sb.AppendLine("-- You have run " + toolResultCount + " tool calls. If you have enough information, give your final answer with <output>. Only call another tool if you still need more data. --");
+                       sb.AppendLine("-- ALWAYS start with <llm> and close with </llm>. You have run " + toolResultCount + " tool calls. Give <output> if done or <toolcall> if needed. --");
                    }
                    else
                    {
                        // 1-2 tool calls done — allow continuing if needed
-                       sb.AppendLine("-- Tool results are in history above. If you have the answer, use <output>. If you need another tool call to complete the task, you may call one more. --");
+                       sb.AppendLine("-- ALWAYS start with <llm> and close with </llm>. Tool results above. Use <output> if done or <toolcall> if you need more data. --");
                    }
                }
               else
                     {
-                       sb.AppendLine("-- Use ONE tool call per response. After the result returns, decide: give <output> if done, or call another tool if needed. --");
+                       sb.AppendLine("-- ALWAYS start with <llm> and close with </llm>. ONE tool call per response. After result, give <output> if done or another <toolcall> if needed. --");
                           }
 
              // v10.4.3: Open <assistant> tag to cue the model to START generating.

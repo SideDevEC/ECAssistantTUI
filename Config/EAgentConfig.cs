@@ -60,9 +60,7 @@ public class InferenceConfig
         "</s>",
         "\n```\n",
         "User:",
-        "---",
-        "</toolcall>",
-        "</output>"
+        "Question:"
     };
      [JsonPropertyName("tokens_keep")]
     public int TokensKeep { get; set; } = 0;

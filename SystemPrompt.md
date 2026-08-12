@@ -16,6 +16,13 @@ Every response MUST follow this exact structure. No exceptions.
 <toolcall>ToolName<argname>value</argname></toolcall>
 ```
 
+**When you need to run INDEPENDENT tools in PARALLEL:**
+```
+<thinking>I need to do two independent things</thinking>
+<toolcall>ToolName1<argname>value</argname></toolcall>
+<toolcall>ToolName2<argname>value</argname></toolcall>
+```
+
 **When you have the answer for the user:**
 ```
 <thinking>Brief reasoning</thinking>
@@ -33,7 +40,7 @@ Every response MUST follow this exact structure. No exceptions.
 8. If a build fails, fix the error and rebuild. If the same error persists after 3 attempts, ask the user for guidance.
 9. After making code changes, use EDotnetBuild to verify. After successful changes, use EDotnetBuild (action=format) to format code.
 10. Keep `<thinking>` SHORT — 1-2 sentences max. Don't overthink.
-11. For multi-step tasks (e.g., "read file, replace string, build"), do ONE step per turn. The host tracks your progress and will show you which step to focus on. When you see [TASK PROGRESS], follow the >> CURRENT STEP instruction.
+11. For multi-step tasks, do one DEPENDENT step per turn. But if steps are INDEPENDENT (don't need each other's results), output multiple `<toolcall>` blocks in ONE response to run them in PARALLEL. When you see [TASK PROGRESS], follow the >> CURRENT STEP instruction.
 12. Even for simple questions ("what day is it", "what is 2+2"), ALWAYS use the tags. Format: `<thinking>brief</thinking><output>answer</output>`.
 13. After the `<assistant>` tag that the host appends, start writing your response immediately. Do NOT echo the `<assistant>` tag back. Do NOT write `<user>` or `<tooloutput>` tags — those are host-only.
 14. When a tool output says `[OUTPUT STORED: ... Full output saved as output_N.]`, the full output was too large for context but is available on disk. Use `EPowerShellAgent` to read specific parts: `Get-Content tool_outputs/output_N.txt | Select-Object -Skip M -First N` to see the section you need.

@@ -56,7 +56,8 @@ public sealed class EAgentEngine : IAsyncDisposable
     // v10.5: KV cache state management
     private bool _isPrefilled = false;           // Has the static prefix been prefilled?
     private string? _cachedStaticPrefix;          // The static prefix that's in the KV cache
-    private object? _savedStateBeforeGen = null;   // Saved state for format retry rewind
+    // v10.8: Saved KV cache state for format retry rewind
+    private LLama.StatefulExecutorBase.ExecutorBaseState? _savedStateBeforeGen = null;
 
        // Inference params — always come from config
     private readonly uint _contextSize;
@@ -678,7 +679,8 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
         {
            // v10.5.1: Escape angle brackets in tool output to prevent fake XML tags
            // in conversation history that would break ExtractCleanResponse and ParseLLMDecision.
-           var safeOutput = EscapeToolOutput(output);
+           // v10.8: Truncate + escape tool output
+           var safeOutput = EscapeToolOutput(TruncateToolOutput(output));
            
            // Add to transcript AND context window (unified — no legacy string list)
              _transcript.AddToolOutput(safeOutput, toolName);
@@ -701,6 +703,19 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
         return text.Replace("<", "&lt;").Replace(">", "&gt;");
     }
 
+    // v10.8: Maximum tool output size in characters (prevents one verbose command
+    // from eating the entire context budget)
+    private const int MaxToolOutputChars = 2000;
+
+    /// <summary>Truncate tool output to MaxToolOutputChars with a helpful message.</summary>
+    private static string TruncateToolOutput(string text)
+    {
+        if (string.IsNullOrEmpty(text) || text.Length <= MaxToolOutputChars) return text;
+        var truncated = text.Substring(0, MaxToolOutputChars);
+        truncated += $"\n... [Output truncated: {text.Length} total chars. Use a more specific command to see less.]";
+        return truncated;
+    }
+
       /// <summary>Remove the last assistant response from history (for format retries).</summary>
      public void RemoveLastAssistantResponse()
      {
@@ -712,6 +727,19 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
              {
                  _transcript.Messages.RemoveAt(i);
                  break;
+             }
+         }
+         // v10.8: Rewind KV cache to before the bad generation
+         if (_savedStateBeforeGen != null && _executor != null)
+         {
+             try
+             {
+                 _executor.LoadState(_savedStateBeforeGen);
+                 EColor.TagBold(EColor.Info(), "KVCache", "Rewound to pre-generation state (format retry).");
+             }
+             catch (Exception ex)
+             {
+                 Logger.Warn("KVCache", $"Failed to rewind KV cache: {ex.Message}");
              }
          }
      }
@@ -795,6 +823,46 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
 
              Logger.Debug("Context", $"Turn {_turnCount} | Budget: {_contextWindow.GetTotalTokens()}/{_contextWindow.MaxTokens} tokens");
 
+            // v10.8: KV cache overflow handling — if context is >80% full, rebuild cache
+            // with summarized conversation to prevent garbage/crashes on long sessions
+            var tokenBudget = _contextWindow.GetTotalTokens();
+            var maxBudget = (int)_contextWindow.MaxTokens;
+            if (maxBudget > 0 && tokenBudget > maxBudget * 0.8)
+            {
+                EColor.TagBold(EColor.Warn(), "KVCache", $"Context at {tokenBudget}/{maxBudget} tokens ({tokenBudget*100/maxBudget}%). Rebuilding cache...");
+                
+                // Summarize the conversation using secondary model if available
+                var summaryText = "";
+                if (_secondaryModel != null && _secondaryModel.IsLoaded)
+                {
+                    var convText = string.Join("\n", _contextWindow.GetWindowMessages()
+                        .Select(m => $"[{m.Role}] {m.Content}"));
+                    summaryText = await _secondaryModel.GenerateAsync(
+                        $"Summarize this conversation concisely. Keep facts, decisions, and tool results only. Max 3 sentences. Plain text.\n\n{convText}\n\nSummary:",
+                        maxTokens: 200);
+                    summaryText = System.Text.RegularExpressions.Regex.Replace(summaryText, @"<[^>]+>", "");
+                }
+                
+                // Clear context window and rebuild KV cache
+                _contextWindow.Clear();
+                _isPrefilled = false;
+                ResetAndRebuildCache();
+                
+                // Re-inject summary as context if we have one
+                if (!string.IsNullOrWhiteSpace(summaryText))
+                {
+                    _contextWindow.AddSystemMessage($"[Previous conversation summary: {summaryText.Trim()}]");
+                    EColor.TagBold(EColor.Info(), "KVCache", $"Re-injected summary: {summaryText.Length} chars");
+                }
+                
+                // Re-feed the current user request into the fresh context
+                if (_turnCount == 1)
+                {
+                    _transcript.AddUser(userPrompt);
+                    _contextWindow.AddUserMessage(userPrompt);
+                }
+            }
+
            // v10.5: Build only the new tokens to feed (not the full prompt)
            var incrementalInput = BuildIncrementalInput(userPrompt);
 
@@ -816,6 +884,9 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
 
               var sb = new StringBuilder();
 
+              // v10.8: Save KV cache state before generation for format retry rewind
+              try { _savedStateBeforeGen = _executor.GetStateData(); }
+              catch { /* if save fails, rewind won't work but generation continues */ }
 
              using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
               bool timedOut = false;

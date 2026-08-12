@@ -10,7 +10,7 @@ public class LlmConfig
      [JsonPropertyName("model_path")]
     public string ModelPath { get; set; } = "Qwen3-8B-Q4_K_M.gguf";
      [JsonPropertyName("context_size")]
-    public uint ContextSize { get; set; } = 8192;
+    public uint ContextSize { get; set; } = 16384;
      [JsonPropertyName("gpu_layers")]
     public int GpuLayers { get; set; } = 15;
      [JsonPropertyName("threads")]

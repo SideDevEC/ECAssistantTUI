@@ -83,10 +83,20 @@ public sealed class EAgentEngine : IAsyncDisposable
         _taskPlanner = new TaskPlanner();
     }
 
-    /// <summary>Inject project context into prompt (called from BuildFullPrompt).</summary>
-    private string? GetProjectContextInjection()
+    /// <summary>Inject project context into prompt — only for code-related tasks.</summary>
+    private string? GetProjectContextInjection(string userRequest)
     {
         if (_projectContext == null) return null;
+        
+        // Only inject for code-related queries (not for simple questions like "what day is it")
+        var codeKeywords = new[] { "code", "file", "build", "compile", "error", "fix", "refactor", 
+            "class", "method", "function", "project", "edit", "change", "replace", "add", 
+            "remove", "delete", "create", "write", "read", "program", "script", "config",
+            ".cs", ".json", ".md", "dotnet", "git", "test", "debug" };
+        
+        var isCodeRelated = codeKeywords.Any(k => userRequest.Contains(k, StringComparison.OrdinalIgnoreCase));
+        if (!isCodeRelated) return null;
+        
         return _projectContext.GetProjectSummary();
     }
 
@@ -333,7 +343,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
 
                // ── Step 2: Query memory and inject relevant entries ───────────
              var memoryInject = GetMemoryInjection(userRequest);
-           var projectCtx = GetProjectContextInjection();
+           var projectCtx = GetProjectContextInjection(userRequest);
            var taskProgress = GetTaskProgressInjection();
            var failureCtx = GetFailureInjection();
 

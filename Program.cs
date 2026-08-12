@@ -102,6 +102,19 @@ public class Program
                    agent.LoadContext();
                     agent.WireSummaryService(); // Wire LLM-based context compaction
 
+                    // ── Secondary Model (optional, for summarization) ──
+                    if (_config.SecondaryModel.Enabled && !string.IsNullOrEmpty(_config.SecondaryModel.ModelPath))
+                    {
+                        var secPath = Path.GetFullPath(_config.SecondaryModel.ModelPath);
+                        var secondary = SecondaryModelLoader.Load(secPath, 
+                            contextSize: _config.SecondaryModel.ContextSize,
+                            gpuLayers: _config.SecondaryModel.GpuLayers);
+                        if (secondary != null)
+                            EColor.TagBold(EColor.Success(), "Secondary", $"Model loaded: {Path.GetFileName(secPath)}");
+                        else
+                            EColor.Tag(EColor.Info(), "Secondary", "Failed to load — will use primary model for summarization.");
+                    }
+
                      // ── Background Process Manager (must be before tool registration) ──
                     var bgMgr = new BackgroundProcessManager();
                     EColor.TagBold(EColor.Info(), "Background", "Process manager ready.");

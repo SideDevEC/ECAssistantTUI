@@ -21,6 +21,18 @@ public class LlmConfig
     public uint UBatchSize { get; set; } = 32;
 }
 
+public class SecondaryModelConfig
+{
+     [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; } = false;
+     [JsonPropertyName("model_path")]
+    public string ModelPath { get; set; } = "";
+     [JsonPropertyName("context_size")]
+    public uint ContextSize { get; set; } = 4096;
+     [JsonPropertyName("gpu_layers")]
+    public int GpuLayers { get; set; } = 0;
+}
+
 public class InferenceConfig
 {
      [JsonPropertyName("max_tokens")]
@@ -191,6 +203,9 @@ public class EAgentConfig
 
      [JsonPropertyName("llm")]
     public LlmConfig Llm { get; set; } = new();
+
+     [JsonPropertyName("secondary_model")]
+    public SecondaryModelConfig SecondaryModel { get; set; } = new();
 
      [JsonPropertyName("inference")]
     public InferenceConfig Inference { get; set; } = new();

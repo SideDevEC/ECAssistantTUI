@@ -133,7 +133,17 @@ public class EPowerShellAgent : EToolBase
             using var proc = Process.Start(psi)
                 ?? throw new InvalidOperationException("Failed to start PowerShell process.");
 
-            await proc.WaitForExitAsync();
+            // v9.9: Tool timeout — 60s default, prevent hanging commands
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            try
+            {
+                await proc.WaitForExitAsync(timeoutCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                try { proc.Kill(entireProcessTree: true); } catch { }
+                return new PSProcessResult("", "[TIMEOUT] Command exceeded 60 second limit and was killed.", -1);
+            }
             var stdout = await proc.StandardOutput.ReadToEndAsync();
             var stderr = await proc.StandardError.ReadToEndAsync();
 

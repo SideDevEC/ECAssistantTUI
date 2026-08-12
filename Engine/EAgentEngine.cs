@@ -145,6 +145,12 @@ public sealed class EAgentEngine : IAsyncDisposable
                            foreach (var msg in loaded.Messages)
                                  _contextWindow.AddUserMessage(msg.Content); // restore token budget
                               Program.Gui.WriteLineColored($"[Context] Loaded {loaded.MessageCount} messages from previous session.");
+                            // v9.9: Show compact summary of previous session
+                            var userMsgs = loaded.Messages.Where(m => m.Role == "user").TakeLast(3);
+                            if (userMsgs.Any())
+                            {
+                                EColor.Tag(EColor.Info(), "Last session", string.Join(" | ", userMsgs.Select(m => m.Content.Substring(0, Math.Min(m.Content.Length, 60)))));
+                            }
                           }
                     }
               catch (Exception ex)

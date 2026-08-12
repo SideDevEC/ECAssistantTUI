@@ -8,6 +8,7 @@ using ECAssistant.Tools.Research;
 using ECAssistant.Tools.Background;
 using ECAssistant.Tools.Web;
 using ECAssistant.Tools.Build;
+using ECAssistant.Tools.Git;
 using ECAssistant.Tools;
 using ECAssistant.Analysis;
 using ECAssistant.UI;
@@ -131,6 +132,7 @@ public class Program
                     agent.RegisterTool(new EBackgroundExecTool(bgMgr, effectiveDir));
                     agent.RegisterTool(new EWebSearchTool());
                     agent.RegisterTool(new EDotnetBuildTool(effectiveDir));
+                    agent.RegisterTool(new EGitTool(effectiveDir));
 
                     // EFileResearchTool — project-wide file scan for analysis
                        {
@@ -441,6 +443,45 @@ public class Program
                                 continue;
                             }
 
+                           // ── Clipboard ──
+                            case "clipboard-read": {
+                                try {
+                                    if (OperatingSystem.IsWindows()) {
+                                        var clipText = await Task.Run(() => {
+                                            var clipExe = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo {
+                                                FileName = "powershell.exe",
+                                                Arguments = "-NoProfile -Command Get-Clipboard",
+                                                UseShellExecute = false,
+                                                RedirectStandardOutput = true,
+                                                CreateNoWindow = true
+                                            });
+                                            return clipExe?.StandardOutput.ReadToEnd().Trim() ?? "(empty)";
+                                        });
+                                        Gui.BlankLine();
+                                        EColor.TagBold(Cyan, "Clipboard", clipText.Length > 200 ? clipText.Substring(0, 200) + "..." : clipText);
+                                        Gui.BlankLine();
+                                    } else {
+                                        EColor.Tag(EColor.Info(), "Clipboard", "Windows-only feature.");
+                                    }
+                                } catch (Exception ex) { EColor.Tag(EColor.Error(), "Clipboard", ex.Message); }
+                                continue;
+                            }
+                            case "clipboard-write": {
+                                var text = Gui.PromptRaw("Text to copy: ") ?? "";
+                                if (!string.IsNullOrEmpty(text) && OperatingSystem.IsWindows()) {
+                                    try {
+                                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo {
+                                            FileName = "powershell.exe",
+                                            Arguments = $"-NoProfile -Command Set-Clipboard -Value '{text.Replace("'", "''")}'",
+                                            UseShellExecute = false,
+                                            CreateNoWindow = true
+                                        })?.WaitForExit();
+                                        EColor.TagBold(EColor.Success(), "Clipboard", "Copied to clipboard.");
+                                    } catch (Exception ex) { EColor.Tag(EColor.Error(), "Clipboard", ex.Message); }
+                                }
+                                continue;
+                            }
+
                            // ── Config Hot-Reload ──
                             case "reload-config": {
                                 var configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "appsettings.json");
@@ -569,6 +610,8 @@ public class Program
          EColor.WriteLine(Yellow + Bold, "   watch-stop            Stop watching");
            EColor.WriteLine(Yellow + Bold, "   reload-config         Reload appsettings.json without restart");
           EColor.WriteLine(Yellow + Bold, "   swap-model            Switch to a different GGUF model at runtime");
+           EColor.WriteLine(Yellow + Bold, "   clipboard-read        Read from Windows clipboard");
+          EColor.WriteLine(Yellow + Bold, "   clipboard-write       Write to Windows clipboard");
            EColor.WriteLine(Yellow + Bold, "   log                   Show recent log entries");
           EColor.WriteLine(Yellow + Bold, "   log-level             Set log level (debug/info/warn/error)");
              Gui.BlankLine();

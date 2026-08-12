@@ -1,15 +1,41 @@
-# ECAssistant Architecture (v10.3 — 2026-08-12)
+# ECAssistant Architecture (v10.4.2 — 2026-08-12)
 
 **Summary:** A local, offline AI agent in C# .NET 8 using LLamaSharp. Runs GGUF models locally with no external API calls. Uses XML-style response tags (`<thinking>`, `<toolcall>`, `<output>`) for reliable tool parsing. 7 registered tools self-register their rules at runtime. Multi-step autonomous loops with dual memory (keyword + TF-IDF vector), sliding context windows with LLM summarization, self-correction with failure loop detection and file rollback, project context awareness with dependency graph, task decomposition, surgical code editing, background process management, file watching, and structured logging. Token-optimized for 8B models (~2825 tokens for system prompt + tools).
 
 ## Key Facts
 - **Language:** C# .NET 8 console app (`net8.0-windows`, Nullable enabled)
 - **LLM Backend:** LLamaSharp 0.27.0 — loads GGUF models from disk
+- **Executor:** StatelessExecutor (NOT InteractiveExecutor — see Critical Lesson below)
 - **Tools:** 7 registered — EPowerShellAgent, EFileResearchTool, EBackgroundExec, EWebSearch, EDotnetBuild, EGitTool, ECodeEditor
 - **Config:** `~/ECAssistant/appsettings.json` (user-editable, bundled as fallback)
 - **System Prompt:** SystemPrompt.md v5.1 (~1300 tokens, tool-agnostic)
 - **Working Directory:** `~/ECAssistant/` (all disk writes, build dir read-only)
 - **Context:** 16384 tokens, max_tokens 2048, auto-summarize at 50%
+
+## 🚨 CRITICAL LESSON — StatelessExecutor vs InteractiveExecutor (2026-08-12)
+
+**This was a major bug that caused zero token output on turn 2+ of every multi-step workflow.**
+
+### The Problem
+`InteractiveExecutor` is **stateful** — it maintains KV cache state between `InferAsync()` calls. It's designed for incremental chat: feed the system prompt once, then only feed new user messages as conversation continues.
+
+But ECAssistant's `BuildFullPrompt()` **rebuilds the entire conversation every turn** (system prompt + tools + memory + history + directives). When `InferAsync(fullPrompt)` is called on turn 2, the executor adds the ENTIRE rebuilt prompt on top of turn 1's cached KV state via `_embed_inps.AddRange()`. This double-feeds the context and the model produces **zero tokens**.
+
+### The Fix
+Switched to `StatelessExecutor` which creates a **fresh context per `InferAsync` call**. It reprocesses the full prompt from scratch each time — slightly slower but correct for the full-prompt-rebuild architecture.
+
+### Rules to Remember
+1. **InteractiveExecutor** = incremental chat (feed once, then new tokens only). KV cache persists between calls.
+2. **StatelessExecutor** = full prompt each call. Fresh context per call. No state between calls.
+3. If your architecture rebuilds the full prompt every turn → use **StatelessExecutor**.
+4. If your architecture feeds incrementally (only new user messages) → use **InteractiveExecutor**.
+5. **Never mix** full-prompt-rebuild with a stateful executor — it will silently produce empty output on turn 2+.
+
+### Anti-Prompts Lesson
+Also removed `</toolcall>`, `</output>`, and `---` from `InferenceParams.AntiPrompts`. These strings appear in conversation history (which is part of the rebuilt prompt). LLamaSharp's built-in anti-prompt system can match them in the prompt context and stop generation before it starts. Our manual anti-prompt check in the streaming loop already handles `</toolcall>` and `</output>` — keeping them in `InferenceParams.AntiPrompts` was redundant and harmful.
+
+**Safe anti-prompts:** `User:`, `\n```\n`, `Question:` — these don't appear in our prompt format.
+**Never use as anti-prompts:** `---`, `</toolcall>`, `</output>` — these appear in SystemPrompt.md and conversation history.
 
 ## Architecture Overview
 
@@ -166,6 +192,9 @@ ToolPolicy: 3 levels (Allowed / ApprovalRequired / Blocked) checked before every
 10. **Token optimization** — system prompt ~1300 tokens, tools ~1525, total ~2825
 11. **Project context gated** — only injected for code-related queries (keyword detection)
 12. **Self-correction escalation** — 3 repeated failures → stop and ask user
+13. **StatelessExecutor (v10.4.2)** — full-prompt-rebuild architecture requires stateless executor. InteractiveExecutor's KV cache persistence breaks multi-turn workflows.
+14. **Turn-1-only user message injection** — GenerateAsync only adds the user prompt to context on turn 1. On turns 2+, context is populated by AddToolResult + InjectFormatRetry.
+15. **Safe anti-prompts only** — never put strings that appear in SystemPrompt.md or conversation history (like `---`, `</toolcall>`, `</output>`) in InferenceParams.AntiPrompts.
 
 ## Feature Status (35 features)
 
@@ -208,4 +237,4 @@ ToolPolicy: 3 levels (Allowed / ApprovalRequired / Blocked) checked before every
 | Project context (scan, deps, impact) | ✅ |
 | Task decomposition (sub-tasks) | ✅ |
 
-**Status:** v10.3 — All Tier 1-3 agentic capabilities implemented. 7 tools. Ready for Windows testing.
+**Status:** v10.4.2 — All Tier 1-3 agentic capabilities implemented. 7 tools. Multi-turn workflow fixed. Ready for Windows testing.

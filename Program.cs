@@ -65,11 +65,26 @@ public class Program
 
              Gui.BlankLine();
 
-            var effectiveModelPath = Path.GetFullPath(_config.Llm.ModelPath);
+            // v9.18: Resolve model path relative to working dir FIRST, then build dir
+            var effectiveModelPath = _config.Llm.ModelPath;
+            if (!Path.IsPathRooted(effectiveModelPath))
+            {
+                // Try working dir (~/ECAssistant) first
+                var inWorkDir = Path.Combine(userConfigDir, effectiveModelPath);
+                // Then try build dir
+                var inBuildDir = Path.Combine(AppContext.BaseDirectory, effectiveModelPath);
+                
+                if (File.Exists(inWorkDir))
+                    effectiveModelPath = inWorkDir;
+                else if (File.Exists(inBuildDir))
+                    effectiveModelPath = inBuildDir;
+                else
+                    effectiveModelPath = inWorkDir; // use work dir path for error message
+            }
            if (!File.Exists(effectiveModelPath))
                       {
                     EColor.TagBold(EColor.Error(), "Error", $"Model not found: {effectiveModelPath}");
-                      EColor.Tag(EColor.Info(), "Hint", "Update appsettings.json or pass --model argument.");
+                      EColor.Tag(EColor.Info(), "Hint", $"Put your .gguf model in: {userConfigDir} or set full path in appsettings.json");
                      }
 
             // v9.14: Default working dir to ~/ECAssistant if set to "."

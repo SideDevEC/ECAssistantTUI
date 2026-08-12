@@ -170,14 +170,28 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                       }
             else
                       {
-                 // Neither <toolcall> nor <output> found — invalid response from LLM
-                Program.Gui.WriteLineColored($"[Orchestrator] ERROR: No valid block detected in response. Expected <toolcall> or <output>. Stopping.\n");
-                    return new OrchestratorResult 
-                            { 
-                            FinalOutput = $"Invalid response: expected a <toolcall>...</toolcall> or <output>...</output> block.\nResponse was:\n{llmResponse}",
+                 // v9.12: Format retry — model produced text without tags, retry with strong reminder
+                _formatRetries++;
+                if (_formatRetries <= MaxFormatRetries)
+                {
+                    Logger.Warn("Orchestrator", $"No tags in response (attempt {_formatRetries}/{MaxFormatRetries}). Retrying with format reminder.");
+                    _engine.AddToolResult("System",
+                        "[FORMAT ERROR] Your last response was REJECTED. You did not use the required tags.\n" +
+                        "You MUST respond with: <thinking>brief reasoning</thinking> then <output>your answer</output>\n" +
+                        "NEVER write plain text. NEVER skip the tags. Try again NOW with the correct format.");
+                    _turnCount++;
+                    continue;
+                }
+                else
+                {
+                    Logger.Error("Orchestrator", $"No tags after {MaxFormatRetries} retries. Stopping.");
+                    return new OrchestratorResult
+                            {
+                            FinalOutput = $"Invalid response after {MaxFormatRetries} retries. The model did not use required tags.\nLast response:\n{llmResponse}",
                             ToolCallsMade = _turnCount + 1,
-                            Status = OrchestratorStatus.TurnsExhausted 
+                            Status = OrchestratorStatus.TurnsExhausted
                             };
+                }
                       }
                  }
 
@@ -290,15 +304,8 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                 return new LLMDecision(false, null, new Dictionary<string, string?>(), answer);
                   }
 
-             // v9.11: Fallback — if no tags found but we have tool results in history,
-             // treat the raw text as a direct answer (model forgot to use <output> tags)
-             if (!string.IsNullOrWhiteSpace(trimmed) && trimmed.Length > 2)
-             {
-                 Logger.Warn("Orchestrator", $"No tags found — treating raw text as output: {trimmed.Substring(0, Math.Min(trimmed.Length, 80))}");
-                 return new LLMDecision(false, null, new Dictionary<string, string?>(), trimmed);
-             }
-             
-             return LLMDecision.Unknown();
+             // Neither block found — invalid response
+            return LLMDecision.Unknown();
                 }
 
 /// <summary>Parses a single <toolcall> block content to extract tool name and arguments.</summary>

@@ -228,10 +228,10 @@ public sealed class AgentOrchestrator : IAsyncDisposable
 
                         if (result.Succeeded)
                                 {
-                                Program.Gui.WriteLineColored($"[Orchestrator] Output:\n{result.Output?.Substring(0, Math.Min(result.Output.Length, 500))}");
+                                Program.Gui.WriteLineColored($"[Orchestrator] Output:\n{result.Output?.Substring(0, Math.Min(result.Output.Length, 2000))}");
 
                                     // Log for LLM context
-                                    var logEntry = $"Tool:{decision.ToolName} \u2192 OK\nOutput: {(result.Output != null ? result.Output.Substring(0, Math.Min(result.Output.Length, 300)) : "(no output)")}";
+                                    var logEntry = $"Tool:{decision.ToolName} \u2192 OK\nOutput: {(result.Output != null ? result.Output.Substring(0, Math.Min(result.Output.Length, 1000)) : "(no output)")}";
                                        _toolCallLog.Add(logEntry);
 
                                     // Add tool result to conversation history

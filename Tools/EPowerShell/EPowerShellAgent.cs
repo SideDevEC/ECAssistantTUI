@@ -76,15 +76,35 @@ public class EPowerShellAgent : EToolBase
                 ["chars_output"] = result.StandardOutput.Length.ToString()
             };
 
-            if (result.ExitCode == 0)
+            // v10.11.2: PowerShell non-terminating errors (like New-Item with bad path)
+            // write to stderr but may still exit with code 0 when run with -File.
+            // Check both exit code AND stderr to detect failures.
+            var hasStderrOutput = !string.IsNullOrWhiteSpace(result.StandardError);
+            
+            if (result.ExitCode == 0 && !hasStderrOutput)
             {
-                // Escape angle brackets in output to prevent XML tag confusion
+                // True success — no errors
                 var safeOutput = EscapeXml(result.StandardOutput);
-                var safeCmd = EscapeXml(psCommand!);
-
                 var output = string.IsNullOrEmpty(result.StandardOutput)
                     ? $"[PS Success] Command completed (no output)."
                     : $"[PS Success]\n{safeOutput}";
+
+                if (!string.IsNullOrEmpty(description))
+                    output += $"\nDescription: {description}";
+
+                return EToolResult.Success(Name, output, metadata);
+            }
+            else if (result.ExitCode == 0 && hasStderrOutput)
+            {
+                // v10.11.2: Exit code 0 but stderr has content — partial success or non-terminating error.
+                // Report as success but include the error text so the LLM can self-correct.
+                var safeOutput = EscapeXml(result.StandardOutput);
+                var safeErr = EscapeXml(result.StandardError);
+                Logger.Warn("PowerShell", $"Command had stderr output (exit=0): {result.StandardError.Substring(0, Math.Min(result.StandardError.Length, 200))}");
+                
+                var output = string.IsNullOrEmpty(result.StandardOutput)
+                    ? $"[PS Warning] Command completed but produced error output:\nSTDERR: {safeErr}"
+                    : $"[PS Warning]\n{safeOutput}\n\nSTDERR: {safeErr}";
 
                 if (!string.IsNullOrEmpty(description))
                     output += $"\nDescription: {description}";
@@ -114,8 +134,13 @@ public class EPowerShellAgent : EToolBase
     private static async Task<PSProcessResult> RunPowerShellAsync(string command, string workingDir, CancellationToken cancellationToken = default)
     {
         // Write command to a temp .ps1 file to avoid all quoting issues
+        // v10.11.2: Prepend $ErrorActionPreference = "Stop" so non-terminating errors
+        // (like New-Item with a non-existent path) become terminating errors that
+        // set a non-zero exit code. Without this, PowerShell writes to stderr but
+        // exits with code 0, causing the tool to report success.
         var tempScript = Path.Combine(Path.GetTempPath(), $"ecagent_{Guid.NewGuid():N}.ps1");
-        await File.WriteAllTextAsync(tempScript, command);
+        var scriptContent = "$ErrorActionPreference = 'Stop'\n" + command;
+        await File.WriteAllTextAsync(tempScript, scriptContent);
 
         try
         {

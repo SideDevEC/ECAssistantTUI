@@ -200,12 +200,17 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                     var combinedOutput = ParallelToolExecutor.CombineResults(batchResult);
                     Program.Gui.WriteLineColored($"[Orchestrator] Batch output:\n{EGuiBase.Truncate(combinedOutput, 2000)}");
 
-                    // Log each tool call
+                    // v10.13.1: Log one summary entry per batch (not per tool) for accurate streak detection
+                    var okCount = batchResult.Results.Count(r => r.Succeeded);
+                    var failCount = batchResult.Results.Count(r => !r.Succeeded);
+                    if (failCount > 0)
+                        _toolCallLog.Add($"BATCH FAIL: {failCount}/{batchResult.Results.Count} tools failed");
+                    else
+                        _toolCallLog.Add($"BATCH OK: {okCount}/{batchResult.Results.Count} tools succeeded");
+
+                    // Track completed steps + advance sub-tasks per tool
                     foreach (var r in batchResult.Results)
                     {
-                        var logEntry = $"Tool:{r.ToolCall.ToolName}#{r.ToolCall.Index} \u2192 {(r.Succeeded ? "OK" : "FAIL")} ({r.ElapsedMs}ms)";
-                        _toolCallLog.Add(logEntry);
-
                         var stepCmd = r.ToolCall.Args.GetValueOrDefault("command") ?? r.ToolCall.Args.GetValueOrDefault("action") ?? "";
                         var stepDesc = $"{r.ToolCall.ToolName}: {EGuiBase.Truncate(stepCmd, 80)}";
                         _completedSteps.Add(stepDesc);
@@ -215,15 +220,15 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                     // Add combined result to conversation history (one block)
                     _engine.AddToolResult("Batch", combinedOutput);
 
-                    // Check for failure streak
-                    if (batchResult.Results.Any(r => !r.Succeeded))
+                    // Check for failure streak — one batch = one turn in streak detection
+                    if (failCount > 0)
                     {
                         if (IsFailureStreak(_maxFailuresBeforeStop))
                         {
-                            Program.Gui.WriteLineColored($"[Orchestrator] Too many failures ({_maxFailuresBeforeStop} in a row). Stopping.\n");
+                            Program.Gui.WriteLineColored($"[Orchestrator] Too many consecutive failure turns ({_maxFailuresBeforeStop}). Stopping.\n");
                             return new OrchestratorResult
                             {
-                                FinalOutput = $"Stopped after {_maxFailuresBeforeStop} consecutive failures during batch execution.",
+                                FinalOutput = $"Stopped after {_maxFailuresBeforeStop} consecutive failure turns during batch execution.\nFailed tools: {string.Join(", ", batchResult.Results.Where(r => !r.Succeeded).Select(r => r.ToolCall.ToolName))}",
                                 ToolCallsMade = _turnCount + 1,
                                 Status = OrchestratorStatus.TurnsExhausted
                             };
@@ -524,7 +529,8 @@ public sealed class AgentOrchestrator : IAsyncDisposable
               {
         if (_toolCallLog.Count < threshold) return false;
         var lastN = _toolCallLog.TakeLast(threshold);
-            return lastN.All(log => log.Contains("ERR") || log.Contains("EXCEPTION"));
+            // v10.13.1: Match FAIL, ERR, EXCEPTION, BATCH FAIL, and DENIED
+            return lastN.All(log => log.Contains("ERR") || log.Contains("EXCEPTION") || log.Contains("FAIL") || log.Contains("DENIED"));
               }
 
      /// <summary>Execute a tool call by name with args dictionary.</summary>

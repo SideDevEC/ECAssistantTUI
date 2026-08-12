@@ -19,28 +19,16 @@ namespace ECAssistant.Engine;
 /// </summary>
 public static class ToolDependencyAnalyzer
 {
-    // Tools that modify files (must be ordered relative to reads of same file)
-    private static readonly HashSet<string> WriteTools = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "ECodeEditor", "EPowerShellAgent"
-    };
-
-    // Tools that are always independent (fire-and-forget)
-    private static readonly HashSet<string> AlwaysIndependentTools = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "EBackgroundExec"
-    };
-
     // Tools that must run after any file modifications
     private static readonly HashSet<string> PostModifyTools = new(StringComparer.OrdinalIgnoreCase)
     {
         "EDotnetBuild", "EGitTool"
     };
 
-    // Tools that only read (safe to parallelize freely)
-    private static readonly HashSet<string> ReadTools = new(StringComparer.OrdinalIgnoreCase)
+    // Tools that are always independent (fire-and-forget) — forced into separate group
+    private static readonly HashSet<string> AlwaysIndependentTools = new(StringComparer.OrdinalIgnoreCase)
     {
-        "EFileResearchTool", "EWebSearch"
+        "EBackgroundExec"
     };
 
     /// <summary>
@@ -90,24 +78,32 @@ public static class ToolDependencyAnalyzer
                 // j depends on i?
                 bool depends = false;
 
-                // Rule 1: i modifies a file that j also touches (read or write)
-                if (modifies[i] && targets[i].Overlaps(targets[j]))
+                // Rule 0: Always-independent tools never depend on anything
+                if (AlwaysIndependentTools.Contains(toolCalls[j].ToolName ?? ""))
                 {
-                    depends = true;
+                    depends = false;
                 }
-
-                // Rule 2: j is a post-modify tool (build/git) and i is a modifying tool
-                if (PostModifyTools.Contains(toolCalls[j].ToolName ?? "") && modifies[i])
+                else
                 {
-                    depends = true;
-                }
+                    // Rule 1: i modifies a file that j also touches (read or write)
+                    if (modifies[i] && targets[i].Overlaps(targets[j]))
+                    {
+                        depends = true;
+                    }
 
-                // Rule 3: both are the same ECodeEditor targeting the same file
-                if (toolCalls[i].ToolName?.Equals("ECodeEditor", StringComparison.OrdinalIgnoreCase) == true &&
-                    toolCalls[j].ToolName?.Equals("ECodeEditor", StringComparison.OrdinalIgnoreCase) == true &&
-                    targets[i].Overlaps(targets[j]))
-                {
-                    depends = true;
+                    // Rule 2: j is a post-modify tool (build/git) and i is a modifying tool
+                    if (PostModifyTools.Contains(toolCalls[j].ToolName ?? "") && modifies[i])
+                    {
+                        depends = true;
+                    }
+
+                    // Rule 3: both are the same ECodeEditor targeting the same file
+                    if (toolCalls[i].ToolName?.Equals("ECodeEditor", StringComparison.OrdinalIgnoreCase) == true &&
+                        toolCalls[j].ToolName?.Equals("ECodeEditor", StringComparison.OrdinalIgnoreCase) == true &&
+                        targets[i].Overlaps(targets[j]))
+                    {
+                        depends = true;
+                    }
                 }
 
                 if (depends && !deps[j].Contains(i))
@@ -117,10 +113,6 @@ public static class ToolDependencyAnalyzer
 
         // Step 4: Topological sort into groups (Kahn's algorithm)
         // Each group = all nodes with no remaining dependencies → run in parallel
-        var inDegree = new int[toolCalls.Count];
-        for (int i = 0; i < toolCalls.Count; i++)
-            inDegree[i] = deps[i].Count;
-
         var groups = new List<DependencyGroup>();
         var processed = new bool[toolCalls.Count];
         int groupIndex = 0;

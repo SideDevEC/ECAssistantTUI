@@ -1188,8 +1188,10 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
              searchFrom = tcEnd + 10;
          }
 
-         // Find <output> block (if no toolcalls, or after toolcalls)
-         var outputStart = content.IndexOf("<output>", searchFrom, StringComparison.OrdinalIgnoreCase);
+         // Find <output> block — search from after thinking (or from start if no thinking)
+         // v10.13.1: Don't search from after last toolcall — model might write <output> before <toolcall>
+         var outputSearchFrom = thinkEnd >= 0 ? thinkEnd + 11 : 0;
+         var outputStart = content.IndexOf("<output>", outputSearchFrom, StringComparison.OrdinalIgnoreCase);
          int? outputEnd = null;
          if (outputStart >= 0)
          {

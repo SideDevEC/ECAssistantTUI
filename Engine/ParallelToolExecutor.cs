@@ -77,10 +77,73 @@ public class ParallelToolExecutor
 
                 if (group.IsParallel)
                 {
-                    _log($"[Parallel] Group {gi}: executing {group.ToolCalls.Count} calls in parallel...");
-                    var tasks = group.ToolCalls.Select(tc => ExecuteSingleWithPolicy(tc, ct)).ToArray();
-                    var results = await Task.WhenAll(tasks);
-                    allResults.AddRange(results);
+                    // v10.13.1: Pre-check approvals sequentially before launching parallel tasks
+                    // to avoid concurrent PromptRaw calls racing on the same console.
+                    var approved = new List<ToolCallRequest>();
+                    var denied = new List<ToolCallRequest>();
+                    foreach (var tc in group.ToolCalls)
+                    {
+                        if (string.IsNullOrEmpty(tc.ToolName))
+                        {
+                            denied.Add(tc);
+                            continue;
+                        }
+                        var policy = _toolPolicy.Check(tc.ToolName!, tc.Args);
+                        if (policy.NeedsApproval)
+                        {
+                            _log($"[Policy] {tc}: {policy.Message}");
+                            var approval = Program.Gui.PromptRaw($"[Policy] Approve {tc.ToolName}#{tc.Index} ({string.Join(", ", tc.Args.Select(kvp => kvp.Key + "=" + EGuiBase.Truncate(kvp.Value ?? "", 60)))})? [y/N] ")?.Trim().ToLower();
+                            if (approval == "y" || approval == "yes")
+                            {
+                                _log($"[Policy] Approved: {tc}");
+                                approved.Add(tc);
+                            }
+                            else
+                            {
+                                _log($"[Policy] DENIED by user: {tc}");
+                                denied.Add(tc);
+                            }
+                        }
+                        else if (!policy.CanExecute)
+                        {
+                            _log($"[Policy] BLOCKED: {tc}: {policy.Message}");
+                            denied.Add(tc);
+                        }
+                        else
+                        {
+                            approved.Add(tc);
+                        }
+                    }
+
+                    // Add denied/blocked results immediately
+                    foreach (var tc in denied)
+                    {
+                        allResults.Add(new SingleToolResult
+                        {
+                            ToolCall = tc,
+                            Succeeded = false,
+                            Output = "",
+                            Error = "[DENIED] User did not approve this tool execution.",
+                            ElapsedMs = 0
+                        });
+                    }
+
+                    // Execute approved tasks in parallel
+                    if (approved.Count > 0)
+                    {
+                        if (approved.Count == 1)
+                        {
+                            _log($"[Parallel] Group {gi}: 1 call approved, executing...");
+                            allResults.Add(await ExecuteSingleNoPolicy(approved[0], ct));
+                        }
+                        else
+                        {
+                            _log($"[Parallel] Group {gi}: executing {approved.Count} calls in parallel...");
+                            var tasks = approved.Select(tc => ExecuteSingleNoPolicy(tc, ct)).ToArray();
+                            var results = await Task.WhenAll(tasks);
+                            allResults.AddRange(results);
+                        }
+                    }
                 }
                 else
                 {
@@ -95,7 +158,69 @@ public class ParallelToolExecutor
     }
 
     /// <summary>
+    /// Execute a single tool call WITHOUT policy check (already pre-approved).
+    /// Used inside Task.WhenAll for parallel execution after pre-approval.
+    /// </summary>
+    private async Task<SingleToolResult> ExecuteSingleNoPolicy(ToolCallRequest tc, CancellationToken ct)
+    {
+        var sw = Stopwatch.StartNew();
+
+        try
+        {
+            if (string.IsNullOrEmpty(tc.ToolName))
+            {
+                return new SingleToolResult
+                {
+                    ToolCall = tc,
+                    Succeeded = false,
+                    Output = "",
+                    Error = "Tool name was empty",
+                    ElapsedMs = sw.ElapsedMilliseconds
+                };
+            }
+
+            if (ct.IsCancellationRequested)
+            {
+                return new SingleToolResult
+                {
+                    ToolCall = tc,
+                    Succeeded = false,
+                    Output = "",
+                    Error = "Cancelled before execution",
+                    ElapsedMs = sw.ElapsedMilliseconds
+                };
+            }
+
+            var result = await _executeToolFn(tc.ToolName!, tc.Args);
+            sw.Stop();
+
+            return new SingleToolResult
+            {
+                ToolCall = tc,
+                Succeeded = result.Succeeded,
+                Output = result.Succeeded ? result.Output : "",
+                Error = result.Succeeded ? "" : result.Error,
+                ElapsedMs = sw.ElapsedMilliseconds
+            };
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            _log($"[Parallel] Exception in {tc}: {ex.Message}");
+            return new SingleToolResult
+            {
+                ToolCall = tc,
+                Succeeded = false,
+                Output = "",
+                Error = ex.Message,
+                ElapsedMs = sw.ElapsedMilliseconds
+            };
+        }
+    }
+
+    /// <summary>
     /// Execute a single tool call with policy check and approval gate.
+    /// Used for single-tool path and sequential groups.
     /// Returns a SingleToolResult with success/failure info.
     /// </summary>
     private async Task<SingleToolResult> ExecuteSingleWithPolicy(ToolCallRequest tc, CancellationToken ct)
@@ -247,7 +372,7 @@ public class ParallelToolExecutor
 /// <summary>Result of a single tool execution within a batch.</summary>
 public class SingleToolResult
 {
-    public ToolCallRequest ToolCall { get; set; } = new();
+    public ToolCallRequest ToolCall { get; set; } = null!;  // Must be set by caller
     public bool Succeeded { get; set; }
     public string Output { get; set; } = "";
     public string Error { get; set; } = "";

@@ -21,7 +21,7 @@ Every response MUST be wrapped in an `<llm>` container. No exceptions.
 ```
 
 ### CRITICAL RULES — NO EXCEPTIONS
-1. ALWAYS start your response with `<llm>` and end with `</llm>`. Everything between these tags is your response. Everything outside is ignored.
+1. **CRITICAL** — ALWAYS open `<llm>` as your FIRST token and close `</llm>` as your LAST token. Everything between is your response. NEVER generate text after `</llm>`. NEVER drift past the closing tag. If you wrote `<output>...</output>` or `<toolcall>...</toolcall>`, close `</llm>` IMMEDIATELY after.
 2. Inside `<llm>`, generate ONE `<thinking>` block, then ONE `<toolcall>` OR ONE `<output>` block. Then close `</llm>` and STOP.
 3. NEVER generate a second `<thinking>` or `<toolcall>` after the first one.
 4. NEVER output text outside of the `<llm>` container. NO raw text. NO plain answers. ALWAYS use the container.

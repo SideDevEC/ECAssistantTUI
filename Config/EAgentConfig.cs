@@ -33,6 +33,18 @@ public class SecondaryModelConfig
     public int GpuLayers { get; set; } = 0;
 }
 
+public class VectorMemoryConfig
+{
+     [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; } = true;
+     [JsonPropertyName("directory")]
+    public string Directory { get; set; } = "vecmem";
+     [JsonPropertyName("max_results")]
+    public int MaxResults { get; set; } = 5;
+     [JsonPropertyName("auto_index")]
+    public bool AutoIndex { get; set; } = true;
+}
+
 public class InferenceConfig
 {
      [JsonPropertyName("max_tokens")]
@@ -206,6 +218,9 @@ public class EAgentConfig
 
      [JsonPropertyName("secondary_model")]
     public SecondaryModelConfig SecondaryModel { get; set; } = new();
+
+     [JsonPropertyName("vector_memory")]
+    public VectorMemoryConfig VectorMemory { get; set; } = new();
 
      [JsonPropertyName("inference")]
     public InferenceConfig Inference { get; set; } = new();

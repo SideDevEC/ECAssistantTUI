@@ -35,6 +35,7 @@ public sealed class EAgentEngine : IAsyncDisposable
     private InteractiveExecutor? _executor;
     private readonly List<EToolBase> _tools = new();
     private EMemoryManager? _memoryManager = null;
+    private VectorMemoryStore? _vectorMemory = null;
 
        // ── Context Window (replaces raw string list) ───────────
     private readonly ContextWindow _contextWindow;
@@ -49,10 +50,54 @@ public sealed class EAgentEngine : IAsyncDisposable
     private readonly int _threads;
 
     public EMemoryManager Memory => _memoryManager ??= new EMemoryManager();
+    public VectorMemoryStore? VectorMemory => _vectorMemory;
     public IReadOnlyList<EToolBase> Tools => _tools;
     public int TurnCount => _turnCount;
     public ConversationTranscript Transcript => _transcript;
     public ContextWindow ContextWindow => _contextWindow;
+
+    /// <summary>Initialize vector memory store with TF-IDF embeddings (no external deps).</summary>
+    public async Task InitializeVectorMemoryAsync(string storeDir)
+    {
+        _vectorMemory = new VectorMemoryStore(storeDir);
+        
+        Func<string, Task<float[]>> embeddingGenerator = async (text) =>
+        {
+            await Task.CompletedTask;
+            return TfidfEmbed(text);
+        };
+        
+        await _vectorMemory.InitializeAsync(embeddingGenerator);
+        EColor.TagBold(EColor.Success(), "VecMem", $"Vector memory ready: {_vectorMemory.Count} entries in {storeDir}");
+    }
+
+    /// <summary>Simple TF-IDF style embedding — no external dependencies.</summary>
+    private static float[] TfidfEmbed(string text)
+    {
+        var tokens = System.Text.RegularExpressions.Regex.Matches(text.ToLower(), @"[a-z0-9]{2,}")
+            .Select(m => m.Value)
+            .ToList();
+
+        if (tokens.Count == 0) return Array.Empty<float>();
+
+        var termFreq = tokens.GroupBy(t => t)
+            .ToDictionary(g => g.Key, g => (float)g.Count() / tokens.Count);
+
+        var dim = 256;
+        var vector = new float[dim];
+        foreach (var kvp in termFreq)
+        {
+            var hash = Math.Abs(kvp.Key.GetHashCode()) % dim;
+            vector[hash] += kvp.Value;
+        }
+
+        var mag = Math.Sqrt(vector.Sum(v => v * v));
+        if (mag > 0)
+            for (int i = 0; i < dim; i++)
+                vector[i] = (float)(vector[i] / mag);
+
+        return vector;
+    }
 
     /// <summary>Wire the SummaryService to use the engine's own LLM for context compaction.</summary>
     public void WireSummaryService()
@@ -350,17 +395,29 @@ public sealed class EAgentEngine : IAsyncDisposable
         /// This is called every turn to give the agent context from past sessions.</summary>
     private string? GetMemoryInjection(string query)
           {
-            if (_memoryManager == null) return null;
+            var sb = new StringBuilder();
 
-              // Query memory with keywords extracted from user request
-           var results = _memoryManager.Query(query, maxResults: 5);
+            // v9.10: Semantic search via vector memory
+            if (_vectorMemory != null && _vectorMemory.IsInitialized && _vectorMemory.Count > 0)
+            {
+                try
+                {
+                    var vecResults = _vectorMemory.SearchAsTextAsync(query, maxResults: 3).GetAwaiter().GetResult();
+                    if (!vecResults.StartsWith("(No semantic"))
+                        sb.AppendLine(vecResults);
+                }
+                catch { }
+            }
 
-             // If no memories match or still empty, nothing to inject
-           if (string.IsNullOrEmpty(results) || results.StartsWith("(No memories found for:") || results == "(Not initialized)")
-               return null;
+            // Keyword search via traditional memory
+            if (_memoryManager != null)
+            {
+                var results = _memoryManager.Query(query, maxResults: 5);
+                if (!string.IsNullOrEmpty(results) && !results.StartsWith("(No memories"))
+                    sb.AppendLine(results);
+            }
 
-              // Return formatted memory for injection — the LLM will use these as context
-              return results.Trim();
+            return sb.Length > 0 ? sb.ToString().Trim() : null;
                   }
 
       /// <summary>Register a tool for the LLM to call.</summary>

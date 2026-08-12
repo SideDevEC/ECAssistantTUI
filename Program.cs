@@ -105,6 +105,13 @@ public class Program
                    agent.LoadContext();
                     agent.WireSummaryService(); // Wire LLM-based context compaction
 
+                    // ── Vector Memory (semantic search, v9.10) ──
+                    if (_config.VectorMemory.Enabled)
+                    {
+                        var vecDir = Path.Combine(effectiveDir, _config.VectorMemory.Directory);
+                        await agent.InitializeVectorMemoryAsync(vecDir);
+                    }
+
                     // ── Secondary Model (optional, for summarization) ──
                     if (_config.SecondaryModel.Enabled && !string.IsNullOrEmpty(_config.SecondaryModel.ModelPath))
                     {
@@ -482,6 +489,46 @@ public class Program
                                 continue;
                             }
 
+                           // ── Vector Memory Commands ──
+                            case "vecmem-stats": {
+                                if (agent.VectorMemory != null) {
+                                    Gui.BlankLine();
+                                    Gui.WriteLineColored(agent.VectorMemory.GetStats());
+                                    Gui.BlankLine();
+                                } else {
+                                    EColor.Tag(EColor.Info(), "VecMem", "Not initialized.");
+                                }
+                                continue;
+                            }
+                            case "vecmem-search": {
+                                if (agent.VectorMemory != null) {
+                                    var q = Gui.PromptRaw("Query: ") ?? "";
+                                    if (!string.IsNullOrEmpty(q)) {
+                                        var results = await agent.VectorMemory.SearchAsTextAsync(q, _config.VectorMemory.MaxResults);
+                                        Gui.BlankLine();
+                                        Gui.WriteLineColored(results);
+                                        Gui.BlankLine();
+                                    }
+                                } else {
+                                    EColor.Tag(EColor.Info(), "VecMem", "Not initialized.");
+                                }
+                                continue;
+                            }
+                            case "vecmem-add": {
+                                if (agent.VectorMemory != null) {
+                                    var key = Gui.PromptRaw("Key: ") ?? "";
+                                    var content = Gui.PromptRaw("Content: ") ?? "";
+                                    var cat = Gui.PromptRaw("Category (default: general): ") ?? "general";
+                                    if (!string.IsNullOrEmpty(key) && !string.IsNullOrEmpty(content)) {
+                                        await agent.VectorMemory.AddAsync(key, content, cat);
+                                        EColor.TagBold(EColor.Success(), "VecMem", $"Added: {key}");
+                                    }
+                                } else {
+                                    EColor.Tag(EColor.Info(), "VecMem", "Not initialized.");
+                                }
+                                continue;
+                            }
+
                            // ── Config Hot-Reload ──
                             case "reload-config": {
                                 var configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "appsettings.json");
@@ -612,6 +659,9 @@ public class Program
           EColor.WriteLine(Yellow + Bold, "   swap-model            Switch to a different GGUF model at runtime");
            EColor.WriteLine(Yellow + Bold, "   clipboard-read        Read from Windows clipboard");
           EColor.WriteLine(Yellow + Bold, "   clipboard-write       Write to Windows clipboard");
+           EColor.WriteLine(Yellow + Bold, "   vecmem-stats          Show vector memory statistics");
+          EColor.WriteLine(Yellow + Bold, "   vecmem-search         Semantic search over memories");
+         EColor.WriteLine(Yellow + Bold, "   vecmem-add            Add entry to vector memory");
            EColor.WriteLine(Yellow + Bold, "   log                   Show recent log entries");
           EColor.WriteLine(Yellow + Bold, "   log-level             Set log level (debug/info/warn/error)");
              Gui.BlankLine();

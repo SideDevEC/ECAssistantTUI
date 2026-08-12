@@ -715,6 +715,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
     // the full data available for chained tasks.
     private readonly Dictionary<string, string> _toolOutputStore = new();
     private int _outputStoreCounter = 0;
+    private const int MaxStoredOutputs = 20;  // v10.8.3: Prevent unbounded memory growth
 
     /// <summary>Truncate tool output based on tool type. If output exceeds the limit,
     /// store the full output and give the LLM a way to retrieve specific parts.</summary>
@@ -736,6 +737,13 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
         _outputStoreCounter++;
         var storeKey = $"output_{_outputStoreCounter}";
         _toolOutputStore[storeKey] = text;
+        
+        // v10.8.3: Evict oldest stored outputs if too many
+        if (_toolOutputStore.Count > MaxStoredOutputs)
+        {
+            var oldestKey = _toolOutputStore.Keys.OrderBy(k => k).FirstOrDefault();
+            if (oldestKey != null) _toolOutputStore.Remove(oldestKey);
+        }
 
         // Save to disk for large outputs (crash recovery + memory)
         try
@@ -833,7 +841,8 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
 
     // v10.5: Full KV cache reset + re-prefill.
     // Called when context overflows or when we need a clean slate.
-    public void ResetAndRebuildCache()
+    // v10.8.3: Made async — PrefillStaticPrefix is async and must be awaited.
+    public async Task ResetAndRebuildCacheAsync()
     {
         if (_executor == null || _context == null) return;
         
@@ -851,8 +860,8 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
         // Re-initialize tokenizer
         TokenCounter.Initialize(_context);
         
-        // Re-prefill the static prefix
-        PrefillStaticPrefix();
+        // Re-prefill the static prefix (await!)
+        await PrefillStaticPrefix();
         
         EColor.TagBold(EColor.Success(), "KVCache", "Cache rebuilt and prefilled.");
     }
@@ -875,37 +884,47 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
 
             // v10.8: KV cache overflow handling — if context is >80% full, rebuild cache
             // with summarized conversation to prevent garbage/crashes on long sessions
+            // v10.8.3: Fixed async, capped convText, proper re-feed
             var tokenBudget = _contextWindow.GetTotalTokens();
             var maxBudget = (int)_contextWindow.MaxTokens;
             if (maxBudget > 0 && tokenBudget > maxBudget * 0.8)
             {
                 EColor.TagBold(EColor.Warn(), "KVCache", $"Context at {tokenBudget}/{maxBudget} tokens ({tokenBudget*100/maxBudget}%). Rebuilding cache...");
                 
+                // v10.8.3: Cap convText to fit secondary model context (4096)
+                // Take last N messages that fit in ~3000 chars
+                var allMessages = _contextWindow.GetWindowMessages();
+                var convSb = new StringBuilder();
+                for (int i = allMessages.Count - 1; i >= 0 && convSb.Length < 3000; i--)
+                    convSb.Insert(0, $"[{allMessages[i].Role}] {allMessages[i].Content}\n");
+                var convText = convSb.ToString();
+                
                 // Summarize the conversation using secondary model if available
                 var summaryText = "";
                 if (_secondaryModel != null && _secondaryModel.IsLoaded)
                 {
-                    var convText = string.Join("\n", _contextWindow.GetWindowMessages()
-                        .Select(m => $"[{m.Role}] {m.Content}"));
                     summaryText = await _secondaryModel.GenerateAsync(
                         $"Summarize this conversation concisely. Keep facts, decisions, and tool results only. Max 3 sentences. Plain text.\n\n{convText}\n\nSummary:",
                         maxTokens: 200);
                     summaryText = System.Text.RegularExpressions.Regex.Replace(summaryText, @"<[^>]+>", "");
                 }
                 
-                // Clear context window and rebuild KV cache
+                // Clear context window and rebuild KV cache (await!)
                 _contextWindow.Clear();
-                _isPrefilled = false;
-                ResetAndRebuildCache();
+                await ResetAndRebuildCacheAsync();
                 
-                // Re-inject summary as context if we have one
+                // Re-inject summary as context
                 if (!string.IsNullOrWhiteSpace(summaryText))
                 {
                     _contextWindow.AddSystemMessage($"[Previous conversation summary: {summaryText.Trim()}]");
                     EColor.TagBold(EColor.Info(), "KVCache", $"Re-injected summary: {summaryText.Length} chars");
                 }
                 
-                // Re-feed the current user request into the fresh context
+                // v10.8.3: After cache rebuild, BuildIncrementalInput turn 2+ needs
+                // the tool output and directive in context window. They're already there
+                // from AddToolResult + InjectFormatRetry. The summary + current messages
+                // are in the context window. BuildIncrementalInput will read them correctly.
+                // For turn 1, re-add the user message.
                 if (_turnCount == 1)
                 {
                     _transcript.AddUser(userPrompt);

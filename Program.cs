@@ -291,7 +291,6 @@ public class Program
 
             while (true)
                         {
-                    Gui.WriteRaw(Cyan + "> " + Reset);
                   var input = Gui.PromptRaw(Cyan + "> " + Reset)?.Trim();
 
                    if (string.IsNullOrEmpty(input)) continue;
@@ -636,7 +635,7 @@ public class Program
                                 continue;
                             }
 
-                           case "?":  case "/?": PrintUsage(); continue;
+                           case "?":  case "/?": await PrintHelp(); continue;
 
                          default: break;
                         }
@@ -666,59 +665,69 @@ public class Program
                    }
              }
 
-    private static async Task PrintHelp()
-              {
-               Gui.BlankLine();
-             EColor.TagBold(Cyan, "Commands", "");
-                  EColor.WriteLine(Yellow + Bold, "         <type your request>   Multi-step agent execution");
-            EColor.WriteLine(Yellow + Bold, "    quit / exit           Exit the program (saves transcript)");
-              EColor.WriteLine(Yellow + Bold, "       help                  Show this help text");
-            EColor.WriteLine(Yellow + Bold, "        tools                 List registered tools");
-             EColor.WriteLine(Yellow + Bold, "     clear-history         Clear conversation history only");
-            EColor.WriteLine(Yellow + Bold, "      save-context          Save transcript to disk for session resumption");
-             EColor.WriteLine(Yellow + Bold, "    memory-save / query / stats    Memory commands");
-                EColor.WriteLine(Yellow + Bold, "   file-pick             Open native file picker dialog, read file as prompt");
-                EColor.WriteLine(Yellow + Bold, "   sessions             List all sessions");
-                EColor.WriteLine(Yellow + Bold, "   session-status        Show main session status");
-                EColor.WriteLine(Yellow + Bold, "   session-create        Create a named session");
-                EColor.WriteLine(Yellow + Bold, "   session-cleanup       Clean up idle/isolated sessions");
-             EColor.WriteLine(Yellow + Bold, "   bg-run <cmd>          Start a background process");
-            EColor.WriteLine(Yellow + Bold, "   bg-status             List background processes");
-           EColor.WriteLine(Yellow + Bold, "   bg-output <id>        Get output from a background process");
-           EColor.WriteLine(Yellow + Bold, "   bg-kill <id>          Kill a background process");
-          EColor.WriteLine(Yellow + Bold, "   bg-cleanup            Remove finished processes from tracking");
-           EColor.WriteLine(Yellow + Bold, "   watch                 Show recent file changes");
-          EColor.WriteLine(Yellow + Bold, "   watch-start           Start watching for file changes");
-         EColor.WriteLine(Yellow + Bold, "   watch-stop            Stop watching");
-           EColor.WriteLine(Yellow + Bold, "   reload-config         Reload appsettings.json without restart");
-          EColor.WriteLine(Yellow + Bold, "   swap-model            Switch to a different GGUF model at runtime");
-           EColor.WriteLine(Yellow + Bold, "   clipboard-read        Read from Windows clipboard");
-          EColor.WriteLine(Yellow + Bold, "   clipboard-write       Write to Windows clipboard");
-           EColor.WriteLine(Yellow + Bold, "   vecmem-stats          Show vector memory statistics");
-          EColor.WriteLine(Yellow + Bold, "   vecmem-search         Semantic search over memories");
-         EColor.WriteLine(Yellow + Bold, "   vecmem-add            Add entry to vector memory");
-           EColor.WriteLine(Yellow + Bold, "   log                   Show recent log entries");
-          EColor.WriteLine(Yellow + Bold, "   log-level             Set log level (debug/info/warn/error)");
-             Gui.BlankLine();
-            EColor.Tag(Info(), "Response", "Agent uses XML-style tags: <thinking>, <toolcall>, <output>.");
-             }
-
     private static void ListTools(EAgentEngine agent)
-            {
-              Gui.BlankLine();
-             EColor.TagBold(Cyan, "Tools", "Registered tools:");
-            foreach (var tool in agent.Tools)
-                     {
-                 EColor.WriteLine(Yellow + Bold, $"         - {tool.Name}");
-                EColor.WriteLine(Dim, $"          {tool.Description.Substring(0, Math.Min(tool.Description.Length, 120))}");
-                  Gui.BlankLine();
-               }
-             }
+    {
+        Gui.BlankLine();
+        EColor.TagBold(Cyan, "Tools", $"{agent.Tools.Count} registered:");
+        Gui.BlankLine();
+        foreach (var t in agent.Tools)
+        {
+            EColor.WriteLine(Yellow + Bold, $"  {t.Name}");
+            EColor.WriteLine(EColor.Dim, $"    {t.Description}");
+            EColor.WriteLine(EColor.Dim, $"    Example: {t.UsageExample}");
+            Gui.BlankLine();
+        }
+    }
 
-     private static void PrintUsage()
-              {
-                 Gui.BlankLine();
-             EColor.TagBold(Cyan, "Usage", "Type a request and the agent will decide tools automatically.");
-                EColor.Tag(Info(), "Hint", "Use <thinking> then <toolcall> or <output>. See help for commands.");
-                 }
-          }
+    private static async Task PrintHelp()
+    {
+        Gui.BlankLine();
+        EColor.TagBold(Cyan, "Commands", "");
+        Gui.BlankLine();
+        EColor.WriteLine(Yellow + Bold, "  <type request>       Multi-step agent execution");
+        EColor.WriteLine(Yellow + Bold, "  quit / exit          Exit (saves transcript)");
+        EColor.WriteLine(Yellow + Bold, "  help                 Show this help");
+        EColor.WriteLine(Yellow + Bold, "  tools                List registered tools");
+        Gui.BlankLine();
+        EColor.WriteLine(EColor.Dim, "  Context:");
+        EColor.WriteLine(Yellow + Bold, "  clear-history        Clear conversation history");
+        EColor.WriteLine(Yellow + Bold, "  save-context         Save transcript to disk");
+        EColor.WriteLine(Yellow + Bold, "  file-pick            Open file picker, send to LLM");
+        Gui.BlankLine();
+        EColor.WriteLine(EColor.Dim, "  Memory:");
+        EColor.WriteLine(Yellow + Bold, "  memory-save          Save a memory entry");
+        EColor.WriteLine(Yellow + Bold, "  memory-query         Search memory");
+        EColor.WriteLine(Yellow + Bold, "  memory-stats         Memory statistics");
+        EColor.WriteLine(Yellow + Bold, "  vecmem-stats         Vector memory statistics");
+        EColor.WriteLine(Yellow + Bold, "  vecmem-search        Semantic memory search");
+        EColor.WriteLine(Yellow + Bold, "  vecmem-add           Add vector memory entry");
+        Gui.BlankLine();
+        EColor.WriteLine(EColor.Dim, "  Sessions:");
+        EColor.WriteLine(Yellow + Bold, "  sessions             List all sessions");
+        EColor.WriteLine(Yellow + Bold, "  session-status       Main session status");
+        EColor.WriteLine(Yellow + Bold, "  session-create       Create a named session");
+        EColor.WriteLine(Yellow + Bold, "  session-cleanup      Clean up idle sessions");
+        Gui.BlankLine();
+        EColor.WriteLine(EColor.Dim, "  Background:");
+        EColor.WriteLine(Yellow + Bold, "  bg-run <cmd>         Start a background process");
+        EColor.WriteLine(Yellow + Bold, "  bg-status            List background processes");
+        EColor.WriteLine(Yellow + Bold, "  bg-output <id>       Get output from a process");
+        EColor.WriteLine(Yellow + Bold, "  bg-kill <id>         Kill a background process");
+        EColor.WriteLine(Yellow + Bold, "  bg-cleanup           Remove finished processes");
+        Gui.BlankLine();
+        EColor.WriteLine(EColor.Dim, "  Files & Watch:");
+        EColor.WriteLine(Yellow + Bold, "  watch                Show recent file changes");
+        EColor.WriteLine(Yellow + Bold, "  watch-start          Start watching for changes");
+        EColor.WriteLine(Yellow + Bold, "  watch-stop           Stop watching");
+        Gui.BlankLine();
+        EColor.WriteLine(EColor.Dim, "  System:");
+        EColor.WriteLine(Yellow + Bold, "  reload-config        Reload appsettings.json");
+        EColor.WriteLine(Yellow + Bold, "  swap-model           Switch GGUF model at runtime");
+        EColor.WriteLine(Yellow + Bold, "  clipboard-read       Read from Windows clipboard");
+        EColor.WriteLine(Yellow + Bold, "  clipboard-write      Write to Windows clipboard");
+        EColor.WriteLine(Yellow + Bold, "  log                  Show recent log entries");
+        EColor.WriteLine(Yellow + Bold, "  log-level            Set log level (debug/info/warn/error)");
+        Gui.BlankLine();
+        await Task.CompletedTask;
+    }
+}

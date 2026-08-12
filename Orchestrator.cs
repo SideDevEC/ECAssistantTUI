@@ -187,9 +187,14 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                     {
                         return Task.FromResult(EToolResult.Failure(toolName, $"[BLOCKED] {policyDecision.Message}"));
                     }
+                    if (policyDecision.NeedsApproval)
+                    {
+                        // v10.10.1: Can't prompt for approval in parallel — block with message
+                        return Task.FromResult(EToolResult.Failure(toolName, $"[NEEDS APPROVAL] This tool requires approval. Run it sequentially."));
+                    }
                     
                     Program.Gui.WriteLineColored($"[Parallel] Starting: {toolName}");
-                    return ExecuteTool(toolName, args);
+                    return ExecuteToolSafe(toolName, args);
                 }).ToArray();
                 
                 try
@@ -210,16 +215,22 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                             var stepCmd = args.GetValueOrDefault("command") ?? "";
                             var stepDesc = $"{toolName}: {stepCmd.Substring(0, Math.Min(stepCmd.Length, 80))}";
                             _completedSteps.Add(stepDesc);
-                            AdvanceSubTask(true, toolName, stepDesc);
                             _engine.AddToolResult(toolName, result.Output ?? "(no output)");
                         }
                         else
                         {
                             _toolCallLog.Add($"Tool:{toolName} (parallel) -> FAIL: {result.Error}");
-                            AdvanceSubTask(false, toolName, $"Tool failed: {result.Error}");
                             _engine.AddToolResult(toolName, result.Error ?? "(unknown error)");
                         }
                     }
+                    
+                    // v10.10.1: Advance sub-task once for the parallel batch
+                    var anySuccess = results.Any(r => r.Succeeded);
+                    var anyFailure = results.Any(r => !r.Succeeded);
+                    if (anySuccess && !anyFailure)
+                        AdvanceSubTask(true, "parallel", $"{allCalls.Count} parallel tools completed");
+                    else if (anyFailure)
+                        AdvanceSubTask(false, "parallel", $"Some parallel tools failed");
                     
                     // Inject directive for next turn with all results
                     var stepDirective = BuildStepDirective();
@@ -523,7 +534,9 @@ public sealed class AgentOrchestrator : IAsyncDisposable
     private static List<(string toolName, Dictionary<string, string?> args)> ParseAllToolCalls(string response)
     {
         var calls = new List<(string, Dictionary<string, string?>)>();
-        var searchFrom = 0;
+        // v10.10.1: Skip past </thinking> to avoid parsing toolcalls from the thinking block
+        var thinkEnd = response.IndexOf("</thinking>", StringComparison.OrdinalIgnoreCase);
+        var searchFrom = thinkEnd >= 0 ? thinkEnd + "</thinking>".Length : 0;
         while (true)
         {
             var openIdx = response.IndexOf("<toolcall>", searchFrom, StringComparison.OrdinalIgnoreCase);
@@ -598,6 +611,20 @@ public sealed class AgentOrchestrator : IAsyncDisposable
               }
 
      /// <summary>Execute a tool call by name with args dictionary.</summary>
+    // v10.10.1: Safe tool execution — catches exceptions so Task.WhenAll doesn't lose results
+    private async Task<EToolResult> ExecuteToolSafe(string toolName, Dictionary<string, string?> args)
+    {
+        try
+        {
+            return await ExecuteTool(toolName, args);
+        }
+        catch (Exception ex)
+        {
+            Program.Gui.WriteLineColored($"[Parallel] Tool exception: {toolName}: {ex.Message}");
+            return EToolResult.Failure(toolName, $"[EXCEPTION] {ex.Message}");
+        }
+    }
+
     private async Task<EToolResult> ExecuteTool(string toolName, Dictionary<string, string?> args)
              {
         var tool = _engine.Tools.FirstOrDefault(t => t.Name.Equals(toolName, StringComparison.OrdinalIgnoreCase));

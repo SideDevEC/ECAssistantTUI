@@ -476,7 +476,13 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
             // Subsequent turns: history is already in KV cache.
             // Feed only the new tool output(s) + directive + generation cue.
             var windowMessages = _contextWindow.GetWindowMessages();
-            var toolResultCount = windowMessages.Count(m => m.Role == "tool_output");
+            // v10.10.1: Count only the latest batch of tool outputs (consecutive from the end)
+            var toolResultCount = 0;
+            for (int i = windowMessages.Count - 1; i >= 0; i--)
+            {
+                if (windowMessages[i].Role == "tool_output") toolResultCount++;
+                else break;
+            }
 
             // v10.10: Feed ALL new tool_output messages (parallel results may have multiple)
             var newToolMessages = windowMessages.Where(m => m.Role == "tool_output")
@@ -631,7 +637,13 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
 
                // ── Step 6: Context-aware directive ─────────────────────────────
                var hasToolResults = windowMessages.Any(m => m.Role == "tool_output");
-               var toolResultCount = windowMessages.Count(m => m.Role == "tool_output");
+               // v10.10.1: Count only the latest batch of tool outputs (consecutive from the end)
+            var toolResultCount = 0;
+            for (int i = windowMessages.Count - 1; i >= 0; i--)
+            {
+                if (windowMessages[i].Role == "tool_output") toolResultCount++;
+                else break;
+            }
                
                if (hasToolResults)
                {

@@ -1,6 +1,6 @@
-# ECAssistant — Project Summary (v10.8.3 — 2026-08-12)
+# ECAssistant — Project Summary (v10.12.20 — 2026-08-12)
 
-**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Loads GGUF models from disk — no API calls, no cloud, fully self-contained. Uses XML-style tags for tool calling with multi-step autonomous loops, dual memory systems (keyword + vector/semantic), sliding context windows, self-correction with failure loop detection, project context awareness, task decomposition, surgical code editing, structured logging, background process management, and 7 registered tools. PowerShell is the primary tool for all file/system operations.
+**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Loads GGUF models from disk — no API calls, no cloud, fully self-contained. Uses `<llm>` container tag for noise-proof response parsing with XML-style inner tags for tool calling. Multi-step autonomous loops, dual memory (keyword + vector/semantic), sliding context windows, self-correction with failure loop detection, project context awareness, task decomposition, surgical code editing, 7 registered tools. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. Centralized console truncation with `[...]` indicators.
 
 ## Key Facts
 - **Language:** C# .NET 8 console app (`net8.0-windows`, Nullable enabled)
@@ -8,95 +8,87 @@
 - **Runtime:** Self-hosted, offline inference — no external API calls
 - **Default Model:** Qwen3-8B-Q4_K_M (configurable via appsettings.json)
 - **Repo:** `github.com/LLamaDudeX/ECAssistant.git` (branch: `main`)
-- **Latest Commit:** `a5e1759` (v10.8.3)
+- **Latest Tag:** `v10.12.20-working`
 - **Package deps:** LLamaSharp 0.27.0 + backends (Vulkan/Cuda12/CPU), Microsoft.Extensions.Logging.Abstractions
 - **Executor:** InteractiveExecutor with KV cache (static prefix prefilled once, incremental feed per turn)
-- **Secondary Executor:** StatelessExecutor (for summaries, no cache state)
+- **Secondary Executor:** StatelessExecutor (fresh context per call, no cache)
 - **Secondary Model:** Phi-4-mini-instruct-Q4_K_M (task decomposition + summarization)
-- **Source files:** 34 .cs files, SystemPrompt.md (5211 chars ~1300 tokens)
+- **Source files:** 34 .cs files, SystemPrompt.md v6 (~1300 tokens)
+
+## What's New (v10.11-v10.12 — Session 2026-08-12)
+
+### `<llm>` Container Tag System (v10.12)
+- All model responses wrapped in `<llm>...</llm>` — noise outside is ignored
+- Only `</llm>` is a streaming stop tag — no fallbacks, clean and predictable
+- `ExtractCleanResponse` extracts content from `<llm>`, then parses inner tags
+- `TrimToFirstClosingTag` removed — no double-trimming
+- Generation cues use `<assistant><llm>` to force container opening
+- History rendering wraps past responses as `<assistant><llm>...</llm></assistant>`
+- All 7 directives show full structural example
+- Future parallelism ready: `</toolcall>` is NOT a stop tag
+
+### ESC Stop Fix (v10.11.1)
+- ESC during generation no longer causes "invalid input" on next command
+- Orchestrator detects stop state, bails out immediately (no format retries)
+- Context window cleared, KV cache rebuilt, ready for next command
+
+### PowerShell Error Handling (v10.11.2 + v10.12.10)
+- Non-terminating errors (e.g. bad path) no longer reported as success
+- `$ErrorActionPreference = 'Continue'` — all commands run, errors collected at end
+- try/catch wrapper catches errors, reports via Write-Error, exits with code 1
+- stderr checked even if exit code is 0 — [PS Warning] with error text
+
+### Secondary Model Configurable (v10.12.12-v10.12.14)
+- Sampling params (temperature, top_p, top_k, repeat_penalty, max_tokens) in appsettings.json
+- Anti-prompts configurable — stops drifting (User:, Question:, Assistant:, ###, etc.)
+- All derived values relative to config (SummarizeAsync 25%, DecomposeTaskAsync 50%, convText 75%)
+- Defaults lowered: temp 0.3→0.1, top_p 0.9→0.8 (reduce drifting)
+
+### Centralized Truncation (v10.12.19-v10.12.20)
+- `EGuiBase.Truncate(text, maxChars)` — one static method, returns truncated + `[...]`
+- All 9 console output sites use it — one place to change behavior
+- `[...]` indicator shows when content is truncated in console
 
 ## Working Directory
 
-Everything lives in `~/ECAssistant/`. Auto-created on first run, default config copied from build output. All disk writes go here:
+Everything lives in `~/ECAssistant/`:
 
 ```
 ~/ECAssistant/
 ├── appsettings.json          ← User config (editable)
 ├── ECAssistant.log            ← Structured log file
-├── transcript.json            ← Conversation transcript (auto-saved per tool call)
+├── transcript.json            ← Conversation transcript (auto-saved)
 ├── SystemPrompt.md            ← System prompt (fallback to build dir)
-├── .project_context.json      ← Project scan results (persisted)
-├── .snapshots/                ← File rollback snapshots (self-correction)
+├── .project_context.json      ← Project scan results
+├── .snapshots/                ← File rollback snapshots
 ├── Memory/                    ← Keyword memory entries (JSON)
 ├── Workspace/                 ← Agent workspace files
-├── vecmem/                    ← Vector memory store (vectors.json)
+├── vecmem/                    ← Vector memory store
 └── <model>.gguf               ← Model file (user provides)
 ```
-
-Build directory is **read-only** — only fallback for config/SystemPrompt/model on first run.
-
-## Design Philosophy
-
-- **PowerShell as primary tool:** No separate C# file op classes. Every LLM knows PowerShell.
-- **Tools self-register at runtime:** SystemPrompt.md is tool-agnostic. Each tool injects its own rules via `ToSystemPromptBlock()`.
-- **No external deps for memory:** TF-IDF vector search (256-dim, cosine similarity). No FAISS, no Python.
-- **Token-efficient:** System prompt + tools = ~2825 tokens (down from ~3700). Optimized for 8B models.
-- **InteractiveExecutor + KV cache (v10.5):** Static prefix prefilled once, only new tokens fed per turn. Major perf improvement. Replaced StatelessExecutor.
-- **Secondary model (v10.7):** Phi-4-mini on StatelessExecutor for decomposition + summarization. No KV cache interference. Falls back to keywords.
-- **TaskPlanner (v10.6-10.7):** LLM-based decomposition with dynamic turns. Step-aware directives. Failure recovery.
-- **KV cache overflow (v10.8):** At 80%, summarize + rebuild + re-inject. Prevents crashes.
-- **KV cache rewind (v10.8):** SaveState/LoadState for format retries. Bad gen cleaned from cache.
-- **Smart output truncation (v10.8):** Per-tool limits (4-8K). Full output stored to disk. LLM retrieves with Get-Content + Skip/First. No data loss.
-- **Tool output escaping (v10.5.1):** All tool output escaped in AddToolOutput. Safety net.
-- **Bug audit (v10.8.3):** Fixed async prefill, unbounded store, convText overflow, double prefill, context loss after rebuild.
-- **Self-correction:** Failure loop detection, file snapshots/rollback, escalation after 3 repeated failures.
-- **Project awareness:** Auto-scans project on startup, injects file list + dependency graph for code tasks.
 
 ## Registered Tools (7)
 
 | Tool | Purpose | Key Feature |
 |------|---------|-------------|
-| **EPowerShellAgent** | File/system ops, any shell command | 60s timeout, temp .ps1 scripts |
+| **EPowerShellAgent** | File/system ops, any shell command | Continue+try/catch, 60s timeout |
 | **EFileResearchTool** | Project-wide file scan | Multi-file content scan |
 | **EBackgroundExec** | Background process management | start/status/output/kill |
 | **EWebSearch** | Web search | DuckDuckGo API, no auth |
-| **EDotnetBuild** | .NET build/test/format | Structured errors, test-filter, format |
+| **EDotnetBuild** | .NET build/test/format | Structured errors, test-filter |
 | **EGitTool** | Git operations | status/diff/commit/push/pull/log |
-| **ECodeEditor** | Surgical code editing | patch/diff/search/replace-all/insert/delete-lines |
+| **ECodeEditor** | Surgical code editing | patch/diff/search/replace/insert/delete |
 
-## Agentic Capabilities (v10)
+## Agentic Capabilities
 
 | Capability | How |
 |-----------|-----|
-| **Self-correction** | `SelfCorrectionManager` — detects repeated errors (3x → escalate), alternating patterns, file snapshots before edit, rollback on failure |
-| **Project understanding** | `ProjectContextManager` — auto-scans project, builds dependency graph from imports, injects file list + relationships into prompts (code tasks only) |
-| **Task decomposition** | `TaskPlanner` — splits complex requests on "then/and/after that" keywords, tracks sub-task progress with checklist |
-| **Surgical code editing** | `ECodeEditor` — multi-line patch with uniqueness check, diff preview, cross-file search & replace, line insert/delete |
-| **Failure escalation** | Same error 3x or same tool failing 3x → escalate to user instead of looping |
-| **File rollback** | Snapshots before modification, rollback to last snapshot on failure |
-| **Impact analysis** | `ProjectContextManager.GetImpactAnalysis()` — shows related files before editing |
-| **Auto-format** | `EDotnetBuild action=format` — runs dotnet format after code changes |
-
-## CLI Commands (30+)
-
-| Command | Description |
-|---------|-------------|
-| `<type request>` | Multi-step agent execution |
-| `quit` / `exit` | Exit (saves transcript) |
-| `help` | Show help (grouped by category) |
-| `tools` | List registered tools with descriptions |
-| `clear-history` | Clear conversation history |
-| `save-context` | Save transcript to disk |
-| `file-pick` | Open file picker, send content to LLM |
-| `memory-save` / `memory-query` / `memory-stats` | Keyword memory |
-| `vecmem-stats` / `vecmem-search` / `vecmem-add` | Vector/semantic memory |
-| `sessions` / `session-status` / `session-create` / `session-cleanup` | Session mgmt |
-| `bg-run` / `bg-status` / `bg-output` / `bg-kill` / `bg-cleanup` | Background processes |
-| `watch` / `watch-start` / `watch-stop` | File watcher |
-| `reload-config` | Reload appsettings.json without restart |
-| `swap-model` | Switch GGUF model at runtime |
-| `clipboard-read` / `clipboard-write` | Windows clipboard |
-| `log` / `log-level` | View logs / set log level |
+| **Self-correction** | Failure loop detection (3x → escalate), alternating patterns, file snapshots/rollback |
+| **Project understanding** | Auto-scan, dependency graph, impact analysis, prompt injection (code tasks only) |
+| **Task decomposition** | LLM-based (secondary model) with keyword fallback, sub-task progress tracking |
+| **Surgical code editing** | Multi-line patch with uniqueness check, diff preview, cross-file search & replace |
+| **ESC stop recovery** | Detect stop, clear context, rebuild KV cache, ready for next command |
+| **KV cache management** | Prefill static prefix, incremental feed, overflow summarize+rebuild, rewind on retry |
 
 ## Configuration (appsettings.json)
 
@@ -105,27 +97,24 @@ Build directory is **read-only** — only fallback for config/SystemPrompt/model
   "llm": {
     "model_path": "Qwen3-8B-Q4_K_M.gguf",
     "context_size": 16384,
-    "gpu_layers": 15,
-    "threads": -1,
-    "batch_size": 256,
-    "ubatch_size": 128
+    "gpu_layers": 15
   },
   "secondary_model": {
-    "enabled": false,
-    "model_path": "",
-    "context_size": 4096,
-    "gpu_layers": 0
-  },
-  "vector_memory": {
     "enabled": true,
-    "directory": "vecmem",
-    "max_results": 5,
-    "auto_index": true
+    "model_path": "Phi-4-mini-instruct-Q4_K_M.gguf",
+    "context_size": 4096,
+    "gpu_layers": 0,
+    "temperature": 0.1,
+    "top_p": 0.8,
+    "top_k": 40,
+    "repeat_penalty": 1.1,
+    "max_tokens": 512,
+    "anti_prompts": ["User:", "Question:", "Assistant:", "###", "<user>", "<tooloutput>"]
   },
   "inference": {
     "max_tokens": 2048,
     "temperature": 0.3,
-    "anti_prompts": ["</toolcall>", "</output>", ...]
+    "anti_prompts": ["User:", "\n```\n", "Question:", "### User", "<user>"]
   },
   "context_management": {
     "strategy": "SummaryAndShift",
@@ -135,29 +124,33 @@ Build directory is **read-only** — only fallback for config/SystemPrompt/model
 }
 ```
 
-## System Prompt (SystemPrompt.md v5.1)
+## Response Format (v10.12 — `<llm>` Container)
 
-Tuned for Qwen3-8B, token-optimized (~1300 tokens):
-- Strict response format: `<thinking>` then `<toolcall>` OR `<output>` — no exceptions
-- 8 critical rules including "NEVER output text outside tags"
-- Compact tool selection guide (7 tools, 2-column table)
-- Error handling: fix → rebuild, escalate after 3 failures
-- After tool result: MUST respond with `<output>` tags (injected as user message)
+```
+Tool call:
+<llm><thinking>Brief reasoning</thinking><toolcall>ToolName<argname>value</argname></toolcall></llm>
+
+Direct answer:
+<llm><thinking>Brief reasoning</thinking><output>Answer to user</output></llm>
+```
+
+Rules:
+1. FIRST token is always `<llm>`. LAST token is always `</llm>`.
+2. Inside: ONE `<thinking>`, then ONE `<toolcall>` OR ONE `<output>`. Then `</llm>`. Then STOP.
+3. Never write text outside `<llm>...</llm>`.
+4. Can batch multiple PowerShell commands with `;` in one toolcall.
 
 ## Orchestration Flow
 
 ```
 ExecuteMultiStep(goal):
   Loop (max 5 turns):
-    1. BuildFullPrompt: system prompt + tools + memory + project context + history
-    2. GenerateAsync: stream tokens, manual anti-prompt check (break on </toolcall>/<output>)
-    3. ExtractCleanResponse: first <thinking> + first <toolcall>/<output> only
-    4. TrimToFirstClosingTag
-    5. ParseLLMDecision: toolcall | output | invalid
-    6a. Tool call → policy check → execute → add result → inject directive as user msg → loop
-    6b. Direct answer → return to user
-    6c. Invalid → remove bad response from history → inject format error as user msg → retry (max 2)
-    6d. Failure escalation: SelfCorrectionManager detects 3x repeated → escalate to user
+    1. GenerateAsync: BuildIncrementalInput → stream tokens → stop at </llm> → ExtractCleanResponse
+    2. ESC check → if stopped: clear context, rebuild cache, return
+    3. ParseLLMDecision: toolcall | output | invalid
+    4a. Tool call → policy check → execute → AddToolResult → step directive → loop
+    4b. Direct answer → return to user
+    4c. Invalid → remove bad response → format retry (with <llm> example) → retry max 2
 ```
 
 ## Project Tree
@@ -165,58 +158,76 @@ ExecuteMultiStep(goal):
 ```
 ECAssistant/
 ├── ECAssistant.csproj               ← .NET 8 project
-├── SystemPrompt.md                  ← v5.1: Tuned for Qwen3-8B (~1300 tokens)
-├── appsettings.json                  ← Runtime config (bundled, copied to ~/ECAssistant/)
-├── SUMMARY.md / ARCHITECTURE.md / GAP_ANALYSIS.md / GAP_FILTERED.md
+├── SystemPrompt.md                  ← v6: <llm> container rules (~1300 tokens)
+├── appsettings.json                  ← Runtime config (with secondary model params)
+├── SUMMARY.md / ARCHITECTURE.md
 │
 ├── Program.cs                        ← Entry point: CLI, startup, tool registration
-├── Orchestrator.cs                   ← Multi-step loop, tool policy, format retry, auto-fix
+├── Orchestrator.cs                   ← Multi-step loop, ESC stop, step directive
 ├── EColor.cs                         ← ANSI color helpers
 │
 ├── Engine/
-│   ├── EAgentEngine.cs               ← Core LLM engine, prompt building, inference, extraction
-│   ├── ContextWindow.cs               ← Sliding window, auto-summarize at 50%, RemoveLastAssistant
+│   ├── EAgentEngine.cs               ← Core LLM engine, <llm> extraction, KV cache
+│   ├── ContextWindow.cs               ← Sliding window, auto-summarize
 │   ├── ConversationTranscript.cs      ← JSON transcript persistence
-│   ├── TokenCounter.cs                ← LLamaSharp tokenizer-based counting
-│   ├── EDecisionLoop.cs               ← v2: Interactive decision loop
-│   ├── SecondaryModelLoader.cs        ← Optional second small model for summarization
+│   ├── TokenCounter.cs                ← LLamaSharp tokenizer counting
+│   ├── SecondaryModelLoader.cs        ← Configurable secondary model (sampling + anti-prompts)
 │   ├── SummaryService.cs              ← LLM-based context summarization
-│   ├── SelfCorrectionManager.cs       ← v10: Failure loop detection, snapshots, rollback
-│   ├── ProjectContextManager.cs       ← v10: Project scan, dependency graph, impact analysis
-│   └── TaskPlanner.cs                 ← v10: Task decomposition, sub-task tracking
+│   ├── SelfCorrectionManager.cs       ← Failure loop detection, snapshots, rollback
+│   ├── ProjectContextManager.cs       ← Project scan, dependency graph
+│   └── TaskPlanner.cs                 ← Task decomposition, sub-task tracking
 │
 ├── Tools/
-│   ├── EToolBase.cs                   ← Abstract base: Name, Description, Rules, Examples
+│   ├── EToolBase.cs                   ← Abstract base
 │   ├── ToolPolicy.cs                  ← 3-level permission system
-│   ├── EPowerShell/EPowerShellAgent.cs ← PRIMARY TOOL: file/system ops, 60s timeout
-│   ├── EResearch/EFileResearchTool.cs  ← Project-wide file scan
-│   ├── EBackground/EBackgroundExecTool.cs ← Background process management
-│   ├── EWeb/EWebSearchTool.cs          ← DuckDuckGo web search
-│   ├── EDotnet/EDotnetBuildTool.cs     ← Build + test + format with error parsing
-│   ├── EGit/EGitTool.cs                ← Git operations with structured output
-│   ├── ECode/ECodeEditorTool.cs        ← v10: Surgical code editing (patch/diff/search/replace)
-│   └── EExample/EFileAnalyzer.cs       ← Example template for new tools
+│   ├── EPowerShell/EPowerShellAgent.cs ← Continue+try/catch, 60s timeout
+│   ├── EResearch/EFileResearchTool.cs
+│   ├── EBackground/EBackgroundExecTool.cs
+│   ├── EWeb/EWebSearchTool.cs
+│   ├── EDotnet/EDotnetBuildTool.cs
+│   ├── EGit/EGitTool.cs
+│   └── ECode/ECodeEditorTool.cs
 │
-├── Session/AgentSession.cs            ← Session management (main, isolated, named)
+├── Session/AgentSession.cs
 ├── Services/
-│   ├── BackgroundProcessManager.cs    ← Non-blocking process execution
-│   ├── FileWatcherService.cs           ← Workspace file monitoring
-│   └── Logger.cs                      ← Structured logging (file+console, 4 levels)
+│   ├── BackgroundProcessManager.cs
+│   ├── FileWatcherService.cs
+│   └── Logger.cs
 ├── Memory/
-│   ├── EMemoryManager.cs              ← Keyword memory with relevance scoring
-│   └── VectorMemoryStore.cs           ← Semantic memory (TF-IDF, cosine similarity)
-├── Config/EAgentConfig.cs             ← Full config model
-├── Analysis/EContextAnalyzer.cs       ← v2: Project analysis
-└── UI/EGuiBase.cs + EGuiConsole.cs    ← Abstract UI + console implementation
+│   ├── EMemoryManager.cs
+│   └── VectorMemoryStore.cs
+├── Config/EAgentConfig.cs             ← Full config model (with secondary sampling params)
+├── Analysis/EContextAnalyzer.cs
+└── UI/
+    ├── EGuiBase.cs                     ← Abstract UI + Truncate() centralized
+    └── EGuiConsole.cs                  ← Console implementation
 ```
 
-## Git Workflow
+## Audit Status (v10.12.20)
 
-**Repo:** `https://github.com/LLamaDudeX/ECAssistant.git` (branch: `main`)
+- **0 bugs found** ✅
+- 10 pre-existing warnings (all non-critical: nullability annotations, unused fields)
+- `appsettings.json` valid JSON ✅
+- SystemPrompt rules 1-14 sequential, no contradictions ✅
+- Stop tags: only `</llm>` ✅
+- All 9 truncation sites use `EGuiBase.Truncate()` ✅
+- Secondary model: anti-prompts in GenerateAsync, relative limits ✅
 
-```bash
-cd <project-root>
-git add -A && git commit -m "<message>" && git push
+## Git Tags (Session 2026-08-12)
+
+```
+v10.11.1-working   — ESC stop fix
+v10.11.2-working   — PowerShell error handling
+v10.12.1-working   — </toolcall> dropped from stop tags
+v10.12.5-working   — Full <llm> structural directives
+v10.12.6-working   — 3 audit bugs fixed
+v10.12.7-working   — Removed TrimToFirstClosingTag
+v10.12.10-working  — Batching allowed + Continue mode
+v10.12.11-working  — Console display fix
+v10.12.13-working  — Relative secondary model limits
+v10.12.15-working  — Only </llm> stop tag
+v10.12.17-working  — Restored primary anti-prompts
+v10.12.20-working  — Centralized truncation (current) ←
 ```
 
-**Status:** v10.8.3 — 7 tools, KV cache, secondary model (Phi-4-mini), TaskPlanner, stability fixes (overflow, rewind, truncation, output store). Bug audit complete. Ready for production testing.
+**Status:** v10.12.20 — Audited clean. `<llm>` container system, ESC fix, PowerShell error handling, configurable secondary model, centralized truncation. Ready for production testing.

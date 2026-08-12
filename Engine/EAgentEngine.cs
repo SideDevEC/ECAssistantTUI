@@ -475,6 +475,12 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                        sb.AppendLine("-- Use ONE tool call per response. After the result returns, decide: give <output> if done, or call another tool if needed. --");
                           }
 
+             // v10.4.3: Open <assistant> tag to cue the model to START generating.
+             // Without this, the model sees history ending with <user>...</user> and
+             // echoes it instead of producing its own response. The open tag tells
+             // the model: "now it's your turn to respond as the assistant."
+             sb.AppendLine("<assistant>");
+
              return sb.ToString();
                   }
 
@@ -647,6 +653,14 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
 
               var rawResult = sb.ToString().Trim();
                   string cleanResponse;
+
+              // v10.4.3: Strip leading <assistant> tag if the model echoed it back
+              // (we append <assistant> to the prompt as a generation cue)
+              if (rawResult.StartsWith("\u003cassistant\u003e", StringComparison.OrdinalIgnoreCase))
+                  rawResult = rawResult.Substring("\u003cassistant\u003e".Length).Trim();
+              // Also strip any closing </assistant\u003e at the end
+              if (rawResult.EndsWith("\u003c/assistant\u003e", StringComparison.OrdinalIgnoreCase))
+                  rawResult = rawResult.Substring(0, rawResult.Length - "\u003c/assistant\u003e".Length).Trim();
 
               // v9.19: Show raw model output on console for debugging
               EColor.WriteLine(EColor.Dim, $"[Engine] Raw ({rawResult.Length} chars): {rawResult.Substring(0, Math.Min(rawResult.Length, 300))}");

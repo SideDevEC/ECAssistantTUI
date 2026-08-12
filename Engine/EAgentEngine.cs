@@ -32,7 +32,13 @@ public sealed class EAgentEngine : IAsyncDisposable
 {
     private LLamaWeights? _weights;
     private LLamaContext? _context;
-    private InteractiveExecutor? _executor;
+    private ModelParams? _modelParams;
+    // v10.4.1: Switched from InteractiveExecutor to StatelessExecutor.
+    // InteractiveExecutor maintains KV cache state between calls, which breaks
+    // when BuildFullPrompt reconstructs the entire conversation every turn.
+    // StatelessExecutor creates a fresh context per call — perfect for our
+    // full-prompt-rebuild architecture. Slightly slower but correct.
+    private StatelessExecutor? _executor;
     private readonly List<EToolBase> _tools = new();
     private EMemoryManager? _memoryManager = null;
     private VectorMemoryStore? _vectorMemory = null;
@@ -224,7 +230,10 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                _weights = LLamaWeights.LoadFromFile(parameters);
                 _context = _weights.CreateContext(parameters);
           var nullLog = new NullLogger();
-            _executor = new InteractiveExecutor(_context, nullLog);
+            // v10.4.1: StatelessExecutor reprocesses full prompt from scratch each call.
+            // No KV cache state between calls — correct for full-prompt-rebuild architecture.
+            _modelParams = parameters;
+            _executor = new StatelessExecutor(_weights, parameters, nullLog);
 
              // ── Initialize tokenizer for accurate token counting ───
            if (_context != null) TokenCounter.Initialize(_context);

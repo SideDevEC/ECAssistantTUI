@@ -164,12 +164,10 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                 };
             }
 
-             // v9.19: Log what the engine returned BEFORE trimming
-              EColor.WriteLine(EColor.Dim, $"[Orchestrator] Before trim ({llmResponse.Length} chars): {llmResponse.Substring(0, Math.Min(llmResponse.Length, 200))}");
-
-             // Trim pass: cut at first </llm> or </output> boundary, keep tags included
-              llmResponse = TrimToFirstClosingTag(llmResponse);
-              EColor.WriteLine(EColor.Dim, $"[Orchestrator] After trim ({llmResponse.Length} chars): {llmResponse.Substring(0, Math.Min(llmResponse.Length, 200))}");
+             // v10.12.7: TrimToFirstClosingTag removed — ExtractCleanResponse in the engine
+             // already extracts content from <llm> container and parses inner tags.
+             // Double-trimming caused over-truncation when </output> appeared inside content.
+             EColor.WriteLine(EColor.Dim, $"[Orchestrator] Response ({llmResponse.Length} chars): {llmResponse.Substring(0, Math.Min(llmResponse.Length, 200))}");
 
                  // Step 2: Parse the clean LLM output — detect which block type was returned
               var decision = ParseLLMDecision(llmResponse);

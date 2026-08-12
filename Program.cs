@@ -35,7 +35,7 @@ public class Program
             var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "ECAssistant.log");
             Logger.Initialize(logPath, (EGuiBase)Gui, LogLevel.Info);
 
-            EColor.TagBold(Cyan, "ECAssistant", "v9.4 — llama-sharp 0.27.0");
+            EColor.TagBold(Cyan, "ECAssistant", "v10.12 — llama-sharp 0.27.0");
 
                  // Always use user's home directory for ECAssistant
             var userConfigDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant");

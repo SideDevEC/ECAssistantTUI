@@ -308,8 +308,8 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                     _engine.InjectFormatRetry(
                         "Your last response was REJECTED — you did not use the required XML tags.\n" +
                         "You MUST respond using this EXACT format:\n" +
-                        "<thinking>brief reasoning</thinking><output>your answer</output>\n" +
-                        "Do NOT write any text outside these tags. Do NOT skip the tags.\n" +
+                        "<llm><thinking>brief reasoning</thinking><output>your answer</output></llm>\n" +
+                        "Do NOT write any text outside the <llm> container. Do NOT skip the tags.\n" +
                         "Now answer the previous question using the correct format.");
                     _turnCount++;
                     continue;
@@ -356,28 +356,23 @@ public sealed class AgentOrchestrator : IAsyncDisposable
 
         var toolcallCloseIdx = rawResponse.IndexOf("</toolcall>", StringComparison.OrdinalIgnoreCase);
         var outputCloseIdx = rawResponse.IndexOf("</output>", StringComparison.OrdinalIgnoreCase);
+        // v10.12: Also check for </llm> container close
+        var llmCloseIdx = rawResponse.IndexOf("</llm>", StringComparison.OrdinalIgnoreCase);
 
          // Find whichever comes first (ignore negative/unused indices)
         int cutAt = -1;
-        if (toolcallCloseIdx >= 0 && outputCloseIdx >= 0)
-              {
-             // Both present — take the earlier one
-                cutAt = Math.Min(toolcallCloseIdx, outputCloseIdx);
-              }
-        else if (toolcallCloseIdx >= 0)
-              {
-                cutAt = toolcallCloseIdx;
-              }
-        else if (outputCloseIdx >= 0)
-              {
-                cutAt = outputCloseIdx;
-              }
+        string cutTag = "";
+        
+        // Find the earliest of all three closing tags
+        if (llmCloseIdx >= 0) { cutAt = llmCloseIdx; cutTag = "</llm>"; }
+        if (toolcallCloseIdx >= 0 && (cutAt < 0 || toolcallCloseIdx < cutAt)) { cutAt = toolcallCloseIdx; cutTag = "</toolcall>"; }
+        if (outputCloseIdx >= 0 && (cutAt < 0 || outputCloseIdx < cutAt)) { cutAt = outputCloseIdx; cutTag = "</output>"; }
 
          // No closing tag found — return as-is (nothing to trim)
         if (cutAt < 0) return rawResponse;
 
          // Cut AFTER the closing tag: include the full </tag> text, drop everything after
-        var tagNameLen = cutAt == toolcallCloseIdx ? "</toolcall>".Length : "</output>".Length;
+        var tagNameLen = cutTag.Length;
         var trimmed = rawResponse.Substring(0, cutAt + tagNameLen);
 
          // Trim trailing whitespace from the cut point

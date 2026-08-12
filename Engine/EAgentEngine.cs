@@ -609,7 +609,9 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                                     prefix = "<user>";
                                     break;
                                 case "assistant":
-                                    prefix = "<assistant>";
+                                    // v10.12: Wrap assistant history in <llm> container
+                                    // so the model sees its own past responses in the correct format
+                                    prefix = "<assistant><llm>";
                                     break;
                                 case "tool_output":
                                     prefix = $"<tooloutput>{msg.Source}<result>";
@@ -627,7 +629,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                                     sb.AppendLine("</user>");
                                     break;
                                 case "assistant":
-                                    sb.AppendLine("</assistant>");
+                                    sb.AppendLine("</llm></assistant>");
                                     break;
                                 case "tool_output":
                                     sb.AppendLine("</result></tooloutput>");
@@ -1017,7 +1019,9 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
               bool timedOut = false;
                  try
                     {
-                    var stopTags = new[] { "</toolcall>", "</output>" };
+                    // v10.12: Stop on </llm> (container close) in addition to inner closing tags.
+                    // </llm> is the primary stop — </toolcall> and </output> are fallbacks for when the model forgets the container.
+                    var stopTags = new[] { "</llm>", "</toolcall>", "</output>" };
                     EColor.WriteLine(EColor.Yellow + EColor.Bold, $"── Token Stream (Turn {_turnCount}) ── [ESC to stop] ──");
                     Program.Gui.WriteRawDirect(EColor.Dim);
                     var tokenCount = 0;
@@ -1072,6 +1076,10 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                   rawResult = rawResult.Substring("<assistant>".Length).Trim();
               if (rawResult.EndsWith("</assistant>", StringComparison.OrdinalIgnoreCase))
                   rawResult = rawResult.Substring(0, rawResult.Length - "</assistant>".Length).Trim();
+              // v10.12: Strip leading <llm> echo if model echoed the container opening back.
+              // (ExtractCleanResponse handles this too, but strip early so logs are cleaner.)
+              if (rawResult.StartsWith("<llm>", StringComparison.OrdinalIgnoreCase))
+                  EColor.WriteLine(EColor.Dim, "[Engine] Stripped leading <llm> echo");
 
               EColor.WriteLine(EColor.Dim, $"[Engine] Raw ({rawResult.Length} chars): {rawResult.Substring(0, Math.Min(rawResult.Length, 300))}");
 
@@ -1124,30 +1132,55 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
         {
            if (string.IsNullOrEmpty(raw)) return "";
 
-            // v9.1: Only extract the FIRST complete meaningful block to prevent repetition loops.
-            // The model sometimes generates multiple <thinking>+<toolcall> blocks in one response.
-            // We take only the first <thinking>...</thinking> + first <toolcall> or <output> after it.
+         // v10.12: Extract content from <llm> container first.
+         // Everything outside <llm>...</llm> is noise and is ignored.
+         // If no <llm> tag found, fall back to raw (for backwards compat / format retries).
+         var llmStart = raw.IndexOf("<llm>", StringComparison.OrdinalIgnoreCase);
+         var llmEnd = raw.IndexOf("</llm>", StringComparison.OrdinalIgnoreCase);
+         
+         string content;
+         if (llmStart >= 0 && llmEnd >= 0 && llmEnd > llmStart)
+         {
+             // Extract content between <llm> and </llm>
+             content = raw.Substring(llmStart + 5, llmEnd - llmStart - 5).Trim();
+             Logger.Debug("Extract", $"Extracted from <llm> container: {content.Length} chars (noise stripped: {raw.Length - content.Length - 11} chars)");
+         }
+         else if (llmStart >= 0 && llmEnd < 0)
+         {
+             // <llm> opened but never closed — take everything after <llm>
+             content = raw.Substring(llmStart + 5).Trim();
+             Logger.Debug("Extract", $"<llm> opened but not closed — taking rest: {content.Length} chars");
+         }
+         else
+         {
+             // No <llm> container — fall back to raw (format retry / backwards compat)
+             content = raw.Trim();
+             Logger.Debug("Extract", $"No <llm> container found — using raw: {content.Length} chars");
+         }
 
-         // v9.19: Debug logging in ExtractCleanResponse
-         Logger.Debug("Extract", $"Input length: {raw.Length}");
-         Logger.Debug("Extract", $"Contains <thinking>: {raw.Contains("<thinking>", StringComparison.OrdinalIgnoreCase)}");
-         Logger.Debug("Extract", $"Contains </thinking>: {raw.Contains("</thinking>", StringComparison.OrdinalIgnoreCase)}");
-         Logger.Debug("Extract", $"Contains <toolcall>: {raw.Contains("<toolcall>", StringComparison.OrdinalIgnoreCase)}");
-         Logger.Debug("Extract", $"Contains </toolcall>: {raw.Contains("</toolcall>", StringComparison.OrdinalIgnoreCase)}");
-         Logger.Debug("Extract", $"Contains <output>: {raw.Contains("<output>", StringComparison.OrdinalIgnoreCase)}");
-         Logger.Debug("Extract", $"Contains </output>: {raw.Contains("</output>", StringComparison.OrdinalIgnoreCase)}");
+         // v9.1: Only extract the FIRST complete meaningful block to prevent repetition loops.
+         // The model sometimes generates multiple <thinking>+<toolcall> blocks in one response.
+         // We take only the first <thinking>...</thinking> + first <toolcall> or <output> after it.
+
+         Logger.Debug("Extract", $"Content length: {content.Length}");
+         Logger.Debug("Extract", $"Contains <thinking>: {content.Contains("<thinking>", StringComparison.OrdinalIgnoreCase)}");
+         Logger.Debug("Extract", $"Contains </thinking>: {content.Contains("</thinking>", StringComparison.OrdinalIgnoreCase)}");
+         Logger.Debug("Extract", $"Contains <toolcall>: {content.Contains("<toolcall>", StringComparison.OrdinalIgnoreCase)}");
+         Logger.Debug("Extract", $"Contains </toolcall>: {content.Contains("</toolcall>", StringComparison.OrdinalIgnoreCase)}");
+         Logger.Debug("Extract", $"Contains <output>: {content.Contains("<output>", StringComparison.OrdinalIgnoreCase)}");
+         Logger.Debug("Extract", $"Contains </output>: {content.Contains("</output>", StringComparison.OrdinalIgnoreCase)}");
 
          // Find the first <thinking> block
-         var thinkStart = raw.IndexOf("<thinking>", StringComparison.OrdinalIgnoreCase);
+         var thinkStart = content.IndexOf("<thinking>", StringComparison.OrdinalIgnoreCase);
          var thinkEnd = thinkStart >= 0 
-             ? raw.IndexOf("</thinking>", thinkStart + 10, StringComparison.OrdinalIgnoreCase) 
+             ? content.IndexOf("</thinking>", thinkStart + 10, StringComparison.OrdinalIgnoreCase) 
              : -1;
 
          // Find the first <toolcall> or <output> AFTER the thinking block (or from start if no thinking)
          var searchStart = thinkEnd >= 0 ? thinkEnd + 11 : 0;
 
-         var toolcallStart = raw.IndexOf("<toolcall>", searchStart, StringComparison.OrdinalIgnoreCase);
-         var outputStart = raw.IndexOf("<output>", searchStart, StringComparison.OrdinalIgnoreCase);
+         var toolcallStart = content.IndexOf("<toolcall>", searchStart, StringComparison.OrdinalIgnoreCase);
+         var outputStart = content.IndexOf("<output>", searchStart, StringComparison.OrdinalIgnoreCase);
 
          // Determine which comes first: toolcall or output
          int blockStart = -1;
@@ -1167,29 +1200,29 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
          // Include thinking block if found
          if (thinkStart >= 0 && thinkEnd >= 0)
          {
-             var thinkContent = raw.Substring(thinkStart, thinkEnd + 11 - thinkStart).Trim();
+             var thinkContent = content.Substring(thinkStart, thinkEnd + 11 - thinkStart).Trim();
              sb.AppendLine(thinkContent);
          }
 
          // Include the action block (toolcall or output) if found
          if (blockStart >= 0)
          {
-             var closePos = raw.IndexOf(blockCloseTag, blockStart + blockTag.Length, StringComparison.OrdinalIgnoreCase);
+             var closePos = content.IndexOf(blockCloseTag, blockStart + blockTag.Length, StringComparison.OrdinalIgnoreCase);
              if (closePos >= 0)
              {
                  var blockLen = closePos - blockStart + blockCloseTag.Length;
-                 sb.Append(raw.Substring(blockStart, blockLen).Trim());
+                 sb.Append(content.Substring(blockStart, blockLen).Trim());
              }
              else
              {
                  // Opening tag but no close — take rest of text
-                 sb.Append(raw.Substring(blockStart).Trim());
+                 sb.Append(content.Substring(blockStart).Trim());
              }
          }
          else if (thinkStart < 0)
          {
-             // No thinking, no toolcall, no output — return raw (will be caught as invalid by orchestrator)
-             return raw.Trim();
+             // No thinking, no toolcall, no output — return content as-is (will be caught as invalid by orchestrator)
+             return content.Trim();
          }
 
          var result = sb.ToString().Trim();

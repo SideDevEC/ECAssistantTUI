@@ -351,7 +351,9 @@ public class Program
                                          var ticFile = DateTime.Now;
                                         try
                                                     {
+                                            agent.StartExecution();
                                             var orchestratorResult = await orchestrator.ExecuteMultiStep(pickResult);
+                                            agent.EndExecution();
                                          Gui.BlankLine();
                                          var maxTurnsDisplayA = 5;
                                               EColor.TagBold(Success(), "Agent", $"Turns: {orchestratorResult.ToolCallsMade}/{maxTurnsDisplayA} | Status: {orchestratorResult.Status}");
@@ -709,7 +711,8 @@ public class Program
         EColor.TagBold(Cyan, "Commands", "");
         Gui.BlankLine();
         EColor.WriteLine(Yellow + Bold, "  <type request>       Multi-step agent execution");
-        EColor.WriteLine(Yellow + Bold, "  stop                 Stop execution mid-stream (or press ESC)");
+        EColor.WriteLine(Yellow + Bold, "  stop                 Stop execution (type at prompt between tasks)");
+        EColor.WriteLine(Yellow + Bold, "  ESC                  Stop generation mid-stream (during token output)");
         EColor.WriteLine(Yellow + Bold, "  quit / exit          Exit (saves transcript)");
         EColor.WriteLine(Yellow + Bold, "  help                 Show this help");
         EColor.WriteLine(Yellow + Bold, "  tools                List registered tools");

@@ -943,10 +943,20 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                     EColor.TagBold(EColor.Info(), "KVCache", $"Re-injected summary: {summaryText.Length} chars");
                 }
                 
-                // v10.8.3: After cache rebuild, BuildIncrementalInput turn 2+ needs
-                // the tool output and directive in context window. They're already there
-                // from AddToolResult + InjectFormatRetry. The summary + current messages
-                // are in the context window. BuildIncrementalInput will read them correctly.
+                // v10.9.4: After overflow rebuild on turn 2+, re-add the latest tool output
+                // and user directive so BuildIncrementalInput can find them.
+                // Save references BEFORE clearing, then re-add after rebuild.
+                // (The messages were saved before Clear() above — allMessages has them)
+                if (_turnCount > 1)
+                {
+                    var lastToolMsg = allMessages.LastOrDefault(m => m.Role == "tool_output");
+                    var lastUserMsg = allMessages.LastOrDefault(m => m.Role == "user");
+                    if (lastToolMsg != null)
+                        _contextWindow.AddToolOutput(lastToolMsg.Content, lastToolMsg.Source ?? "");
+                    if (lastUserMsg != null)
+                        _contextWindow.AddUserMessage(lastUserMsg.Content);
+                }
+                
                 // For turn 1, re-add the user message.
                 if (_turnCount == 1)
                 {

@@ -213,7 +213,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                                 Program.Gui.WriteLineColored($"[Orchestrator] Output:\n{result.Output?.Substring(0, Math.Min(result.Output.Length, 500))}");
 
                                     // Log for LLM context
-                                    var logEntry = $"Tool:{decision.ToolName} \u2192 OK\nOutput: {result.Output?.Substring(0, Math.Min(result.Output.Length, 300))}";
+                                    var logEntry = $"Tool:{decision.ToolName} \u2192 OK\nOutput: {(result.Output != null ? result.Output.Substring(0, Math.Min(result.Output.Length, 300)) : "(no output)")}";
                                        _toolCallLog.Add(logEntry);
 
                                     // Add tool result to conversation history

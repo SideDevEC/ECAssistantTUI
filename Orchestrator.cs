@@ -530,7 +530,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
         var sb = new StringBuilder();
         
         sb.AppendLine("The tool has returned its result above. Now respond to the user.");
-        sb.AppendLine("CRITICAL: Open <llm> first, generate your response, then IMMEDIATELY close </llm>. NEVER drift past </llm>. Use <thinking>brief reasoning</thinking> then either <output>your answer</output> (if done) or another <toolcall> (if you need more data).");
+        sb.AppendLine("First token: <llm>. Last token: </llm>. Use <thinking>brief reasoning</thinking> then either <output>your answer</output> (if done) or another <toolcall> (if you need more data).");
         sb.AppendLine("Do NOT write plain text. Use the tags.");
         
         // v10.6: If we have sub-tasks, inject step context

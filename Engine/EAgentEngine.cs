@@ -480,7 +480,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
             sb.AppendLine();
 
             // First-turn directive
-            sb.AppendLine("-- CRITICAL: Open <llm> first, generate your response, then IMMEDIATELY close </llm>. NEVER drift past </llm>. ONE tool call per response. After result, give <output> if done or another <toolcall> if needed. --");
+            sb.AppendLine("-- First token: <llm>. Last token: </llm>. One tool call, then STOP. --");
 
             // Generation cue
             sb.AppendLine("<assistant>");
@@ -515,11 +515,11 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
             // Context-aware directive
             if (toolResultCount >= 3)
             {
-                sb.AppendLine($"-- CRITICAL: Open <llm> first, generate your response, then IMMEDIATELY close </llm>. NEVER drift past </llm>. You have run {toolResultCount} tool calls. Give <output> if done or another <toolcall> if needed. --");
+                sb.AppendLine($"-- First token: <llm>. Last token: </llm>. You have run {toolResultCount} tool calls. Give <output> if done or another <toolcall> if needed. --");
             }
             else
             {
-                sb.AppendLine("-- CRITICAL: Open <llm> first, generate your response, then IMMEDIATELY close </llm>. NEVER drift past </llm>. Tool results above. Use <output> if done or <toolcall> if you need more data. --");
+                sb.AppendLine("-- First token: <llm>. Last token: </llm>. Tool results above. <output> if done or <toolcall> if more data needed. --");
             }
 
             // Generation cue
@@ -652,17 +652,17 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                    if (toolResultCount >= 3)
                    {
                        // Multiple tool calls done — push toward final answer
-                       sb.AppendLine("-- CRITICAL: Open <llm> first, generate your response, then IMMEDIATELY close </llm>. NEVER drift past </llm>. You have run " + toolResultCount + " tool calls. Give <output> if done or <toolcall> if needed. --");
+                       sb.AppendLine("-- First token: <llm>. Last token: </llm>. You have run " + toolResultCount + " tool calls. Give <output> if done or <toolcall> if needed. --");
                    }
                    else
                    {
                        // 1-2 tool calls done — allow continuing if needed
-                       sb.AppendLine("-- CRITICAL: Open <llm> first, generate your response, then IMMEDIATELY close </llm>. NEVER drift past </llm>. Tool results above. Use <output> if done or <toolcall> if you need more data. --");
+                       sb.AppendLine("-- First token: <llm>. Last token: </llm>. Tool results above. <output> if done or <toolcall> if more data needed. --");
                    }
                }
               else
                     {
-                       sb.AppendLine("-- CRITICAL: Open <llm> first, generate your response, then IMMEDIATELY close </llm>. NEVER drift past </llm>. ONE tool call per response. After result, give <output> if done or another <toolcall> if needed. --");
+                       sb.AppendLine("-- First token: <llm>. Last token: </llm>. One tool call, then STOP. --");
                           }
 
              // v10.4.3: Open <assistant> tag to cue the model to START generating.

@@ -527,6 +527,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
         sb.AppendLine("The tool has returned its result above. Now respond to the user.");
         sb.AppendLine("Open <llm><thinking>brief reasoning</thinking> then either <output>your answer</output></llm> if done, or <llm><thinking>brief reasoning</thinking><toolcall>...</toolcall></llm> if you need more data.");
         sb.AppendLine("Do NOT write plain text. Use the tags.");
+        sb.AppendLine("IMPORTANT: Check [TASK PROGRESS] below BEFORE deciding. If any step is still [ ] or [...], you are NOT done — use <toolcall> for the remaining steps. Only use <output> when ALL steps show [OK] or [FAIL].");
         
         // v10.6: If we have sub-tasks, inject step context
         if (_subTasks != null && _subTasks.Count > 1)

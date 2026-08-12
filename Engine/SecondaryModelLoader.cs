@@ -123,25 +123,31 @@ public class SecondaryModelLoader : IDisposable
         if (!_loaded)
             return null;
 
-        var prompt = @"You are a task decomposer. Break the user's request into individual steps.
-Each step must be a single action that can be done in one tool call.
+        var prompt = @"Break the user request into steps. Output ONLY what the user asked for.
 
-Rules:
-- Output ONE step per line
-- Each line starts with a number and a period (1. 2. 3.)
-- Keep each step short and specific
+STRICT RULES:
+- One step per line, numbered: 1. 2. 3.
+- ONLY include actions the user EXPLICITLY asked for
+- Do NOT add setup, cleanup, verification, or ""helpful"" extra steps
+- Do NOT create projects, files, configs, or directories unless asked
 - Do NOT include thinking, reasoning, or explanation
-- Do NOT include the original request
-- If the task is simple (one action), output just one line
+- If the user asked for N things, output exactly N steps (or fewer if one action covers multiple)
+- Keep each step under 15 words
+- If it is a single action, output one line
 
 Examples:
-User: read Program.cs then fix the bug in line 42 then rebuild
-1. Read Program.cs to see the bug at line 42
-2. Fix the bug in line 42
+User: read Program.cs then fix line 42 then rebuild
+1. Read Program.cs
+2. Fix the bug at line 42
 3. Rebuild the project
 
 User: what day is today
 1. Get the current date
+
+User: calculate 4+2, write it to a file, then copy the file to C:\temp
+1. Calculate 4+2
+2. Write the result to a file
+3. Copy the file to a new location
 
 User: " + userRequest + "\n";
 

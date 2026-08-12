@@ -79,6 +79,7 @@ public sealed class EAgentEngine : IAsyncDisposable
     // v10.9.1: Fixed race condition — don't null _cts in StopExecution
     private CancellationTokenSource? _cts;
     private volatile bool _isExecuting = false;
+    private volatile bool _escPressed = false;  // v10.9.2: ESC flag for partial response check
     public CancellationToken ExecutionToken => _cts?.Token ?? CancellationToken.None;
     public bool IsExecuting => _isExecuting;
     
@@ -854,6 +855,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
     public void ResetForNewRequest()
     {
         _turnCount = 0;
+        _escPressed = false;
         // Note: We do NOT reset _isPrefilled here — the static prefix stays cached.
         // The KV cache still has the system prompt + tools.
         // Only the conversation history (added after prefill) needs to be managed.
@@ -892,6 +894,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
     public async Task<string> GenerateAsync(string userPrompt)
            {
                _turnCount++;
+            _escPressed = false;  // v10.9.2: Reset ESC flag for this turn
 
             // v10.4 FIX: Only add user message to context on turn 1.
             if (_turnCount == 1)
@@ -990,6 +993,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                           // v10.9: Check for ESC key press to stop generation
                           if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape)
                           {
+                              _escPressed = true;
                               Program.Gui.BlankLine();
                               EColor.TagBold(EColor.Error(), "Stop", "Generation stopped by user (ESC).");
                               goto inferenceDone;
@@ -1045,11 +1049,24 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
               if (string.IsNullOrEmpty(cleanResponse))
                   cleanResponse = timedOut ? "(Response truncated — model timed out)" : "(Empty response from model)";
 
-                 // v10.9.1: Don't store partial/cancelled responses in transcript
-                 if (ExecutionToken.IsCancellationRequested)
+                 // v10.9.2: Don't store partial/cancelled/ESC responses in transcript
+                 if (ExecutionToken.IsCancellationRequested || _escPressed)
                  {
-                     EColor.TagBold(EColor.Dim, "Engine", "Cancellation requested — not storing partial response.");
-                     return "(Cancelled by user)";
+                     EColor.TagBold(EColor.Dim, "Engine", "Execution stopped — not storing partial response.");
+                     // v10.9.2: Rewind KV cache to before this partial generation
+                     if (_savedStateBeforeGen != null && _executor != null)
+                     {
+                         try
+                         {
+                             _executor.LoadState(_savedStateBeforeGen);
+                             EColor.TagBold(EColor.Info(), "KVCache", "Rewound to pre-generation state (stopped).");
+                         }
+                         catch (Exception ex)
+                         {
+                             Logger.Warn("KVCache", $"Failed to rewind after stop: {ex.Message}");
+                         }
+                     }
+                     return "(Stopped by user)";
                  }
 
                  if (!string.IsNullOrEmpty(cleanResponse) && cleanResponse.Contains("<"))

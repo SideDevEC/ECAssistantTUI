@@ -46,11 +46,12 @@ When you see conversation history:
 
 ## OPERATING RULES
 
-1. ALWAYS read files before modifying them
+1. ALWAYS read files before modifying them (Get-Content)
 2. Think step by step in `<thinking>` before acting
 3. Report errors clearly with full output
 4. After code changes, compile/test to verify
 5. Save key decisions to memory (helps future sessions)
+6. For string replacement in files, use: `(Get-Content file) -replace 'old','new' | Set-Content file` — NEVER overwrite entire files with Set-Content when you only need to change specific strings
 
 ---
 

@@ -399,8 +399,10 @@ public sealed class EAgentEngine : IAsyncDisposable
                     // LLamaSharp's built-in anti-prompt matching may not catch all cases
                     // with tokenized tags like </toolcall>. We check the accumulated output.
                     var stopTags = new[] { "</toolcall>", "</output>" };
+                    Program.Gui.WriteRawDirect(EColor.Dim);
                     await foreach (var token in _executor.InferAsync(fullPrompt, _inferenceParams, cts.Token))
                          {
+                          Program.Gui.WriteRawDirect(token);
                            sb.Append(token);
                            // Check if accumulated output contains a stop tag
                            var soFar = sb.ToString();
@@ -414,7 +416,9 @@ public sealed class EAgentEngine : IAsyncDisposable
                                }
                            }
                               }
-                        inferenceDone:;
+                        inferenceDone:
+                    Program.Gui.WriteRawDirect(EColor.Reset);
+                    Program.Gui.BlankLine();
                                }
                           catch (OperationCanceledException)
                                  {

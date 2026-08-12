@@ -208,13 +208,25 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                     else
                         _toolCallLog.Add($"BATCH OK: {okCount}/{batchResult.Results.Count} tools succeeded");
 
-                    // Track completed steps + advance sub-tasks per tool
+                    // Track completed steps per tool (for summary)
                     foreach (var r in batchResult.Results)
                     {
                         var stepCmd = r.ToolCall.Args.GetValueOrDefault("command") ?? r.ToolCall.Args.GetValueOrDefault("action") ?? "";
                         var stepDesc = $"{r.ToolCall.ToolName}: {EGuiBase.Truncate(stepCmd, 80)}";
                         _completedSteps.Add(stepDesc);
-                        AdvanceSubTask(r.Succeeded, r.ToolCall.ToolName!, stepDesc);
+                    }
+
+                    // v10.13.2: Advance sub-task ONCE per batch, not per tool.
+                    // - All succeeded → mark step completed
+                    // - All failed → mark step failed
+                    // - Mixed → leave step in progress (LLM should retry failed parts)
+                    if (_subTasks != null && _subTasks.Count > 1)
+                    {
+                        if (okCount > 0 && failCount == 0)
+                            AdvanceSubTask(true, "Batch", $"{okCount} tools succeeded");
+                        else if (okCount == 0 && failCount > 0)
+                            AdvanceSubTask(false, "Batch", $"{failCount} tools failed");
+                        // Mixed: don't advance — let LLM retry the failed parts
                     }
 
                     // Add combined result to conversation history (one block)
@@ -615,10 +627,19 @@ public sealed class AgentOrchestrator : IAsyncDisposable
             
             // Check if all steps are done
             var allDone = _subTasks.All(s => s.Status == SubTaskStatus.Completed || s.Status == SubTaskStatus.Failed);
+            var anyFailed = _subTasks.Any(s => s.Status == SubTaskStatus.Failed);
             if (allDone)
             {
                 sb.AppendLine();
-                sb.AppendLine("All steps are complete! Give your final <output> summarizing what was done.");
+                if (anyFailed)
+                {
+                    sb.AppendLine("All steps have been attempted. Some FAILED. Check the tool results above.");
+                    sb.AppendLine("If you can fix the failed steps, use <toolcall>. If not, use <output> to report what happened.");
+                }
+                else
+                {
+                    sb.AppendLine("All steps are complete! Give your final <output> summarizing what was done.");
+                }
             }
         }
         

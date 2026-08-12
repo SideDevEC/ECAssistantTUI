@@ -271,20 +271,35 @@ ToolPolicy: 3 levels (Allowed / ApprovalRequired / Blocked) checked before every
 
 **Status:** v10.4.4 — All Tier 1-3 agentic capabilities implemented. 7 tools. Multi-turn workflow fixed (StatelessExecutor + turn counter reset + generation cue). Ready for Windows testing.
 
-## 🔖 Known-Good Build: `v10.4.4-working` (Git Tag)
+## 🔖 Known-Good Builds (Git Tags)
 
-This is the last verified working build. Multi-turn tool calls and sequential questions both work correctly.
+| Tag | Version | Description |
+|-----|---------|-------------|
+| `v10.4.4-working` | v10.4.4 | StatelessExecutor (pre-KV-cache, last stateless working build) |
+| `v10.5.1-working` | v10.5.1 | KV cache + tag structure audit (current known-good) |
 
-**If KV cache optimization (InteractiveExecutor) or any other change breaks multi-turn:**
+**If any change breaks multi-turn:**
 ```bash
-git checkout v10.4.4-working
+git checkout v10.5.1-working   # KV cache + audited tags (current)
+git checkout v10.4.4-working   # Stateless fallback (pre-KV-cache)
 ```
 
-**What works in this build:**
+**What works in v10.5.1-working:**
+- KV cache prefill (system prompt + tools cached once per session)
+- Incremental input per turn (only new tokens fed)
+- Multi-turn tool calls (question → tool call → answer)
+- Sequential questions in same session (Q1 answered, Q2 answered)
+- Tool output escaping (all 7 tools, safety net in AddToolResult)
+- Clean SystemPrompt rules (1-12, no duplicates)
+- `<assistant>` generation cue for completion models
+- Turn counter reset between requests
+- Tag structure audited and hardened
+- Token stream debug output + `last_prompt.txt` dump
+- `log-level debug` for full prompt console output
+
+**What works in v10.4.4-working (fallback):**
 - Multi-turn tool calls (question → tool call → answer)
 - Sequential questions in same session (Q1 answered, Q2 answered)
 - StatelessExecutor (fresh context per call)
 - Turn counter reset between requests
 - `<assistant>` generation cue for completion models
-- Token stream debug output + `last_prompt.txt` dump
-- `log-level debug` for full prompt console output

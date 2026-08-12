@@ -35,6 +35,16 @@ Every response MUST be wrapped in an `<llm>` container. No exceptions.
 12. For simple questions, still use the full format: `<llm><thinking>brief</thinking><output>answer</output></llm>`.
 13. After the `<assistant>` tag, start with `<llm>` immediately. Do NOT echo `<assistant>` back.
 14. If tool output says `[OUTPUT STORED: ...]`, use `EPowerShellAgent` with `Get-Content` and `Skip/First` to read parts.
+15. You can include MULTIPLE `<toolcall>` tags in one `<llm>` response. Use this for independent operations (e.g., reading multiple files at once, searching + reading, checking status + building). The host will analyze dependencies and run independent calls in parallel automatically. For dependent operations (where you need the result of a previous call), use separate turns — make the first call, wait for the result, then make the next call.
+    Example of batched independent calls:
+    ```
+    <llm><thinking>Need to read two files before editing</thinking><toolcall>EPowerShellAgent<command>Get-Content FileA.cs</command></toolcall><toolcall>EPowerShellAgent<command>Get-Content FileB.cs</command></toolcall></llm>
+    ```
+    Example of dependent calls (separate turns):
+    ```
+    Turn 1: <llm><thinking>Need to check build errors first</thinking><toolcall>EDotnetBuild<action>build</action></toolcall></llm>
+    Turn 2: <llm><thinking>Build failed on line 42, fixing it</thinking><toolcall>ECodeEditor<action>patch</action><file>Program.cs</file><old_text>bug</old_text><new_text>fix</new_text></toolcall></llm>
+    ```
 
 ### EXAMPLE: Simple question after tool result
 Tool returned: "Wednesday"

@@ -1,6 +1,6 @@
-# ECAssistant Architecture (v10.12.20 — 2026-08-12)
+# ECAssistant Architecture (v10.13.0 — 2026-08-13)
 
-**Summary:** A local, offline AI agent in C# .NET 8 using LLamaSharp. Runs GGUF models locally with no external API calls. Uses `<llm>` container tag for noise-proof response parsing with XML-style inner tags (`<thinking>`, `<toolcall>`, `<output>`). 7 registered tools self-register their rules at runtime. Multi-step autonomous loops with dual memory (keyword + TF-IDF vector), sliding context windows with LLM summarization, self-correction with failure loop detection and file rollback, project context awareness with dependency graph, task decomposition, surgical code editing, background process management, file watching, and structured logging. Token-optimized for 8B models. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts.
+**Summary:** A local, offline AI agent in C# .NET 8 using LLamaSharp. Runs GGUF models locally with no external API calls. Uses `<llm>` container tag for noise-proof response parsing with XML-style inner tags (`<thinking>`, `<toolcall>`, `<output>`). 7 registered tools self-register their rules at runtime. Multi-step autonomous loops with dual memory (keyword + TF-IDF vector), sliding context windows with LLM summarization, self-correction with failure loop detection and file rollback, project context awareness with dependency graph, task decomposition, surgical code editing, background process management, file watching, and structured logging. Token-optimized for 8B models. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution — multiple <toolcall> tags per response, intelligent dependency analysis, Task.WhenAll for independent tools.
 
 ## Key Facts
 - **Language:** C# .NET 8 console app (`net8.0-windows`, Nullable enabled)
@@ -249,6 +249,7 @@ Centralized truncation in `EGuiBase`:
 14. **Secondary model fully configurable (v10.12.12+)** — sampling params + anti-prompts in appsettings.json
 15. **Relative limits (v10.12.13)** — all secondary model limits scale with config values
 16. **Centralized truncation (v10.12.20)** — EGuiBase.Truncate, one place, [...] indicator
+17. **Parallel multi-tool execution (v10.13)** — multiple <toolcall> tags per <llm>, ToolDependencyAnalyzer figures out dependencies, Task.WhenAll for independent tools, combined result in one <tooloutput> block
 
 ## Feature Status (40+ features)
 
@@ -284,6 +285,9 @@ Centralized truncation in `EGuiBase`:
 | ESC stop with clean state recovery | ✅ |
 | Configurable secondary model (sampling + anti-prompts) | ✅ |
 | Centralized console truncation | ✅ |
+| Parallel multi-tool execution | ✅ |
+| Intelligent dependency analysis | ✅ |
+| Task.WhenAll for independent tools | ✅ |
 | Config hot-reload | ✅ |
 | Model hot-swap | ✅ |
 | KV cache prefill + incremental feed | ✅ |

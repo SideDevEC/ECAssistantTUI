@@ -1158,17 +1158,11 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
              Logger.Debug("Extract", $"No <llm> container found — using raw: {content.Length} chars");
          }
 
-         // v9.1: Only extract the FIRST complete meaningful block to prevent repetition loops.
-         // The model sometimes generates multiple <thinking>+<toolcall> blocks in one response.
-         // We take only the first <thinking>...</thinking> + first <toolcall> or <output> after it.
+         // v10.13: Extract ALL <toolcall> blocks + first <thinking> + first <output>.
+         // The model can batch multiple toolcalls in one response for parallel execution.
+         // We preserve the <llm> inner content structure for the orchestrator to parse.
 
          Logger.Debug("Extract", $"Content length: {content.Length}");
-         Logger.Debug("Extract", $"Contains <thinking>: {content.Contains("<thinking>", StringComparison.OrdinalIgnoreCase)}");
-         Logger.Debug("Extract", $"Contains </thinking>: {content.Contains("</thinking>", StringComparison.OrdinalIgnoreCase)}");
-         Logger.Debug("Extract", $"Contains <toolcall>: {content.Contains("<toolcall>", StringComparison.OrdinalIgnoreCase)}");
-         Logger.Debug("Extract", $"Contains </toolcall>: {content.Contains("</toolcall>", StringComparison.OrdinalIgnoreCase)}");
-         Logger.Debug("Extract", $"Contains <output>: {content.Contains("<output>", StringComparison.OrdinalIgnoreCase)}");
-         Logger.Debug("Extract", $"Contains </output>: {content.Contains("</output>", StringComparison.OrdinalIgnoreCase)}");
 
          // Find the first <thinking> block
          var thinkStart = content.IndexOf("<thinking>", StringComparison.OrdinalIgnoreCase);
@@ -1176,24 +1170,36 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
              ? content.IndexOf("</thinking>", thinkStart + 10, StringComparison.OrdinalIgnoreCase) 
              : -1;
 
-         // Find the first <toolcall> or <output> AFTER the thinking block (or from start if no thinking)
-         var searchStart = thinkEnd >= 0 ? thinkEnd + 11 : 0;
-
-         var toolcallStart = content.IndexOf("<toolcall>", searchStart, StringComparison.OrdinalIgnoreCase);
-         var outputStart = content.IndexOf("<output>", searchStart, StringComparison.OrdinalIgnoreCase);
-
-         // Determine which comes first: toolcall or output
-         int blockStart = -1;
-         string blockTag = "";
-         string blockCloseTag = "";
-
-         if (toolcallStart >= 0 && outputStart >= 0)
+         // v10.13: Find ALL <toolcall>...</toolcall> blocks
+         var toolcallBlocks = new List<(int start, int end)>();
+         var searchFrom = thinkEnd >= 0 ? thinkEnd + 11 : 0;
+         while (searchFrom < content.Length)
          {
-             if (toolcallStart < outputStart) { blockStart = toolcallStart; blockTag = "<toolcall>"; blockCloseTag = "</toolcall>"; }
-             else { blockStart = outputStart; blockTag = "<output>"; blockCloseTag = "</output>"; }
+             var tcStart = content.IndexOf("<toolcall>", searchFrom, StringComparison.OrdinalIgnoreCase);
+             if (tcStart < 0) break;
+             var tcEnd = content.IndexOf("</toolcall>", tcStart + 10, StringComparison.OrdinalIgnoreCase);
+             if (tcEnd < 0)
+             {
+                 // No close — take rest of content
+                 toolcallBlocks.Add((tcStart, content.Length));
+                 break;
+             }
+             toolcallBlocks.Add((tcStart, tcEnd + 10));
+             searchFrom = tcEnd + 10;
          }
-         else if (toolcallStart >= 0) { blockStart = toolcallStart; blockTag = "<toolcall>"; blockCloseTag = "</toolcall>"; }
-         else if (outputStart >= 0) { blockStart = outputStart; blockTag = "<output>"; blockCloseTag = "</output>"; }
+
+         // Find <output> block (if no toolcalls, or after toolcalls)
+         var outputStart = content.IndexOf("<output>", searchFrom, StringComparison.OrdinalIgnoreCase);
+         int? outputEnd = null;
+         if (outputStart >= 0)
+         {
+             var oc = content.IndexOf("</output>", outputStart + 8, StringComparison.OrdinalIgnoreCase);
+             outputEnd = oc >= 0 ? oc + 8 : content.Length;
+         }
+
+         // Check if we found an <output> before any <toolcall> (takes priority)
+         var firstToolcallStart = toolcallBlocks.Count > 0 ? toolcallBlocks[0].start : int.MaxValue;
+         bool hasOutputFirst = outputStart >= 0 && outputStart < firstToolcallStart;
 
          var sb = new StringBuilder();
 
@@ -1204,20 +1210,27 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
              sb.AppendLine(thinkContent);
          }
 
-         // Include the action block (toolcall or output) if found
-         if (blockStart >= 0)
+         if (hasOutputFirst)
          {
-             var closePos = content.IndexOf(blockCloseTag, blockStart + blockTag.Length, StringComparison.OrdinalIgnoreCase);
-             if (closePos >= 0)
+             // <output> came before any <toolcall> — this is a direct answer
+             var outputLen = outputEnd!.Value - outputStart;
+             sb.Append(content.Substring(outputStart, outputLen).Trim());
+         }
+         else if (toolcallBlocks.Count > 0)
+         {
+             // v10.13: Include ALL <toolcall> blocks
+             foreach (var (tcS, tcE) in toolcallBlocks)
              {
-                 var blockLen = closePos - blockStart + blockCloseTag.Length;
-                 sb.Append(content.Substring(blockStart, blockLen).Trim());
+                 var blockContent = content.Substring(tcS, tcE - tcS).Trim();
+                 sb.AppendLine(blockContent);
              }
-             else
-             {
-                 // Opening tag but no close — take rest of text
-                 sb.Append(content.Substring(blockStart).Trim());
-             }
+             Logger.Debug("Extract", $"Extracted {toolcallBlocks.Count} <toolcall> blocks");
+         }
+         else if (outputStart >= 0)
+         {
+             // <output> found (after thinking, no toolcalls)
+             var outputLen = outputEnd!.Value - outputStart;
+             sb.Append(content.Substring(outputStart, outputLen).Trim());
          }
          else if (thinkStart < 0)
          {

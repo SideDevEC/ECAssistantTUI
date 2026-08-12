@@ -169,13 +169,79 @@ public sealed class AgentOrchestrator : IAsyncDisposable
 
                  // Step 2: Parse the clean LLM output — detect which block type was returned
               var decision = ParseLLMDecision(llmResponse);
-              EColor.WriteLine(EColor.Dim, $"[Orchestrator] Parse result: WantsToolCall={decision.WantsToolCall}, WantsDirectAnswer={decision.WantsDirectAnswer}, ToolName={decision.ToolName}");
+              EColor.WriteLine(EColor.Dim, $"[Orchestrator] Parse result: WantsToolCall={decision.WantsToolCall}, WantsDirectAnswer={decision.WantsDirectAnswer}, ToolCalls={decision.ToolCallCount}, ToolName={decision.ToolName}");
 
               if (decision.WantsToolCall)
                        {
                 _formatRetries = 0; // reset on valid tool call
-                    Logger.Info("Orchestrator", $"Tool call: {decision.ToolName}");
-                
+
+                // v10.13: Multi-tool parallel execution
+                if (decision.IsMultiCall)
+                {
+                    Logger.Info("Orchestrator", $"Multi-tool call: {decision.ToolCallCount} tools");
+                    EColor.TagBold(EColor.Info(), "Parallel", $"Multi-tool call: {decision.ToolCallCount} tools — analyzing dependencies...");
+
+                    // Create parallel executor
+                    var parallelExec = new ParallelToolExecutor(
+                        _engine,
+                        _toolPolicy,
+                        ExecuteTool,
+                        msg => EColor.WriteLine(EColor.Dim, msg));
+
+                    // Execute all tool calls with dependency-aware parallelism
+                    var batchResult = await parallelExec.ExecuteAsync(decision.ToolCalls, _engine.ExecutionToken);
+
+                    // Display summary
+                    var consoleSummary = ParallelToolExecutor.FormatConsoleSummary(batchResult);
+                    EColor.Tag(batchResult.AllSucceeded ? EColor.Success() : EColor.Warn(), "Batch", consoleSummary);
+                    Logger.Info("Orchestrator", $"Batch result: {consoleSummary}");
+
+                    // Combine all results into one output block for the LLM
+                    var combinedOutput = ParallelToolExecutor.CombineResults(batchResult);
+                    Program.Gui.WriteLineColored($"[Orchestrator] Batch output:\n{EGuiBase.Truncate(combinedOutput, 2000)}");
+
+                    // Log each tool call
+                    foreach (var r in batchResult.Results)
+                    {
+                        var logEntry = $"Tool:{r.ToolCall.ToolName}#{r.ToolCall.Index} \u2192 {(r.Succeeded ? "OK" : "FAIL")} ({r.ElapsedMs}ms)";
+                        _toolCallLog.Add(logEntry);
+
+                        var stepCmd = r.ToolCall.Args.GetValueOrDefault("command") ?? r.ToolCall.Args.GetValueOrDefault("action") ?? "";
+                        var stepDesc = $"{r.ToolCall.ToolName}: {EGuiBase.Truncate(stepCmd, 80)}";
+                        _completedSteps.Add(stepDesc);
+                        AdvanceSubTask(r.Succeeded, r.ToolCall.ToolName!, stepDesc);
+                    }
+
+                    // Add combined result to conversation history (one block)
+                    _engine.AddToolResult("Batch", combinedOutput);
+
+                    // Check for failure streak
+                    if (batchResult.Results.Any(r => !r.Succeeded))
+                    {
+                        if (IsFailureStreak(_maxFailuresBeforeStop))
+                        {
+                            Program.Gui.WriteLineColored($"[Orchestrator] Too many failures ({_maxFailuresBeforeStop} in a row). Stopping.\n");
+                            return new OrchestratorResult
+                            {
+                                FinalOutput = $"Stopped after {_maxFailuresBeforeStop} consecutive failures during batch execution.",
+                                ToolCallsMade = _turnCount + 1,
+                                Status = OrchestratorStatus.TurnsExhausted
+                            };
+                        }
+                    }
+
+                    // Inject step-aware directive
+                    var stepDirective = BuildStepDirective();
+                    _engine.InjectFormatRetry(stepDirective);
+
+                    EColor.WriteLine(EColor.Dim, $"[Orchestrator] Batch complete, looping back to LLM (turn {_turnCount + 1})...");
+                    _turnCount++;
+                    continue;
+                }
+
+                // ── Single tool call (original path) ──
+                Logger.Info("Orchestrator", $"Tool call: {decision.ToolName}");
+
                 var argsDict = decision.Args;
 
                 // ── Tool Policy Check ──
@@ -220,7 +286,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                         }
                         var result = await ExecuteTool(decision.ToolName, argsDict);
                         var elapsedMs = (long)((DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond) - startMs);
-                        
+
                             EColor.Tag(result.Succeeded ? EColor.Success() : EColor.Error(), "Tool", $"{decision.ToolName}: {(result.Succeeded ? "OK" : "FAIL")} ({elapsedMs}ms)");
                             Logger.Info("Orchestrator", $"Tool: {decision.ToolName} = {(result.Succeeded ? "SUCCESS" : "FAILURE")} ({elapsedMs}ms)");
 
@@ -234,17 +300,17 @@ public sealed class AgentOrchestrator : IAsyncDisposable
 
                                     // Add tool result to conversation history
                                             var toolOutput = result.Output!;
-                                            
+
                                     // Track completed step
                                     var stepCmd = argsDict.GetValueOrDefault("command") ?? "";
                                     var stepDesc = $"{decision.ToolName}: {EGuiBase.Truncate(stepCmd, 80)}";
                                     _completedSteps.Add(stepDesc);
-                                    
+
                                     // v10.6: Advance sub-task tracking on success
                                     AdvanceSubTask(true, decision.ToolName!, stepDesc);
-                                    
+
                                     _engine.AddToolResult(decision.ToolName!, toolOutput);
-                                    
+
                                     // v10.6: Inject step-aware directive with sub-task context
                                     var stepDirective = BuildStepDirective();
                                     _engine.InjectFormatRetry(stepDirective);
@@ -259,11 +325,11 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                                 if (IsFailureStreak(_maxFailuresBeforeStop))
                                          {
                                         Program.Gui.WriteLineColored($"[Orchestrator] Too many failures ({_maxFailuresBeforeStop} in a row). Stopping.\n");
-                                            return new OrchestratorResult 
-                                                    { 
+                                            return new OrchestratorResult
+                                                    {
                                                     FinalOutput = $"Stopped after {_maxFailuresBeforeStop} consecutive failures on tool: {decision.ToolName}",
                                                     ToolCallsMade = _turnCount + 1,
-                                                    Status = OrchestratorStatus.TurnsExhausted 
+                                                    Status = OrchestratorStatus.TurnsExhausted
                                                     };
                                          }
                                 }
@@ -338,38 +404,52 @@ public sealed class AgentOrchestrator : IAsyncDisposable
      // ─── Content Cleaning ──────────────────
 
 
-     // ─── Clean Response Parsing (v2.2) ────────────
+     // ─── Multi-Tool Parsing (v10.13) ────────────
     
      /// <summary>
-     /// Parse the LLM's clean response — detect exactly one structured block.
+     /// Parse the LLM's clean response — detect one or more <toolcall> blocks or an <output> block.
      /// 
-     /// The engine already strips noise via ExtractCleanResponse().
-     /// We only need to check: does it contain <toolcall>, <output>, or neither?
+     /// The engine already strips noise via ExtractCleanResponse() and extracts ALL <toolcall> blocks.
+     /// We parse them into a list of ToolCallRequest objects for the ParallelToolExecutor.
      /// 
-     /// Priority order: <toolcall> takes precedence (LLM may output both).
+     /// Priority: if <toolcall> blocks exist, they take precedence over <output>.
+     /// A response with both <toolcall> and <output> is treated as tool calls (output is ignored).
      /// </summary>
     private static LLMDecision ParseLLMDecision(string response)
                 {
             var trimmed = response.Trim();
 
-             // Check for <toolcall>...</toolcall> block first (takes priority over <output>)
-            var toolcallOpenIdx = trimmed.IndexOf("<toolcall>", StringComparison.OrdinalIgnoreCase);
-            int? toolcallCloseIdx = null;
-            if (toolcallOpenIdx >= 0)
-              {
-                var closePos = trimmed.IndexOf("</toolcall>", toolcallOpenIdx + "<toolcall>".Length, StringComparison.OrdinalIgnoreCase);
-                if (closePos > toolcallOpenIdx + "<toolcall>".Length)
-                    toolcallCloseIdx = closePos;
-              }
+             // v10.13: Find ALL <toolcall>...</toolcall> blocks
+            var toolCalls = new List<ToolCallRequest>();
+            var searchFrom = 0;
+            while (searchFrom < trimmed.Length)
+            {
+                var tcStart = trimmed.IndexOf("<toolcall>", searchFrom, StringComparison.OrdinalIgnoreCase);
+                if (tcStart < 0) break;
+                var tcEnd = trimmed.IndexOf("</toolcall>", tcStart + 10, StringComparison.OrdinalIgnoreCase);
+                string blockContent;
+                if (tcEnd < 0)
+                {
+                    // No close — take rest
+                    blockContent = trimmed.Substring(tcStart + 10).Trim();
+                    searchFrom = trimmed.Length;
+                }
+                else
+                {
+                    blockContent = trimmed.Substring(tcStart + 10, tcEnd - tcStart - 10).Trim();
+                    searchFrom = tcEnd + 10;
+                }
 
-            if (toolcallOpenIdx >= 0 && toolcallCloseIdx.HasValue)
-                  {
-                 // Found a <toolcall> block — extract its content and parse
-                var blockContent = trimmed.Substring(
-                    toolcallOpenIdx + "<toolcall>".Length, 
-                    toolcallCloseIdx.Value - toolcallOpenIdx - "<toolcall>".Length).Trim();
-                return ParseToolCallBlock(blockContent);
-                  }
+                var tc = ParseToolCallBlock(blockContent, toolCalls.Count + 1);
+                if (tc.ToolName != null)
+                    toolCalls.Add(tc);
+            }
+
+            if (toolCalls.Count > 0)
+            {
+                // Found one or more <toolcall> blocks
+                return new LLMDecision(toolCalls);
+            }
 
              // Check for <output>...</output> block
             var outputOpenIdx = trimmed.IndexOf("<output>", StringComparison.OrdinalIgnoreCase);
@@ -387,7 +467,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                 var answer = trimmed.Substring(
                     outputOpenIdx + "<output>".Length, 
                     outputCloseIdx.Value - outputOpenIdx - "<output>".Length).Trim();
-                return new LLMDecision(false, null, new Dictionary<string, string?>(), answer);
+                return LLMDecision.DirectAnswer(answer);
                   }
 
              // Neither block found — invalid response
@@ -395,7 +475,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                 }
 
 /// <summary>Parses a single <toolcall> block content to extract tool name and arguments.</summary>
-    private static LLMDecision ParseToolCallBlock(string toolcallContent)
+    private static ToolCallRequest ParseToolCallBlock(string toolcallContent, int index)
           {
              // Extract tool name: first word before any '<', space, or end of string
             var ltIdx = toolcallContent.IndexOf('<');
@@ -410,7 +490,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
             var args = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
             var argMatches = Regex.Matches(toolcallContent, @"<([a-zA-Z_][\w]*)>(.*?)</\1>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
-            Program.Gui.WriteLineColored($"[Parse] Toolcall content: {toolcallContent}");
+            Program.Gui.WriteLineColored($"[Parse] Toolcall #{index} content: {toolcallContent}");
             Program.Gui.WriteLineColored($"[Parse] Regex matches: {argMatches.Count}");
             foreach (Match m in argMatches)
                {
@@ -434,7 +514,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                 }
             }
 
-            return new LLMDecision(true, toolName, args);
+            return new ToolCallRequest { ToolName = toolName, Args = args, Index = index };
           }
 
      // ─── Tool Execution ──────────────────────
@@ -578,41 +658,62 @@ public sealed class AgentOrchestrator : IAsyncDisposable
     public async ValueTask DisposeAsync() => await Task.CompletedTask;
 }
 
-// ─── Decision Result (v2.2) ──────────────────────
+// ─── Decision Result (v10.13) ─────────────────────────
 
-/// <summary>LLM's structured decision about what to do next.</summary>
+/// <summary>LLM's structured decision about what to do next.
+/// v10.13: Supports multiple tool calls for parallel execution.</summary>
 public class LLMDecision
 {
-          // Tool call fields
+          // Tool call fields (v10.13: multiple calls)
     public bool WantsToolCall { get; }
-    public string? ToolName { get; }
-    public Dictionary<string, string?> Args { get; }
+    public List<ToolCallRequest> ToolCalls { get; }
+
+          // Legacy single-call accessors (backwards compat)
+    public string? ToolName => ToolCalls.FirstOrDefault()?.ToolName;
+    public Dictionary<string, string?> Args => ToolCalls.FirstOrDefault()?.Args ?? new Dictionary<string, string?>();
 
           // Direct answer field
     public bool WantsDirectAnswer { get; }
     public string? AnswerText { get; }
 
+    /// <summary>Single tool call (backwards compat).</summary>
     public LLMDecision(
-        bool wantsToolCall, 
-        string? toolName, 
-        Dictionary<string, string?> args, 
+        bool wantsToolCall,
+        string? toolName,
+        Dictionary<string, string?> args,
         string? answerText = null)
               {
         WantsToolCall = wantsToolCall;
-        ToolName = toolName;
-        Args = args ?? new Dictionary<string, string>();
+        ToolCalls = wantsToolCall && toolName != null
+            ? new List<ToolCallRequest> { new() { ToolName = toolName, Args = args ?? new Dictionary<string, string?>(), Index = 1 } }
+            : new List<ToolCallRequest>();
         WantsDirectAnswer = answerText != null;
             AnswerText = answerText;
               }
+
+    /// <summary>Multiple tool calls (v10.13).</summary>
+    public LLMDecision(List<ToolCallRequest> toolCalls)
+    {
+        WantsToolCall = toolCalls.Count > 0;
+        ToolCalls = toolCalls;
+        WantsDirectAnswer = false;
+        AnswerText = null;
+    }
+
+    /// <summary>Number of tool calls in this decision.</summary>
+    public int ToolCallCount => ToolCalls.Count;
+
+    /// <summary>Is this a multi-call (parallel) decision?</summary>
+    public bool IsMultiCall => ToolCalls.Count > 1;
 
     public static LLMDecision ToolCall(string name, Dictionary<string, string?> dict)
                 => new(true, name, dict);
 
     public static LLMDecision DirectAnswer(string answer)
-                => new(false, null, new Dictionary<string, string>(), answer);
+                => new(false, null, new Dictionary<string, string?>(), answer);
 
     public static LLMDecision Unknown()
-                => new(false, null, new Dictionary<string, string>(), null);
+                => new(false, null, new Dictionary<string, string?>(), null);
 }
 
 /// <summary>Result from the orchestrator after execution completes.</summary>

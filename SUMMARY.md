@@ -1,6 +1,6 @@
-# ECAssistant — Project Summary (v10.12.20 — 2026-08-12)
+# ECAssistant — Project Summary (v10.13.0 — 2026-08-13)
 
-**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Loads GGUF models from disk — no API calls, no cloud, fully self-contained. Uses `<llm>` container tag for noise-proof response parsing with XML-style inner tags for tool calling. Multi-step autonomous loops, dual memory (keyword + vector/semantic), sliding context windows, self-correction with failure loop detection, project context awareness, task decomposition, surgical code editing, 7 registered tools. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. Centralized console truncation with `[...]` indicators.
+**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Loads GGUF models from disk — no API calls, no cloud, fully self-contained. Uses `<llm>` container tag for noise-proof response parsing with XML-style inner tags for tool calling. Multi-step autonomous loops, dual memory (keyword + vector/semantic), sliding context windows, self-correction with failure loop detection, project context awareness, task decomposition, surgical code editing, 7 registered tools. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. Centralized console truncation with `[...]` indicators. v10.13: Parallel multi-tool execution with intelligent dependency analysis.
 
 ## Key Facts
 - **Language:** C# .NET 8 console app (`net8.0-windows`, Nullable enabled)
@@ -48,6 +48,33 @@
 - `EGuiBase.Truncate(text, maxChars)` — one static method, returns truncated + `[...]`
 - All 9 console output sites use it — one place to change behavior
 - `[...]` indicator shows when content is truncated in console
+
+## Parallel Multi-Tool Execution (v10.13 — 2026-08-13)
+
+### How It Works
+1. Model emits multiple `<toolcall>` tags in one `<llm>` response
+2. `ExtractCleanResponse` extracts ALL toolcall blocks (not just first)
+3. `ToolDependencyAnalyzer` inspects tool types + args (file targets) to determine dependencies
+4. Independent toolcalls run in parallel via `Task.WhenAll`
+5. Dependent toolcalls wait for their dependencies to complete
+6. All results combined into one `<tooloutput>` block for the LLM
+7. One directive back to the LLM — it sees all results at once
+
+### Dependency Heuristics
+- Same tool, different files → independent (parallel)
+- Write tool on file A + read tool on file A → sequential (read first)
+- Build/git → always after code-modifying tools
+- Background exec → always independent
+- Different tools, different targets → independent
+
+### New Files
+- `Engine/ToolDependencyAnalyzer.cs` — dependency analysis + grouping
+- `Engine/ParallelToolExecutor.cs` — parallel execution + result combining
+
+### Modified Files
+- `Engine/EAgentEngine.cs` — `ExtractCleanResponse` extracts ALL toolcalls
+- `Orchestrator.cs` — multi-call parsing, parallel execution path, `LLMDecision` holds `List<ToolCallRequest>`
+- `SystemPrompt.md` — rule 15: multiple toolcalls allowed + examples
 
 ## Working Directory
 

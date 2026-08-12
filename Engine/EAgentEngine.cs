@@ -393,11 +393,27 @@ public sealed class EAgentEngine : IAsyncDisposable
               bool timedOut = false;
                  try
                     {
+                    // v9.2: Manual anti-prompt enforcement — break when we see closing tags
+                    // LLamaSharp's built-in anti-prompt matching may not catch all cases
+                    // with tokenized tags like </toolcall>. We check the accumulated output.
+                    var stopTags = new[] { "</toolcall>", "</output>" };
                     await foreach (var token in _executor.InferAsync(fullPrompt, _inferenceParams, cts.Token))
                          {
                           Program.Gui.WriteRawDirect(EColor.Token() + token + EColor.Reset);
                            sb.Append(token);
+                           // Check if accumulated output contains a stop tag
+                           var soFar = sb.ToString();
+                           foreach (var stopTag in stopTags)
+                           {
+                               if (soFar.Contains(stopTag, StringComparison.OrdinalIgnoreCase))
+                               {
+                                   Program.Gui.BlankLine();
+                                   EColor.TagBold(EColor.Info(), "Stop", $"Manual anti-prompt hit: {stopTag}");
+                                   goto inferenceDone;
+                               }
+                           }
                               }
+                        inferenceDone:;
                                }
                           catch (OperationCanceledException)
                                  {

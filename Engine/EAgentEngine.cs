@@ -85,14 +85,9 @@ public sealed class EAgentEngine : IAsyncDisposable
                // Enable native library logging to verify which backend was loaded (CUDA vs CPU)
            NativeLibraryConfig.All.WithLogCallback(delegate (LLamaLogLevel level, string message)
                 {
-                 var prefix = level switch
-                   {
-                      LLamaLogLevel.Debug => "[DEBUG]",
-                     LLamaLogLevel.Info => "[INFO]",
-                       LLamaLogLevel.Error => "[ERROR]",
-                          _ => "[LLAMA]"
-                    };
-                 Program.Gui.LogInternal($"[LLAMA {prefix}] {message}");
+                 // v9.4: Only log LLAMA errors to console, skip debug/info spam
+                if (level == LLamaLogLevel.Error)
+                    Program.Gui.LogInternal($"[LLAMA ERROR] {message}");
                 });
 
               // Check CUDA availability at startup for logging
@@ -101,20 +96,14 @@ public sealed class EAgentEngine : IAsyncDisposable
                 {
                 var cudaVer = sysInfo.CudaMajorVersion;
                   if (cudaVer == -1)
-                      Program.Gui.LogInternal("[CUDA] No CUDA detected — will run on CPU");
+                      Logger.Info("CUDA", "No CUDA detected — will run on CPU");
                      else
-                        Program.Gui.LogInternal($"[CUDA] Detected: CUDA {cudaVer}");
+                        Logger.Info("CUDA", $"Detected: CUDA {cudaVer}");
                         }
 
                // Report which GPU backends are available
-           try
-                {
-                 Program.Gui.LogInternal(SystemInfo.Get().ToString());
-                    }
-                catch
-                    {
-                          // Best-effort: don't fail startup if system info read fails
-                         }
+           // v9.4: Suppress SystemInfo dump on startup
+           try { Logger.Debug("System", SystemInfo.Get().ToString()); } catch { }
 
            var parameters = new ModelParams(modelPath)
                      {
@@ -390,22 +379,17 @@ public sealed class EAgentEngine : IAsyncDisposable
               _transcript.AddUser(userPrompt);
                 _contextWindow.AddUserMessage(userPrompt);
 
-             Program.Gui.WriteLineColored($"[Context] Turn {_turnCount} | Budget: {_contextWindow.GetTotalTokens()}/{_contextWindow.MaxTokens} tokens");
+             Logger.Debug("Context", $"Turn {_turnCount} | Budget: {_contextWindow.GetTotalTokens()}/{_contextWindow.MaxTokens} tokens");
             Logger.Debug("Context", $"Turn {_turnCount} | Budget: {_contextWindow.GetTotalTokens()}/{_contextWindow.MaxTokens} tokens");
 
            var fullPrompt = BuildFullPrompt(userPrompt);
 
             try
               {
-              EColor.TagBold(EColor.Info(), "Engine", $"Prompt: {fullPrompt.Length} chars, Turn: {_turnCount}");
-               EColor.TagBold(EColor.Info(), "Send", "Sending to model...");
-                Program.Gui.WriteRawDirect(EColor.Dim + "[Engine] Prompt:" + EColor.Reset + " ");
-                 Program.Gui.WriteRawDirect(fullPrompt);
-                  Program.Gui.BlankLine();
+              Logger.Debug("Engine", $"Prompt: {fullPrompt.Length} chars, Turn: {_turnCount}");
 
               var sb = new StringBuilder();
-               Program.Gui.WriteRawDirect(EColor.Model() + "[Model]" + EColor.Reset);
-                Program.Gui.BlankLine();
+
 
              using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
               bool timedOut = false;
@@ -417,7 +401,6 @@ public sealed class EAgentEngine : IAsyncDisposable
                     var stopTags = new[] { "</toolcall>", "</output>" };
                     await foreach (var token in _executor.InferAsync(fullPrompt, _inferenceParams, cts.Token))
                          {
-                          Program.Gui.WriteRawDirect(EColor.Token() + token + EColor.Reset);
                            sb.Append(token);
                            // Check if accumulated output contains a stop tag
                            var soFar = sb.ToString();
@@ -443,15 +426,14 @@ public sealed class EAgentEngine : IAsyncDisposable
               var rawResult = sb.ToString().Trim();
                   string cleanResponse;
 
-              // Debug: show raw model output for troubleshooting
-              Program.Gui.WriteLineColored($"[Engine] Raw output ({rawResult.Length} chars): {rawResult.Substring(0, Math.Min(rawResult.Length, 500))}");
+              Logger.Debug("Engine", $"Raw output: {rawResult.Length} chars");
 
                      // Extract clean response — ONLY the last well-formed structured block:
                      // Prefer <output>...</output> or <toolcall>...</toolcall>
                   // Strip everything outside structural tags (hallucination noise).
                    cleanResponse = ExtractCleanResponse(rawResult);
 
-              Program.Gui.WriteLineColored($"[Engine] Clean response ({cleanResponse.Length} chars): {cleanResponse.Substring(0, Math.Min(cleanResponse.Length, 500))}");
+              Logger.Debug("Engine", $"Clean response: {cleanResponse.Length} chars");
 
               if (string.IsNullOrEmpty(cleanResponse))
                   cleanResponse = timedOut ? "(Response truncated — model timed out)" : "(Empty response from model)";
@@ -464,7 +446,7 @@ public sealed class EAgentEngine : IAsyncDisposable
                            }
 
                  Program.Gui.BlankLine();
-                  EColor.TagBold(EColor.Success(), "Done", $"Response generated: {cleanResponse.Length} chars");
+                  Logger.Info("Engine", $"Response: {cleanResponse.Length} chars");
                   return cleanResponse;
                     }
               catch (Exception ex)

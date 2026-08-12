@@ -30,9 +30,7 @@ public class Program
             var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "ECAssistant.log");
             Logger.Initialize(logPath, (EGuiBase)Gui, LogLevel.Info);
 
-            EColor.TagBold(Cyan, "ECAssistant", "llama-sharp 0.27.0");
-             EColor.TagBold(Cyan, "Tools", "PowerShell - Extensible");
-              Gui.BlankLine();
+            EColor.TagBold(Cyan, "ECAssistant", "v9.4 — llama-sharp 0.27.0");
 
                  // Always use user's home directory for appsettings.json
             var userConfigDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant");
@@ -53,9 +51,6 @@ public class Program
             ApplyCommandLineArgs(ref _config, args);
 
              Gui.BlankLine();
-             EColor.TagBold(Cyan, "Config", "Summary:");
-              ShowConfigSummary();
-               Gui.BlankLine();
 
             var effectiveModelPath = Path.GetFullPath(_config.Llm.ModelPath);
            if (!File.Exists(effectiveModelPath))
@@ -163,14 +158,8 @@ public class Program
 
     private static void ShowConfigSummary()
             {
-            EColor.WriteLine(Yellow + Bold, $"   Model: {_config.Llm.ModelPath}");
-              EColor.WriteLine(Yellow + Bold, $"   ContextSize: {_config.Llm.ContextSize} tokens");
-            EColor.WriteLine(Yellow + Bold, $"   GPU Layers: {_config.Llm.GpuLayers}/100");
-             EColor.WriteLine(Yellow + Bold, $"   Threads: {(_config.Llm.Threads == -1 ? "auto" : _config.Llm.Threads.ToString())}");
-            EColor.WriteLine(Yellow + Bold, $"   Max Tokens per turn: {_config.Inference.MaxTokens}");
-              EColor.WriteLine(Yellow + Bold, $"   Temperature: {_config.Sampling.Temperature}");
-             EColor.WriteLine(Yellow + Bold, $"   Working Directory: {Path.GetFullPath(_config.AgentSettings.WorkingDirectory)}");
-           EColor.WriteLine(Yellow + Bold, $"   Allowed Extensions: {string.Join(", ", _config.AgentSettings.AllowedExtensions)}");
+            var model = Path.GetFileName(_config.Llm.ModelPath);
+            EColor.WriteLine(Dim, $"  Model: {model} | Ctx: {_config.Llm.ContextSize} | GPU: {_config.Llm.GpuLayers} | Tokens: {_config.Inference.MaxTokens} | Temp: {_config.Sampling.Temperature}");
            }
 
     private static void ApplyCommandLineArgs(ref EAgentConfig config, string[] args)

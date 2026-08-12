@@ -61,7 +61,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
 
             while (_turnCount < _maxTurns)
                   {
-            Program.Gui.WriteLineColored($"--- Turn {_turnCount + 1}/{_maxTurns} ---");
+            Logger.Info("Orchestrator", $"Turn {_turnCount + 1}/{_maxTurns}");
 
                  // Step 1: Ask the LLM to decide what to do (with full context of tools + history)
               var llmResponse = await _engine.GenerateAsync(goal);
@@ -76,7 +76,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
 
               if (decision.WantsToolCall)
                        {
-                Program.Gui.WriteLineColored($"[Orchestrator] Tool call detected: {decision.ToolName}");
+                Logger.Info("Orchestrator", $"Tool call: {decision.ToolName}");
                 
                 var argsDict = decision.Args;
 
@@ -112,7 +112,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                         var result = await ExecuteTool(decision.ToolName, argsDict);
                         var elapsedMs = (long)((DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond) - startMs);
                         
-                            Program.Gui.WriteLineColored($"[Orchestrator] Tool result: {(result.Succeeded ? "SUCCESS" : "FAILURE")} ({elapsedMs}ms)");
+                            EColor.Tag(result.Succeeded ? EColor.Success() : EColor.Error(), "Tool", $"{decision.ToolName}: {(result.Succeeded ? "OK" : "FAIL")} ({elapsedMs}ms)");
                             Logger.Info("Orchestrator", $"Tool: {decision.ToolName} = {(result.Succeeded ? "SUCCESS" : "FAILURE")} ({elapsedMs}ms)");
 
                         if (result.Succeeded)
@@ -349,7 +349,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
         if (tool == null) 
             throw new InvalidOperationException($"Unknown tool: {toolName}");
 
-        Program.Gui.WriteLineColored($"[Orchestrator] Executing: {tool.Name}({string.Join(", ", args.Select(kvp => kvp.Key + "=" + (kvp.Value ?? "(null)")))})");
+        Logger.Debug("Orchestrator", $"Executing: {tool.Name}");
             return await tool.ExecuteAsync(args);
              }
 

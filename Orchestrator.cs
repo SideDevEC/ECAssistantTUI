@@ -61,11 +61,13 @@ public sealed class AgentOrchestrator : IAsyncDisposable
     public async Task<OrchestratorResult> ExecuteMultiStep(string goal)
              {
         // v10.4.4: Reset turn counters at the start of each new user request.
-        // The engine's _turnCount tracks which turn we are on within a single request.
-        // Without this, the second question's user message never gets added to context
-        // (the if _turnCount == 1 guard in GenerateAsync fails).
+        // v10.5: Also reset engine for new request (KV cache keeps static prefix).
         Reset();
-        _engine.ResetTurnCount();
+        _engine.ResetForNewRequest();
+        
+        // v10.5: Prefill the static prefix into KV cache if not done yet.
+        // This happens once per session — system prompt + tools cached.
+        await _engine.PrefillStaticPrefix();
         
         Program.Gui.WriteLineColored($"[Orchestrator] Starting for: {goal}");
         Program.Gui.WriteLineColored($"[Orchestrator] Max turns: {_maxTurns}, Failures limit: {_maxFailuresBeforeStop}\n");

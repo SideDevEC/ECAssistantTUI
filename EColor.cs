@@ -22,6 +22,7 @@ public static class EColor
     public static string Info()         => Cyan;
     public static string Success()      => Green;
     public static string Error()        => Red;
+    public static string Warn()         => Yellow;
     public static string Model()        => Blue;
     public static string ToolCall()     => Magenta;
     public static string Token()        => Dim;

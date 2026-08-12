@@ -33,12 +33,11 @@ public sealed class EAgentEngine : IAsyncDisposable
     private LLamaWeights? _weights;
     private LLamaContext? _context;
     private ModelParams? _modelParams;
-    // v10.4.1: Switched from InteractiveExecutor to StatelessExecutor.
-    // InteractiveExecutor maintains KV cache state between calls, which breaks
-    // when BuildFullPrompt reconstructs the entire conversation every turn.
-    // StatelessExecutor creates a fresh context per call — perfect for our
-    // full-prompt-rebuild architecture. Slightly slower but correct.
-    private StatelessExecutor? _executor;
+    // v10.5: Switched to InteractiveExecutor for KV cache reuse.
+    // Static prefix (system prompt + tools) is prefilled once at session start.
+    // Only new tokens (user msg, tool output, directives) are fed per turn.
+    // KV cache persists across turns — major performance improvement.
+    private InteractiveExecutor? _executor;
     private readonly List<EToolBase> _tools = new();
     private EMemoryManager? _memoryManager = null;
     private VectorMemoryStore? _vectorMemory = null;
@@ -52,6 +51,11 @@ public sealed class EAgentEngine : IAsyncDisposable
     private readonly InferenceParams _inferenceParams;
     private int _turnCount = 0;
     private string? _systemPromptText;
+
+    // v10.5: KV cache state management
+    private bool _isPrefilled = false;           // Has the static prefix been prefilled?
+    private string? _cachedStaticPrefix;          // The static prefix that's in the KV cache
+    private object? _savedStateBeforeGen = null;   // Saved state for format retry rewind
 
        // Inference params — always come from config
     private readonly uint _contextSize;
@@ -166,12 +170,15 @@ public sealed class EAgentEngine : IAsyncDisposable
     {
         _contextWindow.SetSummaryService(new SummaryService(async prompt =>
         {
-            // Use the engine to generate a summary from the given prompt
+            // v10.5: Use a separate StatelessExecutor for summaries so we don't
+            // interfere with the main InteractiveExecutor's KV cache state.
+            if (_weights == null || _modelParams == null) return "(Summary generation failed)";
+            var summaryExecutor = new StatelessExecutor(_weights, _modelParams, new NullLogger());
             var sb = new StringBuilder();
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
             try
             {
-                await foreach (var token in _executor!.InferAsync(prompt, _inferenceParams, cts.Token))
+                await foreach (var token in summaryExecutor.InferAsync(prompt, _inferenceParams, cts.Token))
                     sb.Append(token);
             }
             catch (OperationCanceledException)
@@ -179,11 +186,10 @@ public sealed class EAgentEngine : IAsyncDisposable
                 // Timeout - return what we have
             }
             var result = sb.ToString().Trim();
-            // Strip any XML tags - summaries should be plain text
             result = System.Text.RegularExpressions.Regex.Replace(result, @"<[^>]+>", "");
             return string.IsNullOrWhiteSpace(result) ? "(Summary generation failed)" : result;
         }));
-        Program.Gui.WriteLineColored("[Context] SummaryService wired to LLM engine.");
+        Program.Gui.WriteLineColored("[Context] SummaryService wired to LLM engine (stateless side-executor).");
     }
 
        /// <summary>Create engine with context window support and auto-injected memory.</summary>
@@ -230,10 +236,10 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                _weights = LLamaWeights.LoadFromFile(parameters);
                 _context = _weights.CreateContext(parameters);
           var nullLog = new NullLogger();
-            // v10.4.1: StatelessExecutor reprocesses full prompt from scratch each call.
-            // No KV cache state between calls — correct for full-prompt-rebuild architecture.
+            // v10.5: InteractiveExecutor with KV cache reuse.
+            // Static prefix is prefilled once, then only new tokens per turn.
             _modelParams = parameters;
-            _executor = new StatelessExecutor(_weights, parameters, nullLog);
+            _executor = new InteractiveExecutor(_context, nullLog);
 
              // ── Initialize tokenizer for accurate token counting ───
            if (_context != null) TokenCounter.Initialize(_context);
@@ -340,6 +346,131 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
 
          return sb.ToString();
              }
+
+    // v10.5: Prefill the KV cache with the static prefix (system prompt + tools).
+    // Called once at session start. After this, only new tokens are fed per turn.
+    public async Task PrefillStaticPrefix()
+    {
+        if (_isPrefilled || _executor == null) return;
+
+        _cachedStaticPrefix = BuildSystemToolsPrompt();
+
+        EColor.TagBold(EColor.Info(), "KVCache", $"Prefilling static prefix ({_cachedStaticPrefix.Length} chars)...");
+        var startMs = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
+
+        // Feed the static prefix through the executor as a "prompt run".
+        // This populates the KV cache. We don't need the output — just the cache state.
+        var sb = new StringBuilder();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        try
+        {
+            // The anti-prompts will stop generation after the static prefix.
+            // We just need the prefill to happen — any generated tokens are discarded.
+            await foreach (var token in _executor.InferAsync(_cachedStaticPrefix, _inferenceParams, cts.Token))
+            {
+                sb.Append(token);
+                // Stop early if the model tries to generate content (we just want prefill)
+                if (sb.ToString().Contains("\n", StringComparison.Ordinal))
+                    break;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            EColor.TagBold(EColor.Warn(), "KVCache", "Prefill timed out (120s) — continuing anyway.");
+        }
+
+        var elapsedMs = (long)((DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond) - startMs);
+        _isPrefilled = true;
+        EColor.TagBold(EColor.Success(), "KVCache", $"Static prefix prefilled in {elapsedMs}ms. KV cache active.");
+    }
+
+    // v10.5: Build only the new tokens to feed since the last turn.
+    // Turn 1: memory + user message + <assistant> cue
+    // Turn 2+: tool output + directive + <assistant> cue
+    private string BuildIncrementalInput(string userRequest)
+    {
+        var sb = new StringBuilder();
+
+        if (_turnCount == 1)
+        {
+            // First turn: static prefix already in KV cache.
+            // Feed memory injection (if any) + user message + assistant cue.
+            var memoryInject = GetMemoryInjection(userRequest);
+            var projectCtx = GetProjectContextInjection(userRequest);
+            var taskProgress = GetTaskProgressInjection();
+            var failureCtx = GetFailureInjection();
+
+            if (!string.IsNullOrEmpty(memoryInject))
+            {
+                sb.AppendLine("> PERSISTENT MEMORY — These are past decisions, patterns, and lessons that may help you:");
+                sb.AppendLine(memoryInject);
+                sb.AppendLine();
+            }
+            if (!string.IsNullOrEmpty(projectCtx))
+            {
+                sb.AppendLine(projectCtx);
+                sb.AppendLine();
+            }
+            if (!string.IsNullOrEmpty(taskProgress))
+                sb.AppendLine(taskProgress);
+            if (!string.IsNullOrEmpty(failureCtx))
+                sb.AppendLine(failureCtx);
+
+            // User message
+            sb.AppendLine($"<user>");
+            sb.AppendLine(userRequest);
+            sb.AppendLine("</user>");
+            sb.AppendLine();
+
+            // First-turn directive
+            sb.AppendLine("-- Use ONE tool call per response. After the result returns, decide: give <output> if done, or call another tool if needed. --");
+
+            // Generation cue
+            sb.AppendLine("<assistant>");
+        }
+        else
+        {
+            // Subsequent turns: history is already in KV cache.
+            // Feed only the new tool output + directive + generation cue.
+            var windowMessages = _contextWindow.GetWindowMessages();
+            var toolResultCount = windowMessages.Count(m => m.Role == "tool_output");
+
+            // Find the last tool_output message (just added by the orchestrator)
+            var lastTool = windowMessages.LastOrDefault(m => m.Role == "tool_output");
+            if (lastTool != null)
+            {
+                sb.AppendLine($"<tooloutput>{lastTool.Source}<result>");
+                sb.AppendLine(lastTool.Content);
+                sb.AppendLine("</result></tooloutput>");
+                sb.AppendLine();
+            }
+
+            // Find the last user message (the InjectFormatRetry directive)
+            var lastUser = windowMessages.LastOrDefault(m => m.Role == "user");
+            if (lastUser != null)
+            {
+                sb.AppendLine("<user>");
+                sb.AppendLine(lastUser.Content);
+                sb.AppendLine("</user>");
+                sb.AppendLine();
+            }
+
+            // Context-aware directive
+            if (toolResultCount >= 3)
+            {
+                sb.AppendLine($"-- You have run {toolResultCount} tool calls. If you have enough information, give your final answer with <output>. Only call another tool if you still need more data. --");
+            }
+            else
+            {
+                sb.AppendLine("-- Tool results are in history above. If you have the answer, use <output>. If you need another tool call to complete the task, you may call one more. --");
+            }
+
+            // Generation cue
+            sb.AppendLine("<assistant>");
+        }
+
+        return sb.ToString();
+    }
 
 
        /// <summary>Build the complete prompt for one generation turn.
@@ -576,7 +707,46 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
         _turnCount = 0;
     }
 
-       /// <summary>Generate text from the LLM, with conversation context.</summary>
+    // v10.5: Reset KV cache state for a new user request.
+    // Called by the orchestrator at the start of each ExecuteMultiStep.
+    // The KV cache keeps the static prefix (system prompt + tools) but
+    // the dynamic conversation context is reset.
+    // If the cache is getting full, we re-prefill from scratch.
+    public void ResetForNewRequest()
+    {
+        _turnCount = 0;
+        // Note: We do NOT reset _isPrefilled here — the static prefix stays cached.
+        // The KV cache still has the system prompt + tools.
+        // Only the conversation history (added after prefill) needs to be managed.
+    }
+
+    // v10.5: Full KV cache reset + re-prefill.
+    // Called when context overflows or when we need a clean slate.
+    public void ResetAndRebuildCache()
+    {
+        if (_executor == null || _context == null) return;
+        
+        EColor.TagBold(EColor.Warn(), "KVCache", "Full reset — rebuilding from scratch...");
+        
+        // Dispose current context and executor
+        try { _context.Dispose(); } catch { }
+        
+        // Recreate context and executor
+        _context = _weights!.CreateContext(_modelParams!);
+        var nullLog = new NullLogger();
+        _executor = new InteractiveExecutor(_context, nullLog);
+        _isPrefilled = false;
+        
+        // Re-initialize tokenizer
+        TokenCounter.Initialize(_context);
+        
+        // Re-prefill the static prefix
+        PrefillStaticPrefix();
+        
+        EColor.TagBold(EColor.Success(), "KVCache", "Cache rebuilt and prefilled.");
+    }
+
+       /// <summary>Generate text from the LLM using incremental KV cache feed (v10.5).</summary>
     /// <param name="userPrompt">The user's original goal/request. Only added to context on turn 1.
     /// On subsequent turns, the context is already populated by AddToolResult + InjectFormatRetry.</param>
     public async Task<string> GenerateAsync(string userPrompt)
@@ -584,9 +754,6 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                _turnCount++;
 
             // v10.4 FIX: Only add user message to context on turn 1.
-            // On turns 2+, the "user message" is already injected by the orchestrator
-            // via AddToolResult() + InjectFormatRetry(). Adding the original goal again
-            // creates a duplicate user message that confuses the LLM.
             if (_turnCount == 1)
             {
                 _transcript.AddUser(userPrompt);
@@ -595,23 +762,22 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
 
              Logger.Debug("Context", $"Turn {_turnCount} | Budget: {_contextWindow.GetTotalTokens()}/{_contextWindow.MaxTokens} tokens");
 
-           var fullPrompt = BuildFullPrompt(userPrompt);
+           // v10.5: Build only the new tokens to feed (not the full prompt)
+           var incrementalInput = BuildIncrementalInput(userPrompt);
 
             try
               {
-              // v10.4: Log full prompt to log file (always) and console (when debug logging enabled)
-              Logger.Debug("Engine", $"Prompt: {fullPrompt.Length} chars, Turn: {_turnCount}");
+              Logger.Debug("Engine", $"Incremental input: {incrementalInput.Length} chars, Turn: {_turnCount}");
               
-              // v10.4: Always dump the full prompt to a debug file for inspection
+              // v10.5: Dump incremental input to debug file
               var promptDumpPath = Path.Combine(_workingDir, "last_prompt.txt");
-              try { File.WriteAllText(promptDumpPath, fullPrompt); } catch { }
+              try { File.WriteAllText(promptDumpPath, $"=== INCREMENTAL INPUT (Turn {_turnCount}) ===\n{incrementalInput}\n\n=== STATIC PREFIX (cached) ===\n{_cachedStaticPrefix ?? "(not prefilled)"}"); } catch { }
               
-              // v10.4: Print full prompt to console when log level is Debug
               if (Logger.IsDebugEnabled)
               {
-                  EColor.TagBold(EColor.Info(), "PromptDump", $"Turn {_turnCount} — {fullPrompt.Length} chars — saved to {promptDumpPath}");
+                  EColor.TagBold(EColor.Info(), "IncrementalInput", $"Turn {_turnCount} — {incrementalInput.Length} chars");
                   EColor.WriteLine(EColor.Dim, new string('=', 60));
-                  EColor.WriteLine(EColor.Dim, fullPrompt);
+                  EColor.WriteLine(EColor.Dim, incrementalInput);
                   EColor.WriteLine(EColor.Dim, new string('=', 60));
               }
 
@@ -622,20 +788,15 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
               bool timedOut = false;
                  try
                     {
-                    // v9.2: Manual anti-prompt enforcement — break when we see closing tags
-                    // LLamaSharp's built-in anti-prompt matching may not catch all cases
-                    // with tokenized tags like </toolcall>. We check the accumulated output.
                     var stopTags = new[] { "</toolcall>", "</output>" };
-                    // v10.4: Clear token stream marker — shows exactly what the LLM outputs
                     EColor.WriteLine(EColor.Yellow + EColor.Bold, $"── Token Stream (Turn {_turnCount}) ──");
                     Program.Gui.WriteRawDirect(EColor.Dim);
                     var tokenCount = 0;
-                    await foreach (var token in _executor.InferAsync(fullPrompt, _inferenceParams, cts.Token))
+                    await foreach (var token in _executor.InferAsync(incrementalInput, _inferenceParams, cts.Token))
                          {
                           Program.Gui.WriteRawDirect(token);
                            sb.Append(token);
                            tokenCount++;
-                           // Check if accumulated output contains a stop tag
                            var soFar = sb.ToString();
                            foreach (var stopTag in stopTags)
                            {
@@ -663,29 +824,21 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                   string cleanResponse;
 
               // v10.4.3: Strip leading <assistant> tag if the model echoed it back
-              // (we append <assistant> to the prompt as a generation cue)
-              if (rawResult.StartsWith("\u003cassistant\u003e", StringComparison.OrdinalIgnoreCase))
-                  rawResult = rawResult.Substring("\u003cassistant\u003e".Length).Trim();
-              // Also strip any closing </assistant\u003e at the end
-              if (rawResult.EndsWith("\u003c/assistant\u003e", StringComparison.OrdinalIgnoreCase))
-                  rawResult = rawResult.Substring(0, rawResult.Length - "\u003c/assistant\u003e".Length).Trim();
+              if (rawResult.StartsWith("<assistant>", StringComparison.OrdinalIgnoreCase))
+                  rawResult = rawResult.Substring("<assistant>".Length).Trim();
+              if (rawResult.EndsWith("</assistant>", StringComparison.OrdinalIgnoreCase))
+                  rawResult = rawResult.Substring(0, rawResult.Length - "</assistant>".Length).Trim();
 
-              // v9.19: Show raw model output on console for debugging
               EColor.WriteLine(EColor.Dim, $"[Engine] Raw ({rawResult.Length} chars): {rawResult.Substring(0, Math.Min(rawResult.Length, 300))}");
 
-                     // Extract clean response — ONLY the last well-formed structured block:
-                     // Prefer <output>...</output> or <toolcall>...</toolcall>
-                  // Strip everything outside structural tags (hallucination noise).
                    cleanResponse = ExtractCleanResponse(rawResult);
 
-              // v9.19: Show clean response on console for debugging
               EColor.WriteLine(EColor.Dim, $"[Engine] Clean ({cleanResponse.Length} chars): {cleanResponse.Substring(0, Math.Min(cleanResponse.Length, 300))}");
 
               if (string.IsNullOrEmpty(cleanResponse))
                   cleanResponse = timedOut ? "(Response truncated — model timed out)" : "(Empty response from model)";
 
-                 // Store in transcript + context window (unified — no duplicate list)
-             if (!string.IsNullOrEmpty(cleanResponse) && cleanResponse.Contains("<"))
+                 if (!string.IsNullOrEmpty(cleanResponse) && cleanResponse.Contains("<"))
                     {
                         _transcript.AddAssistant(cleanResponse);
                          _contextWindow.AddAssistantMessage(cleanResponse);

@@ -480,7 +480,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
             sb.AppendLine();
 
             // First-turn directive
-            sb.AppendLine("-- Open <llm><thinking>brief</thinking><toolcall>ToolName<arg>value</arg></toolcall></llm> then STOP. --");
+            sb.AppendLine("-- Open <llm><thinking>brief</thinking><toolcall>ToolName<arg>value</arg></toolcall></llm> then STOP. ONE step per toolcall — no batching with ; --");
 
             // Generation cue
             sb.AppendLine("<assistant><llm>");
@@ -662,7 +662,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                }
               else
                     {
-                       sb.AppendLine("-- Open <llm><thinking>brief</thinking><toolcall>ToolName<arg>value</arg></toolcall></llm> then STOP. --");
+                       sb.AppendLine("-- Open <llm><thinking>brief</thinking><toolcall>ToolName<arg>value</arg></toolcall></llm> then STOP. ONE step per toolcall — no batching with ; --");
                           }
 
              // v10.4.3: Open <assistant> tag to cue the model to START generating.

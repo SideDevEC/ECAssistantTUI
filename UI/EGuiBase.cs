@@ -16,6 +16,32 @@ public abstract class EGuiBase
     /// <summary>Write a colored/text-blocked line. Text + ANSI wrapper are pre-assembled.</summary>
     public abstract void WriteLineColored(string coloredText);
 
+    // v10.12.20: Centralized truncation — one place, used everywhere.
+    // Truncates text to maxChars and appends [...] if truncated. Console display only.
+
+    /// <summary>Write a colored line, truncating to maxChars with [...] indicator.</summary>
+    public virtual void WriteLineColored(string coloredText, int maxChars)
+    {
+        if (string.IsNullOrEmpty(coloredText)) { WriteLineColored(""); return; }
+        if (coloredText.Length <= maxChars) { WriteLineColored(coloredText); return; }
+        WriteLineColored(coloredText.Substring(0, maxChars) + " [...]");
+    }
+
+    /// <summary>Write a plain line, truncating to maxChars with [...] indicator.</summary>
+    public virtual void WriteLine(string text, int maxChars)
+    {
+        if (string.IsNullOrEmpty(text)) { WriteLine(""); return; }
+        if (text.Length <= maxChars) { WriteLine(text); return; }
+        WriteLine(text.Substring(0, maxChars) + " [...]");
+    }
+
+    /// <summary>Truncate text to maxChars and append [...] if truncated. Returns the truncated string.</summary>
+    public static string Truncate(string text, int maxChars)
+    {
+        if (string.IsNullOrEmpty(text) || text.Length <= maxChars) return text ?? "";
+        return text.Substring(0, maxChars) + " [...]";
+    }
+
     /// <summary>Print inline text with no trailing newline (raw, unstyled).</summary>
     public abstract void WriteRaw(string text);
 

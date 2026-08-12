@@ -10,6 +10,7 @@ using ECAssistant.Tools;
 using ECAssistant.Memory;
 using Microsoft.Extensions.Logging;
 using ECAssistant.Services;
+using ECAssistant.UI;
 
 namespace ECAssistant.Engine;
 
@@ -326,7 +327,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                             var userMsgs = loaded.Messages.Where(m => m.Role == "user").TakeLast(3);
                             if (userMsgs.Any())
                             {
-                                EColor.Tag(EColor.Info(), "Last session", string.Join(" | ", userMsgs.Select(m => m.Content.Substring(0, Math.Min(m.Content.Length, 60)) + (m.Content.Length > 60 ? " [...]" : ""))));
+                                EColor.Tag(EColor.Info(), "Last session", string.Join(" | ", userMsgs.Select(m => EGuiBase.Truncate(m.Content, 60))));
                             }
                           }
                     }
@@ -1080,11 +1081,11 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
               // v10.12: Do NOT strip <llm> here — ExtractCleanResponse needs it to
               // detect the container boundary. Stripping here would break noise filtering.
 
-              EColor.WriteLine(EColor.Dim, $"[Engine] Raw ({rawResult.Length} chars): {rawResult.Substring(0, Math.Min(rawResult.Length, 500))}{(rawResult.Length > 500 ? " [...]" : "")}");
+              EColor.WriteLine(EColor.Dim, $"[Engine] Raw ({rawResult.Length} chars): {EGuiBase.Truncate(rawResult, 500)}");
 
                    cleanResponse = ExtractCleanResponse(rawResult);
 
-              EColor.WriteLine(EColor.Dim, $"[Engine] Clean ({cleanResponse.Length} chars): {cleanResponse.Substring(0, Math.Min(cleanResponse.Length, 500))}{(cleanResponse.Length > 500 ? " [...]" : "")}");
+              EColor.WriteLine(EColor.Dim, $"[Engine] Clean ({cleanResponse.Length} chars): {EGuiBase.Truncate(cleanResponse, 500)}");
 
               if (string.IsNullOrEmpty(cleanResponse))
                   cleanResponse = timedOut ? "(Response truncated — model timed out)" : "(Empty response from model)";
@@ -1225,7 +1226,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
          }
 
          var result = sb.ToString().Trim();
-         Logger.Debug("Extract", $"Output: {result.Length} chars, starts with: {result.Substring(0, Math.Min(result.Length, 80))}{(result.Length > 80 ? " [...]" : "")}");
+         Logger.Debug("Extract", $"Output: {result.Length} chars, starts with: {EGuiBase.Truncate(result, 80)}");
          return result;
            }
 

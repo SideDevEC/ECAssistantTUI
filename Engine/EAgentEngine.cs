@@ -125,7 +125,9 @@ public sealed class EAgentEngine : IAsyncDisposable
     }
 
        /// <summary>Create engine with context window support and auto-injected memory.</summary>
-     public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threadCount, InferenceParams inferenceParams)
+     private string _workingDir = "";
+
+public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threadCount, InferenceParams inferenceParams, string workingDir = "")
           {
                // Enable native library logging to verify which backend was loaded (CUDA vs CPU)
            NativeLibraryConfig.All.WithLogCallback(delegate (LLamaLogLevel level, string message)
@@ -161,6 +163,8 @@ public sealed class EAgentEngine : IAsyncDisposable
                _threads = threadCount;
                   _inferenceParams = inferenceParams;
 
+               _workingDir = string.IsNullOrEmpty(workingDir) ? AppContext.BaseDirectory : workingDir;
+
                _weights = LLamaWeights.LoadFromFile(parameters);
                 _context = _weights.CreateContext(parameters);
           var nullLog = new NullLogger();
@@ -178,7 +182,7 @@ public sealed class EAgentEngine : IAsyncDisposable
                 _transcript = new ConversationTranscript();
 
            // Load any existing transcript from disk for session resumption
-             var transcriptPath = Path.Combine(AppContext.BaseDirectory, "transcript.json");
+             var transcriptPath = Path.Combine(_workingDir, "transcript.json");
             if (File.Exists(transcriptPath))
                   {
                   try
@@ -222,7 +226,8 @@ public sealed class EAgentEngine : IAsyncDisposable
              // ── Load system prompt from SystemPrompt.md at startup ────────────
             try
              {
-                var sysPromptPath = Path.Combine(AppContext.BaseDirectory, "SystemPrompt.md");
+                var sysPromptPath = Path.Combine(_workingDir, "SystemPrompt.md");
+                if (!File.Exists(sysPromptPath)) sysPromptPath = Path.Combine(AppContext.BaseDirectory, "SystemPrompt.md"); // fallback to build dir
                  if (File.Exists(sysPromptPath))
                       {
                          _systemPromptText = File.ReadAllText(sysPromptPath);
@@ -437,7 +442,7 @@ public sealed class EAgentEngine : IAsyncDisposable
               // v9.8: Auto-save transcript on every tool call to prevent data loss on crash
               try
               {
-                  var transcriptPath = Path.Combine(AppContext.BaseDirectory, "transcript.json");
+                  var transcriptPath = Path.Combine(_workingDir, "transcript.json");
                   _transcript.SaveToDisk(transcriptPath);
               }
               catch { /* don't crash on save failure */ }
@@ -665,7 +670,7 @@ public sealed class EAgentEngine : IAsyncDisposable
       /// <summary>Save transcript to disk for session resumption.</summary>
     public void SaveTranscript(string? path = null)
            {
-             var p = path ?? Path.Combine(AppContext.BaseDirectory, "transcript.json");
+             var p = path ?? Path.Combine(_workingDir, "transcript.json");
                 _transcript.SaveToDisk(p);
           Program.Gui.WriteLineColored($"[Context] Transcript saved ({_transcript.MessageCount} messages, {_contextWindow.GetTotalTokens()} tokens).");
                }

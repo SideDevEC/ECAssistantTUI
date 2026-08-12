@@ -124,6 +124,7 @@ public class Program
                     EColor.TagBold(EColor.Success(), "Model", "Loaded successfully.");
                     var agent = new EAgentEngine(
                          modelPath: effectiveModelPath,
+                        workingDir: effectiveDir,
                         contextSize: _config.Llm.ContextSize,
                          gpuLayers: _config.Llm.GpuLayers,
                         threadCount: _config.Llm.Threads,
@@ -214,7 +215,7 @@ public class Program
                      }
 
            // Save transcript on exit (cleanup via async)
-             var transPath = Path.Combine(AppContext.BaseDirectory, "transcript.json");
+             var transPath = Path.Combine(effectiveDir, "transcript.json");
             if (File.Exists(transPath))
                {
                 // Transcript already auto-saved in loop via "save-context" command
@@ -277,7 +278,7 @@ public class Program
              Gui.BlankLine();
 
                 // Show transcript status if resuming
-              var transPath = Path.Combine(AppContext.BaseDirectory, "transcript.json");
+              var transPath = Path.Combine(workingDir, "transcript.json");
                if (File.Exists(transPath))
                      {
                  var trans = ConversationTranscript.LoadFromDisk(transPath);
@@ -301,13 +302,13 @@ public class Program
                               EColor.TagBold(EColor.Info(), "Bye", "Goodbye.");
                                Gui.BlankLine();
                             // Save transcript before exit
-                             var path = Path.Combine(AppContext.BaseDirectory, "transcript.json");
+                             var path = Path.Combine(workingDir, "transcript.json");
                              agent.SaveTranscript(path);
                                  return;
                            case "help":    await PrintHelp(); continue;
                               case "tools":    ListTools(agent); continue;
                                case "clear-history":  agent.ClearHistory(); continue;
-                            case "save-context":  { var p = Path.Combine(AppContext.BaseDirectory, "transcript.json"); agent.SaveTranscript(p); Gui.BlankLine(); } continue;
+                            case "save-context":  { var p = Path.Combine(workingDir, "transcript.json"); agent.SaveTranscript(p); Gui.BlankLine(); } continue;
 
                          case "single":    EColor.Tag(Info(), "Mode", "Single-turn mode reset."); orchestrator.Reset(); continue;
 
@@ -581,7 +582,7 @@ public class Program
                                 var newModel = Gui.PromptRaw("Model path (or filename in app dir): ")?.Trim();
                                 if (!string.IsNullOrEmpty(newModel)) {
                                     if (!File.Exists(newModel)) {
-                                        newModel = Path.Combine(AppContext.BaseDirectory, newModel);
+                                        newModel = Path.Combine(workingDir, newModel);
                                     }
                                     if (File.Exists(newModel)) {
                                         EColor.TagBold(EColor.Info(), "Swap", $"Unloading current model...");

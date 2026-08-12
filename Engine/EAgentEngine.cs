@@ -1019,9 +1019,11 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
               bool timedOut = false;
                  try
                     {
-                    // v10.12: Stop on </llm> (container close) in addition to inner closing tags.
-                    // </llm> is the primary stop — </toolcall> and </output> are fallbacks for when the model forgets the container.
-                    var stopTags = new[] { "</llm>", "</toolcall>", "</output>" };
+                    // v10.12.1: </llm> is the primary stop tag. </output> kept as fallback (only ever one output,
+                    // no conflict with future parallel toolcalls). </toolcall> removed — would stop after
+                    // first toolcall in future parallel mode. If model forgets both, generation runs to
+                    // max_tokens (2048) then stops — ExtractCleanResponse still parses whatever is inside <llm>.
+                    var stopTags = new[] { "</llm>", "</output>" };
                     EColor.WriteLine(EColor.Yellow + EColor.Bold, $"── Token Stream (Turn {_turnCount}) ── [ESC to stop] ──");
                     Program.Gui.WriteRawDirect(EColor.Dim);
                     var tokenCount = 0;

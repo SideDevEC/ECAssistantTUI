@@ -28,8 +28,12 @@ public sealed class AgentOrchestrator : IAsyncDisposable
     private int _formatRetries = 0;
     private const int MaxFormatRetries = 2;
 
+    // v10.6: TaskPlanner for chained multi-step tasks
+    private List<SubTask>? _subTasks = null;
+    private int _currentSubTask = 0;
+
      // ─── Hard Limits ──────────────────────
-    private readonly int _maxTurns;
+    private int _maxTurns;  // v10.6: changed from readonly to allow dynamic adjustment
     private readonly int _maxFailuresBeforeStop;
 
      // ─── Whitelist of valid tool names ─────
@@ -66,8 +70,26 @@ public sealed class AgentOrchestrator : IAsyncDisposable
         _engine.ResetForNewRequest();
         
         // v10.5: Prefill the static prefix into KV cache if not done yet.
-        // This happens once per session — system prompt + tools cached.
         await _engine.PrefillStaticPrefix();
+        
+        // v10.6: Decompose the request into sub-tasks using TaskPlanner
+        var planner = _engine.TaskPlanner;
+        if (planner != null)
+        {
+            _subTasks = planner.Decompose(goal);
+            _currentSubTask = 0;
+            
+            if (_subTasks.Count > 1)
+            {
+                _subTasks[0].Status = SubTaskStatus.InProgress;
+                // v10.6: Dynamic turn limit — allow 2 turns per sub-task + 2 buffer for output/retries
+                _maxTurns = Math.Max(_maxTurns, _subTasks.Count * 2 + 2);
+                EColor.TagBold(EColor.Info(), "TaskPlanner", $"Decomposed into {_subTasks.Count} steps — max turns adjusted to {_maxTurns}");
+                for (int i = 0; i < _subTasks.Count; i++)
+                    EColor.WriteLine(EColor.Dim, $"  Step {i+1}: {_subTasks[i].Description}");
+                EColor.WriteLine(EColor.Reset, "");
+            }
+        }
         
         Program.Gui.WriteLineColored($"[Orchestrator] Starting for: {goal}");
         Program.Gui.WriteLineColored($"[Orchestrator] Max turns: {_maxTurns}, Failures limit: {_maxFailuresBeforeStop}\n");
@@ -148,18 +170,22 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                                     var stepDesc = $"{decision.ToolName}: {stepCmd.Substring(0, Math.Min(stepCmd.Length, 80))}";
                                     _completedSteps.Add(stepDesc);
                                     
+                                    // v10.6: Advance sub-task tracking on success
+                                    AdvanceSubTask(true, decision.ToolName!, stepDesc);
+                                    
                                     _engine.AddToolResult(decision.ToolName!, toolOutput);
                                     
-                                    // v10.1: Inject directive as SEPARATE user message (not inside tooloutput tags)
-                                    _engine.InjectFormatRetry(
-                                        "The tool has returned its result above. Now respond to the user. " +
-                                        "Use <thinking>brief reasoning</thinking> followed by either <output>your answer</output> (if done) or another <toolcall> (if you need more data). " +
-                                        "Do NOT write plain text. Use the tags.");
+                                    // v10.6: Inject step-aware directive with sub-task context
+                                    var stepDirective = BuildStepDirective();
+                                    _engine.InjectFormatRetry(stepDirective);
 
                                 EColor.WriteLine(EColor.Dim, $"[Orchestrator] Tool succeeded, looping back to LLM (turn {_turnCount + 1})...");
                                 }
                         else
                                 {
+                                // v10.6: Advance sub-task tracking on failure
+                                AdvanceSubTask(false, decision.ToolName!, $"Tool failed: {result.Error}");
+
                                 if (IsFailureStreak(_maxFailuresBeforeStop))
                                          {
                                         Program.Gui.WriteLineColored($"[Orchestrator] Too many failures ({_maxFailuresBeforeStop} in a row). Stopping.\n");
@@ -421,7 +447,100 @@ public sealed class AgentOrchestrator : IAsyncDisposable
               {
                   _turnCount = 0;
                   _toolCallLog.Clear();
+                  _formatRetries = 0;
+                  // v10.6: Reset sub-task state
+                  _subTasks = null;
+                  _currentSubTask = 0;
               }
+
+    // v10.6: Build step-aware directive that tells the LLM which sub-task to focus on.
+    // This is injected after each tool result to guide the LLM through chained tasks.
+    private string BuildStepDirective()
+    {
+        var sb = new StringBuilder();
+        
+        sb.AppendLine("The tool has returned its result above. Now respond to the user.");
+        sb.AppendLine("Use <thinking>brief reasoning</thinking> followed by either <output>your answer</output> (if done) or another <toolcall> (if you need more data).");
+        sb.AppendLine("Do NOT write plain text. Use the tags.");
+        
+        // v10.6: If we have sub-tasks, inject step context
+        if (_subTasks != null && _subTasks.Count > 1)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"[TASK PROGRESS] You are on step {_currentSubTask + 1} of {_subTasks.Count}:");
+            
+            for (int i = 0; i < _subTasks.Count; i++)
+            {
+                var status = _subTasks[i].Status switch
+                {
+                    SubTaskStatus.Completed => "[OK]",
+                    SubTaskStatus.Failed => "[FAIL]",
+                    SubTaskStatus.InProgress => "[...]",
+                    _ => "[ ]"
+                };
+                var marker = i == _currentSubTask ? " >> " : "    ";
+                sb.AppendLine($"{marker}{status} {_subTasks[i].Description}");
+            }
+            
+            // Give explicit instruction for the current step
+            if (_currentSubTask < _subTasks.Count)
+            {
+                var current = _subTasks[_currentSubTask];
+                if (current.Status == SubTaskStatus.Pending || current.Status == SubTaskStatus.InProgress)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine($"> CURRENT STEP: {_subTasks[_currentSubTask].Description}");
+                    sb.AppendLine("Focus on completing THIS step. If the previous tool result gives you what you need, proceed to this step.");
+                }
+            }
+            
+            // Check if all steps are done
+            var allDone = _subTasks.All(s => s.Status == SubTaskStatus.Completed || s.Status == SubTaskStatus.Failed);
+            if (allDone)
+            {
+                sb.AppendLine();
+                sb.AppendLine("All steps are complete! Give your final <output> summarizing what was done.");
+            }
+        }
+        
+        return sb.ToString();
+    }
+
+    // v10.6: Advance sub-task tracking based on tool result
+    private void AdvanceSubTask(bool success, string toolName, string description)
+    {
+        if (_subTasks == null || _subTasks.Count <= 1) return;
+        if (_currentSubTask >= _subTasks.Count) return;
+        
+        var current = _subTasks[_currentSubTask];
+        if (success)
+        {
+            current.Status = SubTaskStatus.Completed;
+            current.CompletedAt = DateTime.UtcNow;
+            EColor.TagBold(EColor.Success(), "TaskPlanner", $"Step {_currentSubTask + 1}/{_subTasks.Count} completed: {current.Description}");
+            _currentSubTask++;
+            
+            // Mark next sub-task as in-progress
+            if (_currentSubTask < _subTasks.Count)
+            {
+                _subTasks[_currentSubTask].Status = SubTaskStatus.InProgress;
+                EColor.TagBold(EColor.Info(), "TaskPlanner", $"-> Next step: {_subTasks[_currentSubTask].Description}");
+            }
+        }
+        else
+        {
+            current.Status = SubTaskStatus.Failed;
+            current.FailureReason = $"Tool {toolName} failed";
+            EColor.TagBold(EColor.Error(), "TaskPlanner", $"Step {_currentSubTask + 1}/{_subTasks.Count} failed: {current.Description}");
+            _currentSubTask++;
+            
+            if (_currentSubTask < _subTasks.Count)
+            {
+                _subTasks[_currentSubTask].Status = SubTaskStatus.InProgress;
+                EColor.TagBold(EColor.Warn(), "TaskPlanner", $"-> Skipping to next step: {_subTasks[_currentSubTask].Description}");
+            }
+        }
+    }
 
     public async ValueTask DisposeAsync() => await Task.CompletedTask;
 }

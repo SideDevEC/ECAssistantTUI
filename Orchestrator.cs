@@ -139,10 +139,13 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                                     var stepDesc = $"{decision.ToolName}: {stepCmd.Substring(0, Math.Min(stepCmd.Length, 80))}";
                                     _completedSteps.Add(stepDesc);
                                     
-                                    // v9.20: After a tool result, add a STRONG directive to use <output>
-                                    toolOutput += "\n\n--- You now have the tool result above. You MUST respond with <thinking>brief</thinking><output>your answer</output>. Do NOT call another tool unless you still need more data. ---";
-                                    
                                     _engine.AddToolResult(decision.ToolName!, toolOutput);
+                                    
+                                    // v10.1: Inject directive as SEPARATE user message (not inside tooloutput tags)
+                                    _engine.InjectFormatRetry(
+                                        "The tool has returned its result above. Now you MUST answer the user. " +
+                                        "Respond with <thinking>brief reasoning</thinking><output>your answer</output>. " +
+                                        "Do NOT call another tool. Do NOT write plain text. Use the tags.");
 
                                 EColor.WriteLine(EColor.Dim, $"[Orchestrator] Tool succeeded, looping back to LLM (turn {_turnCount + 1})...");
                                 }

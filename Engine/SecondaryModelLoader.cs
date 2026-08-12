@@ -109,7 +109,7 @@ public class SecondaryModelLoader : IDisposable
     /// <summary>Summarize text using the secondary model.</summary>
     public async Task<string> SummarizeAsync(string text, int maxTokens = 200)
     {
-        var prompt = $"Summarize the following concisely. Keep key facts and decisions only:\n\n{text}\n\nSummary:";
+        var prompt = $"Summarize the conversation below. STRICT RULES:\n- Output ONLY a concise summary of what was discussed\n- Keep facts, decisions, and tool results only\n- Do NOT add opinions, suggestions, or extra context\n- Do NOT add greetings, conclusions, or meta-commentary\n- Maximum 3 sentences\n- Plain text only, no formatting\n\nConversation:\n{text}\n\nSummary:";
         return await GenerateAsync(prompt, maxTokens);
     }
 

@@ -246,6 +246,24 @@ public sealed class EAgentEngine : IAsyncDisposable
            // ── Step 3: Get windowed history from ContextWindow ───
            var windowMessages = _contextWindow.GetWindowMessages();
 
+           // v9.3: Hard cap on history — leave room for system prompt + memory + new user message + max_tokens
+           // Reserve: systemBlock tokens + memory tokens + max_tokens (2048) + buffer (2048)
+           var systemTokens = TokenCounter.Count(systemBlock);
+           var memoryTokens = string.IsNullOrEmpty(memoryInject) ? 0 : TokenCounter.Count(memoryInject);
+           var reserveTokens = systemTokens + memoryTokens + 2048 + 2048; // system + memory + max_tokens + buffer
+           var historyBudget = (int)_contextSize - reserveTokens;
+           if (historyBudget < 500) historyBudget = 500; // minimum history
+           
+           // Trim history from the front if it exceeds the budget
+           while (windowMessages.Count > 2)
+           {
+               var histTokens = 0;
+               foreach (var m in windowMessages) histTokens += TokenCounter.Count(m.Content);
+               if (histTokens <= historyBudget) break;
+               windowMessages.RemoveAt(0); // remove oldest
+           }
+           Logger.Debug("Context", $"Prompt budget: system={systemTokens}, memory={memoryTokens}, history_budget={historyBudget}, msgs={windowMessages.Count}");
+
              // ── Step 4: Build the final prompt text ────────────────
              var sb = new StringBuilder();
 

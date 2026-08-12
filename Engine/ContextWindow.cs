@@ -24,14 +24,14 @@ public class ContextWindow
      public ContextWindow(uint maxTokens)
          {
               _maxTokens = maxTokens;
-           _autoSummarizeThreshold = (uint)(maxTokens * 0.75f); // Summarize at 75%
+           _autoSummarizeThreshold = (uint)(maxTokens * 0.50f); // Summarize at 50% (v9.3: more aggressive)
             }
 
       /// <summary>Create context window with a fixed token budget and summary service.</summary>
     public ContextWindow(uint maxTokens, SummaryService? summaryService)
           {
               _maxTokens = maxTokens;
-               _autoSummarizeThreshold = (uint)(maxTokens * 0.75f); // Summarize at 75%
+               _autoSummarizeThreshold = (uint)(maxTokens * 0.50f); // Summarize at 50% (v9.3: more aggressive)
                 _summaryService = summaryService;
                  }
 

@@ -81,6 +81,8 @@ public class Program
                     AntiPrompts = _config.Inference.AntiPrompts.Length > 0
                             ? _config.Inference.AntiPrompts
                               : new string[] { "</s>" },
+                  // v9.3: TruncateAndReprefill handles context overflow gracefully
+                  OverflowStrategy = LLama.Common.ContextOverflowStrategy.TruncateAndReprefill,
                   SamplingPipeline = new DefaultSamplingPipeline
                              {
                       Temperature = _config.Sampling.Temperature,

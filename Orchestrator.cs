@@ -23,6 +23,8 @@ public sealed class AgentOrchestrator : IAsyncDisposable
     private readonly EAgentEngine _engine;
     private int _turnCount = 0;
     private readonly List<string> _toolCallLog = new();
+    private string? _originalGoal = null;
+    private readonly List<string> _completedSteps = new();
 
      // ─── Hard Limits ──────────────────────
     private readonly int _maxTurns;

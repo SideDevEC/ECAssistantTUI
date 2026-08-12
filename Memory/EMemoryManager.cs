@@ -123,46 +123,59 @@ public class EMemoryManager : IDisposable
     }
 
     /// <summary>Query memory by keyword or category - returns matching entries</summary>
+    /// <summary>Query memory with relevance scoring — ranks entries by how well they match.</summary>
     public string Query(string searchTerm, string? categoryFilter = null, int maxResults = 5)
     {
-        var results = _loadedMemories.AsEnumerable();
+        if (_loadedMemories.Count == 0)
+            return "(No memories found)";
 
-        // Filter by category if specified
-        if (!string.IsNullOrEmpty(categoryFilter))
-        {
-            results = results.Where(e => e.Category.Equals(categoryFilter, StringComparison.OrdinalIgnoreCase));
-        }
+        var terms = searchTerm.ToLower().Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
-        // Filter by search term (case-insensitive match in key or content)
-        if (!string.IsNullOrEmpty(searchTerm))
+        // Score each entry by relevance
+        var scored = _loadedMemories.Select(e =>
         {
-            var terms = searchTerm.ToLower().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            results = results.Where(e => 
-                terms.Any(t => e.Key.ToLower().Contains(t) || e.Content.ToLower().Contains(t)));
-        }
+            var score = 0.0;
+            var keyLower = e.Key.ToLower();
+            var contentLower = e.Content.ToLower();
 
-        // Return raw matching entries as string (for memory injection into LLM prompts)
-        var matching = results.Take(maxResults).ToList();
-        
-        if (matching.Count == 0)
-        {
+            foreach (var term in terms)
+            {
+                if (keyLower.Contains(term)) score += 3.0;
+                if (contentLower.Contains(term)) score += 1.0;
+                if (keyLower.Split(' ', '_', '-').Any(w => w == term)) score += 2.0;
+                score *= e.Confidence;
+            }
+
+            if (!string.IsNullOrEmpty(categoryFilter))
+            {
+                if (e.Category.Equals(categoryFilter, StringComparison.OrdinalIgnoreCase))
+                    score *= 1.5;
+                else
+                    score *= 0.1;
+            }
+
+            return (Entry: e, Score: score);
+        })
+        .Where(x => x.Score > 0)
+        .OrderByDescending(x => x.Score)
+        .Take(maxResults)
+        .ToList();
+
+        if (scored.Count == 0)
             return $"(No memories found for: {searchTerm})";
-        }
 
         var sb = new StringBuilder();
-        sb.AppendLine("### QUERY RESULTS:");
+        sb.AppendLine("### RELEVANT MEMORIES:");
         sb.AppendLine();
 
-        foreach (var entry in matching)
+        foreach (var (entry, score) in scored)
         {
             sb.Append($"[{entry.Category}] ");
             sb.AppendLine(entry.Key);
-            sb.AppendLine();
-            sb.AppendLine($"*Saved: {entry.Timestamp}*");
-            sb.AppendLine();
+            sb.AppendLine($"  (relevance: {score:F1})");
             sb.AppendLine(entry.Content.Substring(0, Math.Min(entry.Content.Length, 500)));
             if (entry.Content.Length > 500) 
-                sb.Append("... (truncated)");
+                sb.Append("...");
             sb.AppendLine("\n");
         }
 

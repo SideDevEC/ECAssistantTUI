@@ -314,15 +314,26 @@ public sealed class EAgentEngine : IAsyncDisposable
                // userPrompt is already stored in contextWindow and rendered above
                // No need to duplicate it at the end of this method
 
-               // ── Step 6: Stop directive ─────────────────────────────
+               // ── Step 6: Context-aware directive ─────────────────────────────
                var hasToolResults = windowMessages.Any(m => m.Role == "tool_output");
-                if (hasToolResults)
-                     {
-                     sb.AppendLine("-- CRITICAL: Tool results are in history above. Produce your final answer with <output>. DO NOT call more tools -- you already have the data. --");
-                         }
+               var toolResultCount = windowMessages.Count(m => m.Role == "tool_output");
+               
+               if (hasToolResults)
+               {
+                   if (toolResultCount >= 3)
+                   {
+                       // Multiple tool calls done — push toward final answer
+                       sb.AppendLine("-- You have run " + toolResultCount + " tool calls. If you have enough information, give your final answer with <output>. Only call another tool if you still need more data. --");
+                   }
+                   else
+                   {
+                       // 1-2 tool calls done — allow continuing if needed
+                       sb.AppendLine("-- Tool results are in history above. If you have the answer, use <output>. If you need another tool call to complete the task, you may call one more. --");
+                   }
+               }
               else
                     {
-                       sb.AppendLine("-- CRITICAL: Use ONE tool call then STOP. When the result returns, produce your final answer with <output>. --");
+                       sb.AppendLine("-- Use ONE tool call per response. After the result returns, decide: give <output> if done, or call another tool if needed. --");
                           }
 
              return sb.ToString();

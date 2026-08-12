@@ -5,6 +5,7 @@ using ECAssistant.Engine;
 using ECAssistant.Orchestration;
 using ECAssistant.Tools.PowerShell;
 using ECAssistant.Tools.Research;
+using ECAssistant.Tools.Background;
 using ECAssistant.Tools;
 using ECAssistant.Analysis;
 using ECAssistant.UI;
@@ -101,9 +102,18 @@ public class Program
                    agent.LoadContext();
                     agent.WireSummaryService(); // Wire LLM-based context compaction
 
+                     // ── Background Process Manager (must be before tool registration) ──
+                    var bgMgr = new BackgroundProcessManager();
+                    EColor.TagBold(EColor.Info(), "Background", "Process manager ready.");
+
+                    // ── File Watcher (v9.7: workspace monitoring) ──
+                    var fileWatcher = new FileWatcherService(effectiveDir);
+                    fileWatcher.Start();
+
                      EColor.TagBold(EColor.Info(), "Init", "Registering tools...");
                     var psAgent = new EPowerShellAgent(effectiveDir);
                       agent.RegisterTool(psAgent);
+                    agent.RegisterTool(new EBackgroundExecTool(bgMgr, effectiveDir));
 
                     // EFileResearchTool — project-wide file scan for analysis
                        {
@@ -133,11 +143,9 @@ public class Program
                     var sessionManager = new SessionManager(agent, orchestrator.Policy);
                     EColor.TagBold(EColor.Info(), "Session", $"Main session created. Sessions: {sessionManager.List().Count}");
 
-                    // ── Background Process Manager (P1: non-blocking exec) ──
-                    var bgMgr = new BackgroundProcessManager();
-                    EColor.TagBold(EColor.Info(), "Background", "Process manager ready.");
 
-                   await RunAgentLoop(agent, orchestrator, effectiveDir, psAgent, sessionManager, bgMgr);
+
+                   await RunAgentLoop(agent, orchestrator, effectiveDir, psAgent, sessionManager, bgMgr, fileWatcher);
                         }
             else
                      {
@@ -198,7 +206,8 @@ public class Program
          string workingDir,
         EPowerShellAgent psAgent,
         SessionManager sessionManager,
-        BackgroundProcessManager bgMgr)
+        BackgroundProcessManager bgMgr,
+        FileWatcherService fileWatcher)
               {
             Gui.BlankLine();
              EColor.TagBold(Cyan, "ECLoop", "Type your request (help | quit)");
@@ -395,6 +404,26 @@ public class Program
                                 continue;
                             }
 
+                           // ── File Watcher Commands ──
+                            case "watch": {
+                                var changes = fileWatcher.GetChangeSummary();
+                                Gui.BlankLine();
+                                EColor.TagBold(Cyan, "Watch", changes == "(No file changes detected.)" ? "No changes since last check." : "Recent changes:");
+                                Gui.WriteLineColored(changes);
+                                Gui.BlankLine();
+                                continue;
+                            }
+                            case "watch-start": {
+                                fileWatcher.Start();
+                                EColor.TagBold(EColor.Success(), "Watch", $"Watching: {fileWatcher.WatchPath}");
+                                continue;
+                            }
+                            case "watch-stop": {
+                                fileWatcher.Stop();
+                                EColor.TagBold(EColor.Info(), "Watch", "Stopped.");
+                                continue;
+                            }
+
                            // ── Logging Commands (P2) ──
                             case "log": {
                                 Gui.BlankLine();
@@ -470,6 +499,9 @@ public class Program
            EColor.WriteLine(Yellow + Bold, "   bg-output <id>        Get output from a background process");
            EColor.WriteLine(Yellow + Bold, "   bg-kill <id>          Kill a background process");
           EColor.WriteLine(Yellow + Bold, "   bg-cleanup            Remove finished processes from tracking");
+           EColor.WriteLine(Yellow + Bold, "   watch                 Show recent file changes");
+          EColor.WriteLine(Yellow + Bold, "   watch-start           Start watching for file changes");
+         EColor.WriteLine(Yellow + Bold, "   watch-stop            Stop watching");
            EColor.WriteLine(Yellow + Bold, "   log                   Show recent log entries");
           EColor.WriteLine(Yellow + Bold, "   log-level             Set log level (debug/info/warn/error)");
              Gui.BlankLine();

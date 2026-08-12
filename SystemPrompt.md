@@ -28,6 +28,8 @@ You MUST respond using this format. Every response has `<thinking>` then EITHER 
 - Do NOT write `<tooloutput>` or `<user>` tags yourself
 - After a tool returns results (shown as `<tooloutput>` in history), use `<output>` to give your final answer
 - NEVER output text outside these tags
+- NEVER repeat the same <thinking> or <toolcall> block multiple times in one response
+- Generate ONE <thinking> block, then ONE <toolcall> or <output> block, then STOP
 
 ---
 

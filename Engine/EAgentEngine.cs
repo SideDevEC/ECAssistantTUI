@@ -445,85 +445,67 @@ public sealed class EAgentEngine : IAsyncDisposable
         {
            if (string.IsNullOrEmpty(raw)) return "";
 
-            // All reserved block tags — these are the ONLY structured elements we extract
-         var openTags = new[]
-            {
-              "<thinking>", "</thinking>",
-             "<toolcall>", "</toolcall>",
-                "<output>", "</output>",
-                "<user>", "</user>",
-               "<tooloutput>", "</tooloutput>"
-               };
+            // v9.1: Only extract the FIRST complete meaningful block to prevent repetition loops.
+            // The model sometimes generates multiple <thinking>+<toolcall> blocks in one response.
+            // We take only the first <thinking>...</thinking> + first <toolcall> or <output> after it.
 
-         // Find ALL tag positions in order of appearance
-          var allTags = new List<(string Tag, int Position)>();
-         foreach (var tag in openTags)
-              {
-                 int pos = 0;
-                  while ((pos = raw.IndexOf(tag, pos, StringComparison.OrdinalIgnoreCase)) >= 0)
-                         {
-                        // Avoid duplicates — same tag at same position
-                         bool exists = false;
-                            foreach (var existing in allTags) {
-                              if (existing.Position == pos && string.Equals(existing.Tag, tag, StringComparison.OrdinalIgnoreCase)) {
-                                  exists = true;
-                                     break;
-                                        }
-                              }
-                          if (!exists)
-                               allTags.Add((tag, pos));
-                           pos += tag.Length;
-                      }
-                    }
+         // Find the first <thinking> block
+         var thinkStart = raw.IndexOf("<thinking>", StringComparison.OrdinalIgnoreCase);
+         var thinkEnd = thinkStart >= 0 
+             ? raw.IndexOf("</thinking>", thinkStart + 10, StringComparison.OrdinalIgnoreCase) 
+             : -1;
 
-            // Sort all found tags by position ascending (first to last in text)
-            allTags.Sort((a, b) => a.Position.CompareTo(b.Position));
+         // Find the first <toolcall> or <output> AFTER the thinking block (or from start if no thinking)
+         var searchStart = thinkEnd >= 0 ? thinkEnd + 11 : 0;
 
-         if (allTags.Count == 0) return raw.Trim();
+         var toolcallStart = raw.IndexOf("<toolcall>", searchStart, StringComparison.OrdinalIgnoreCase);
+         var outputStart = raw.IndexOf("<output>", searchStart, StringComparison.OrdinalIgnoreCase);
 
-         // Map open tags to their matching close tags
-          var closingMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                { "<thinking>", "</thinking>" },
-                  { "<toolcall>", "</toolcall>" },
-                   { "<output>", "</output>" },
-               { "<user>", "</user>" },
-                 { "<tooloutput>", "</tooloutput>" }
-             };
+         // Determine which comes first: toolcall or output
+         int blockStart = -1;
+         string blockTag = "";
+         string blockCloseTag = "";
 
-            // Extract every complete block in order
-          var resultParts = new List<string>();
-         int nextSearchStart = 0;
+         if (toolcallStart >= 0 && outputStart >= 0)
+         {
+             if (toolcallStart < outputStart) { blockStart = toolcallStart; blockTag = "<toolcall>"; blockCloseTag = "</toolcall>"; }
+             else { blockStart = outputStart; blockTag = "<output>"; blockCloseTag = "</output>"; }
+         }
+         else if (toolcallStart >= 0) { blockStart = toolcallStart; blockTag = "<toolcall>"; blockCloseTag = "</toolcall>"; }
+         else if (outputStart >= 0) { blockStart = outputStart; blockTag = "<output>"; blockCloseTag = "</output>"; }
 
-        foreach (var (tag, tagPos) in allTags)
-                {
-             if (tagPos < nextSearchStart) continue; // already consumed by previous block
+         var sb = new StringBuilder();
 
-                 string closeTag;
-              if (!closingMap.TryGetValue(tag, out closeTag))
-                     continue; // Not a recognized open tag, skip
+         // Include thinking block if found
+         if (thinkStart >= 0 && thinkEnd >= 0)
+         {
+             var thinkContent = raw.Substring(thinkStart, thinkEnd + 11 - thinkStart).Trim();
+             sb.AppendLine(thinkContent);
+         }
 
-                   int closePos = raw.IndexOf(closeTag, tagPos + tag.Length, StringComparison.OrdinalIgnoreCase);
+         // Include the action block (toolcall or output) if found
+         if (blockStart >= 0)
+         {
+             var closePos = raw.IndexOf(blockCloseTag, blockStart + blockTag.Length, StringComparison.OrdinalIgnoreCase);
+             if (closePos >= 0)
+             {
+                 var blockLen = closePos - blockStart + blockCloseTag.Length;
+                 sb.Append(raw.Substring(blockStart, blockLen).Trim());
+             }
+             else
+             {
+                 // Opening tag but no close — take rest of text
+                 sb.Append(raw.Substring(blockStart).Trim());
+             }
+         }
+         else if (thinkStart < 0)
+         {
+             // No thinking, no toolcall, no output — return raw (will be caught as invalid by orchestrator)
+             return raw.Trim();
+         }
 
-             if (closePos > tagPos + tag.Length)
-                 {
-                   // Found matching close — extract the complete block
-                 var blockLen = closePos - tagPos + closeTag.Length;
-                     resultParts.Add(raw.Substring(tagPos, blockLen).Trim());
-                         nextSearchStart = closePos + closeTag.Length;
-                              }
-                   else
-                       {
-                        // Opening tag but no matching close — extract rest of text from this point
-                          var blockText = raw.Substring(tagPos).Trim();
-                               if (!string.IsNullOrEmpty(blockText))
-                                   resultParts.Add(blockText);
-                                       }
-                                  }
-
-         return resultParts.Count > 0 ? string.Join(" ", resultParts) : raw.Trim();
+         return sb.ToString().Trim();
            }
-
 
 
     public string QueryMemory(string s, int maxResults = 5)

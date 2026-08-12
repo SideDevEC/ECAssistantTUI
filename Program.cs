@@ -126,11 +126,9 @@ public class Program
                     EColor.TagBold(EColor.Info(), "Init", $"Tools: {string.Join(", ", agent.Tools.Select(t => t.Name))}");
                       Gui.BlankLine();
 
-                        // Orchestrator limits from config — all flow through appsettings
-                    var maxTurns = _config.ContextManagement.KeepLast; // reuse keep_last as turn limit
-                    if (maxTurns <= 0) maxTurns = 5;
-                    var maxFailures = _config.ContextManagement.ShiftGuardrailThreshold;
-                      if (maxFailures <= 0) maxFailures = 3;
+                        // Orchestrator limits — fixed defaults, not reusing context config
+                    var maxTurns = 5; // Hard limit: 5 turns per task
+                    var maxFailures = 3;
 
                     var orchestrator = new AgentOrchestrator(agent, maxTurns: maxTurns, maxFailures: maxFailures, toolPolicy: new ToolPolicy());
 
@@ -277,7 +275,7 @@ public class Program
                                                     {
                                             var orchestratorResult = await orchestrator.ExecuteMultiStep(pickResult);
                                          Gui.BlankLine();
-                                         var maxTurnsDisplayA = _config.ContextManagement.KeepLast > 0 ? _config.ContextManagement.KeepLast : 5;
+                                         var maxTurnsDisplayA = 5;
                                               EColor.TagBold(Success(), "Agent", $"Turns: {orchestratorResult.ToolCallsMade}/{maxTurnsDisplayA} | Status: {orchestratorResult.Status}");
                                             if (!string.IsNullOrEmpty(orchestratorResult.FinalOutput))
                                              EColor.WriteLine(Bold, orchestratorResult.FinalOutput);
@@ -441,7 +439,7 @@ public class Program
                                  {
                               var orchestratorResult = await orchestrator.ExecuteMultiStep(input);
                                 Gui.BlankLine();
-                             var maxTurnsDisplayB = _config.ContextManagement.KeepLast > 0 ? _config.ContextManagement.KeepLast : 5;
+                             var maxTurnsDisplayB = 5;
                                EColor.TagBold(Success(), "Agent", $"Turns: {orchestratorResult.ToolCallsMade}/{maxTurnsDisplayB} | Status: {orchestratorResult.Status}");
                              if (!string.IsNullOrEmpty(orchestratorResult.FinalOutput))
                                 EColor.WriteLine(Bold, orchestratorResult.FinalOutput);

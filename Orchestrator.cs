@@ -216,16 +216,16 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                         _completedSteps.Add(stepDesc);
                     }
 
-                    // v10.15.1: Advance sub-tasks to match batch results.
-                    // When the LLM batches N tool calls that cover N sub-tasks, advance
-                    // all of them — not just one. Otherwise the LLM sees pending steps
-                    // and retries work that's already done.
+                    // v10.15.5: Sub-task advancement for batch results.
+                    // A single toolcall (e.g. one PowerShell command with semicolons) can
+                    // cover multiple sub-tasks. We can't know how many, so we advance by
+                    // the number of tool calls in the batch (minimum) and let the LLM
+                    // self-assess the rest via the directive.
                     if (_subTasks != null && _subTasks.Count > 1)
                     {
                         if (failCount == 0 && okCount > 0)
                         {
-                            // All succeeded — advance through ALL remaining pending/in-progress sub-tasks
-                            // that were covered by this batch (up to okCount steps)
+                            // All succeeded — advance by at least the number of tool calls
                             var toAdvance = Math.Min(okCount, _subTasks.Count - _currentSubTask);
                             for (int i = 0; i < toAdvance; i++)
                                 AdvanceSubTask(true, "Batch", $"Batch tool {i + 1}/{toAdvance} succeeded");
@@ -234,14 +234,11 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                         {
                             AdvanceSubTask(false, "Batch", $"{failCount} tools failed");
                         }
-                        // Mixed: advance succeeded ones, mark one as failed for the failed tool
                         else if (okCount > 0 && failCount > 0)
                         {
                             var toAdvance = Math.Min(okCount, _subTasks.Count - _currentSubTask);
                             for (int i = 0; i < toAdvance; i++)
                                 AdvanceSubTask(true, "Batch", $"Batch tool {i + 1}/{toAdvance} succeeded");
-                            // Don't advance past the failed one — leave it in progress
-                            // so the LLM can retry just the failed part
                         }
                     }
 
@@ -615,7 +612,8 @@ public sealed class AgentOrchestrator : IAsyncDisposable
         sb.AppendLine("The tool has returned its result above. Now respond to the user.");
         sb.AppendLine("Open <lm><thinking>brief reasoning</thinking> then either <output>your answer</output></lm> if done, or <lm><thinking>brief reasoning</thinking><toolcall>...</toolcall></lm> if you need more data.");
         sb.AppendLine("Do NOT write plain text. Use the tags.");
-        sb.AppendLine("IMPORTANT: Check [TASK PROGRESS] below BEFORE deciding. If any step is still [ ] or [...], you are NOT done — use <toolcall> for the remaining steps. Only use <output> when ALL steps show [OK] or [FAIL].");
+        sb.AppendLine("IMPORTANT: Check [TASK PROGRESS] below. If a step was already completed by a previous tool call (e.g. a batch command created multiple files), mark it as done in your thinking and move on. Only use <toolcall> for steps that genuinely still need work. Use <output> when ALL steps are done or if remaining steps failed and cannot be retried.");
+        sb.AppendLine("Do NOT retry steps that already succeeded — check the tool output above to see what was already done.");
         
         // v10.6: If we have sub-tasks, inject step context
         if (_subTasks != null && _subTasks.Count > 1)

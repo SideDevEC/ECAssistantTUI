@@ -352,25 +352,37 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                     EColor.Tag(EColor.Info(), "Memory", "No prior memory entries found (first session).");
                         }
 
-             // ── Load system prompt from SystemPrompt.md at startup ────────────
+             // v10.16: Load OS-specific system prompt at startup
+            // Windows: SystemPrompt.Windows.md, Mac: SystemPrompt.Mac.md
+            // Fallback: SystemPrompt.md (generic/legacy)
             try
              {
-                var sysPromptPath = Path.Combine(_workingDir, "SystemPrompt.md");
-                if (!File.Exists(sysPromptPath)) sysPromptPath = Path.Combine(AppContext.BaseDirectory, "SystemPrompt.md"); // fallback to build dir
+                var promptFileName = OperatingSystem.IsMacOS() ? "SystemPrompt.Mac.md"
+                                   : OperatingSystem.IsWindows() ? "SystemPrompt.Windows.md"
+                                   : "SystemPrompt.md";
+                var sysPromptPath = Path.Combine(_workingDir, promptFileName);
+                if (!File.Exists(sysPromptPath)) sysPromptPath = Path.Combine(AppContext.BaseDirectory, promptFileName); // fallback to build dir
+                // v10.16: Final fallback to legacy SystemPrompt.md if OS-specific not found
+                if (!File.Exists(sysPromptPath))
+                {
+                    var legacyPath = Path.Combine(_workingDir, "SystemPrompt.md");
+                    if (!File.Exists(legacyPath)) legacyPath = Path.Combine(AppContext.BaseDirectory, "SystemPrompt.md");
+                    if (File.Exists(legacyPath)) { sysPromptPath = legacyPath; promptFileName = "SystemPrompt.md"; }
+                }
                  if (File.Exists(sysPromptPath))
                       {
                          _systemPromptText = File.ReadAllText(sysPromptPath);
-                          Program.Gui.WriteLineColored($"[Config] System prompt loaded from: SystemPrompt.md ({_systemPromptText.Length} chars)");
+                          Program.Gui.WriteLineColored($"[Config] System prompt loaded from: {promptFileName} ({_systemPromptText.Length} chars)");
                       }
                     else
                          {
-                           Program.Gui.LogInternal("[!] SystemPrompt.md not found — using empty system prompt.");
+                           Program.Gui.LogInternal($"[!] No system prompt file found — using empty system prompt.");
                               _systemPromptText = "";
                             }
                           }
              catch (Exception ex)
                   {
-                       Program.Gui.LogInternal($"[!] Failed to load SystemPrompt.md: {ex.Message}");
+                       Program.Gui.LogInternal($"[!] Failed to load system prompt: {ex.Message}");
                     _systemPromptText = "";
                     }
 

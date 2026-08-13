@@ -335,13 +335,18 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                                     var stepDesc = $"{decision.ToolName}: {EGuiBase.Truncate(stepCmd, 80)}";
                                     _completedSteps.Add(stepDesc);
 
-                                    // v10.15.7: Advance ALL remaining sub-tasks on success.
+                                    // v10.15.8: Advance ALL remaining sub-tasks on success.
                                     // The LLM can complete multiple planned steps in a single
-                                    // PowerShell command (semicolons). Since we can't know which
+                                    // shell command (semicolons). Since we can't know which
                                     // steps were covered, mark all remaining as completed.
                                     // If the LLM needs more work, it will make another toolcall.
-                                    while (_subTasks != null && _currentSubTask < _subTasks.Count)
-                                        AdvanceSubTask(true, decision.ToolName!, stepDesc);
+                                    // Guard: AdvanceSubTask is a no-op when Count <= 1, so
+                                    // the while loop would infinite-loop on single-step tasks.
+                                    if (_subTasks != null && _subTasks.Count > 1)
+                                    {
+                                        while (_currentSubTask < _subTasks.Count)
+                                            AdvanceSubTask(true, decision.ToolName!, stepDesc);
+                                    }
 
                                     _engine.AddToolResult(decision.ToolName!, toolOutput);
 

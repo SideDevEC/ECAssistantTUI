@@ -1,6 +1,6 @@
-# ECAssistant — Project Summary (v10.21.3 — 2026-08-13)
+# ECAssistant — Project Summary (v10.22 — 2026-08-13)
 
-**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Cross-platform (Windows + macOS). Loads GGUF models from disk — no API calls, no cloud, fully self-contained. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags for tool calling. Multi-step autonomous loops, dual memory (keyword + vector/semantic), sliding context windows, self-correction with failure loop detection, project context awareness, task decomposition, surgical code editing, 8 registered tools, sub-agent system with shared model weights. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.15: KV cache hybrid rewind, off-by-one fixes, `<llm>`→`<lm>` rename, sub-task advancement fixes. v10.16: Cross-platform migration — EShellAgent, dual system prompts, Mac support. v10.17: StepMapper (two-phase planning: decompose → map → execute), automated test framework. v10.18: Sub-agent system — isolated agents with shared model weights. v10.19.2: All artifacts in working directory, BackgroundProcessManager OS-aware. v10.19.3: Removed background agents — session architecture design drafted. v10.20: Fully isolated multi-session architecture — each session has own engine, KV cache, tools, memory, output buffer (JSONL), prompt queue. Session is UI gateway via ISessionOutput. Output states (not colors). SemaphoreSlim inference scheduler. No inter-session communication. v10.21.2: ANSI scroll region UI — output scrolls above a fixed input line. User can type freely while LLM executes. Session buffer batches tokens. EColor + ConsoleUiRenderer routed through Gui. v10.21.3: Logic/UI separation — all Console calls encapsulated in UI layer (EGuiBase.IsEscapePressed). Dead code removed (Terminal.Gui, EGuiTerminal, TerminalGuiRenderer, ShowConfigSummary, _originalGoal). Build: 0 errors, 8 warnings.
+**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Cross-platform (Windows + macOS). Loads GGUF models from disk — no API calls, no cloud, fully self-contained. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags for tool calling. Multi-step autonomous loops, dual memory (keyword + vector/semantic), sliding context windows, self-correction with failure loop detection, project context awareness, task decomposition, surgical code editing, 10 registered tools, sub-agent system with shared model weights. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.15: KV cache hybrid rewind, off-by-one fixes, `<llm>`→`<lm>` rename, sub-task advancement fixes. v10.16: Cross-platform migration — EShellAgent, dual system prompts, Mac support. v10.17: StepMapper (two-phase planning: decompose → map → execute), automated test framework. v10.18: Sub-agent system — isolated agents with shared model weights. v10.19.2: All artifacts in working directory, BackgroundProcessManager OS-aware. v10.19.3: Removed background agents — session architecture design drafted. v10.20: Fully isolated multi-session architecture — each session has own engine, KV cache, tools, memory, output buffer (JSONL), prompt queue. Session is UI gateway via ISessionOutput. Output states (not colors). SemaphoreSlim inference scheduler. No inter-session communication. v10.21.2: ANSI scroll region UI — output scrolls above a fixed input line. User can type freely while LLM executes. Session buffer batches tokens. EColor + ConsoleUiRenderer routed through Gui. v10.21.3: Logic/UI separation — all Console calls encapsulated in UI layer (EGuiBase.IsEscapePressed). Dead code removed (Terminal.Gui, EGuiTerminal, TerminalGuiRenderer, ShowConfigSummary, _originalGoal). v10.22: Timer-based token streaming (150ms flush), KV cache memory monitoring, inference queue visibility, fallback regex parser for malformed `<lm>` tags, context window pressure indicator, post-hoc sub-task effect matching, EFileReader tool, EWebFetch tool, mock engine test tier (--test --mock), session-rename, colored tool output, context tokens in status bar. Build: 0 errors, 8 warnings.
 
 ## Key Facts
 - **Language:** C# .NET 8 console app (`net8.0`, cross-platform, Nullable enabled)
@@ -15,7 +15,61 @@
 - **Latest Tags:** `v10.21.2-safe` (v10.21.2), `v10.21.1-safe` (v10.21.1), `v10.19.5-safe` (v10.19.5), `v10.19.4-safe` (v10.19.4), `v10.19.3-safe` (v10.19.3), `v10.18-subagent` (v10.18), `mac-safe` (v10.16.0)
 - **Executor:** InteractiveExecutor with KV cache (static prefix prefilled once, incremental feed per turn)
 - **Secondary Executor:** StatelessExecutor (fresh context per call, no cache)
-- **Source files:** 39 .cs files, dual system prompts
+- **Source files:** 44 .cs files, dual system prompts
+
+## What's New (v10.22 — Session 2026-08-13)
+
+### Timer-Based Token Streaming (#1)
+- `AgentSession._streamFlushTimer` flushes buffered tokens every 150ms
+- Real-time streaming feel without per-token UI writes (which broke v10.21.2)
+- Timer-based flush + immediate flush on state changes/WriteLine
+
+### KV Cache Memory Monitoring (#2)
+- `session-info [n]` command shows: context size, prefill status, usage ratio, est. memory
+- `EAgentEngine.KVCacheEstimatedMB` — rough KV cache memory estimate
+- `EAgentEngine.KVCacheUsageRatio` — ratio of used context tokens to capacity
+
+### Inference Queue Visibility (#3)
+- When `_inferenceLock.CurrentCount == 0`, shows "Waiting for model — another session is generating"
+- No more silent hangs when sessions are queued for inference
+
+### Fallback Regex Parser (#4)
+- `ExtractCleanResponse` now has a regex fallback for malformed `<lm>` tags
+- Matches `<l?m[^>]*>?` patterns (missing `>`, extra chars, etc.)
+- Prevents format retry loops on slightly malformed model output
+
+### Context Window Pressure Indicator (#5)
+- `context-status` command shows: tokens used/max, percentage, until summarize
+- `EAgentEngine.ContextStatusSummary` property for programmatic access
+- `IsContextNearOverflow` flag (>80% used)
+
+### Post-Hoc Sub-Task Effect Matching (#6)
+- `MatchEffectsToSubTasks()` — after a tool call, checks actual effects against remaining sub-tasks
+- Keyword overlap matching (>60% threshold) between tool output and sub-task descriptions
+- One tool call can auto-complete multiple sub-tasks if effect overlap is clear
+
+### EFileReader Tool (#7)
+- `Tools/Reader/EFileReaderTool.cs` — read files with offset/limit/maxchars control
+- Returns line-numbered content + total line count (LLM knows if there's more)
+- Prevents context blowups from large files (replaces `cat` via EShellAgent)
+
+### EWebFetch Tool (#8)
+- `Tools/Web/EWebFetchTool.cs` — HTTP GET + HTML-to-text conversion
+- Strips script/style/nav/footer, decodes HTML entities, preserves structure
+- Maxchars limit (default 6000, max 20000)
+
+### Mock Engine Test Tier (#11)
+- `Testing/MockEngine.cs` — inherits EAgentEngine, returns predefined responses
+- `--test --mock` flag runs 5 deterministic test scenarios (no GGUF needed)
+- Tests: direct answer, toolcall+answer, format retry, multistep, sub-task advancement
+- `EAgentEngine.MockMode` static flag skips LLama native init
+- Engine unsealed + key methods made virtual for mock inheritance
+
+### Quick Wins
+- **`session-rename <n> <label>`** — rename sessions
+- **Colored tool output** — tool results in dim gray, LLM thinking in dim italic
+- **Context tokens in status bar** — `ctx: 4.2K/16K` in session summary
+- **Session commands consolidated** — sessions, session, session-new, session-stop, session-close, session-peek, session-rename, session-info, session-queue*
 
 ## What's New (v10.15 — Session 2026-08-13)
 
@@ -84,7 +138,7 @@
 - Build/git → always after code-modifying tools
 - Different tools, different targets → independent
 
-## Registered Tools (8)
+## Registered Tools (10)
 
 | Tool | Purpose | Key Feature |
 |------|---------|-------------|
@@ -92,9 +146,11 @@
 | **EFileResearchTool** | Project-wide file scan | Multi-file content scan |
 | **EBackgroundExec** | Background process management | start/status/output/kill |
 | **EWebSearch** | Web search | DuckDuckGo API, no auth |
+| **EWebFetch** | Fetch URL content | HTTP GET + HTML-to-text, maxchars limit (v10.22) |
 | **EDotnetBuild** | .NET build/test/format | Structured errors, test-filter |
 | **EGitTool** | Git operations | status/diff/commit/push/pull/log |
 | **ECodeEditor** | Surgical code editing | patch/diff/search/replace/insert/delete |
+| **EFileReader** | Controlled file reading | offset/limit/maxchars, line numbers (v10.22) |
 | **ESubAgent** | Spawn child agents | Isolated engines, shared model weights (v10.18) |
 
 ## Response Format (v10.15 — `<lm>` Container)
@@ -164,9 +220,12 @@ ECAssistant/
 │   ├── EResearch/EFileResearchTool.cs
 │   ├── EBackground/EBackgroundExecTool.cs
 │   ├── EWeb/EWebSearchTool.cs
+│   ├── EWeb/EWebFetchTool.cs           ← v10.22: HTTP GET + HTML-to-text
 │   ├── EDotnet/EDotnetBuildTool.cs
 │   ├── EGit/EGitTool.cs
-│   └── ECode/ECodeEditorTool.cs
+│   ├── ECode/ECodeEditorTool.cs
+│   ├── EReader/EFileReaderTool.cs      ← v10.22: Controlled file reading (offset/limit)
+│   └── SubAgent/ESubAgentTool.cs       ← v10.18: Sub-agent spawning
 │
 ├── Session/
 │   ├── AgentSession.cs           ← v10.21: accepts shared LLamaWeights
@@ -192,10 +251,11 @@ ECAssistant/
     ├── EGuiConsole.cs                  ← Console implementation (fallback)
     └── EGuiTerminal.cs                 ← v10.21: Terminal.Gui TUI (TextView + TextField + StatusBar)
 │
-├── Testing/                            ← v10.17: Automated test framework, v10.19: 30 tests
+├── Testing/                            ← v10.17: Automated test framework, v10.22: Mock engine
 │   ├── EGuiTestHarness.cs              ← Non-interactive UI (captures output, scripts input)
 │   ├── TestRunner.cs                   ← Orchestrates test scenarios, sandboxed dirs, assertions
-│   └── EcaTests.cs                     ← 30 test scenarios (11 tiers)
+│   ├── MockEngine.cs                   ← v10.22: Mock LLM engine for model-independent tests
+│   └── EcaTests.cs                     ← 39 real tests + 5 mock tests
 ```
 
 ## What's New (v10.17 — Two-Phase Planning + Test Framework)

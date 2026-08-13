@@ -1,6 +1,6 @@
-# ECAssistant Architecture (v10.21.3 — 2026-08-13)
+# ECAssistant Architecture (v10.22 — 2026-08-13)
 
-**Summary:** A local, offline AI agent in C# .NET 8 using LLamaSharp. Runs GGUF models locally with no external API calls. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags (`<thinking>`, `<toolcall>`, `<output>`). 8 registered tools self-register their rules at runtime. Multi-step autonomous loops with dual memory (keyword + TF-IDF vector), sliding context windows with LLM summarization, self-correction with failure loop detection and file rollback, project context awareness with dependency graph, two-phase task planning (decompose → map → execute), surgical code editing, background process management, file watching, structured logging, and sub-agent system with shared model weights. Token-optimized for 8B models. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.16: Cross-platform (Windows + macOS). v10.17: StepMapper (two-phase planning), automated test framework. v10.18: Sub-agent system. v10.19.2: All artifacts in working directory. v10.20: Fully isolated multi-session architecture — each session has own engine, KV cache, tools, memory, output buffer, and prompt queue. Sessions share one model in RAM with serialized inference. File-based JSONL output buffer with output states (not colors). Session is the UI gateway — all components route output through ISessionOutput. No inter-session communication (tool-level concern for later). v10.21: Shared model weights (one GGUF load via `LLamaWeights` shared across sessions, each gets own `LLamaContext`/KV cache). Terminal.Gui TUI replaces raw console — scrollable output view + always-free input field + status bar. Session discovery from disk with animated loading indicator. Native llama.cpp C++ log redirect to file (clean console).
+**Summary:** A local, offline AI agent in C# .NET 8 using LLamaSharp. Runs GGUF models locally with no external API calls. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags (`<thinking>`, `<toolcall>`, `<output>`). 10 registered tools self-register their rules at runtime. Multi-step autonomous loops with dual memory (keyword + TF-IDF vector), sliding context windows with LLM summarization, self-correction with failure loop detection and file rollback, project context awareness with dependency graph, two-phase task planning (decompose → map → execute), surgical code editing, background process management, file watching, structured logging, and sub-agent system with shared model weights. Token-optimized for 8B models. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.16: Cross-platform (Windows + macOS). v10.17: StepMapper (two-phase planning), automated test framework. v10.18: Sub-agent system. v10.19.2: All artifacts in working directory. v10.20: Fully isolated multi-session architecture — each session has own engine, KV cache, tools, memory, output buffer, and prompt queue. Sessions share one model in RAM with serialized inference. File-based JSONL output buffer with output states (not colors). Session is the UI gateway — all components route output through ISessionOutput. No inter-session communication (tool-level concern for later). v10.21: Shared model weights (one GGUF load via `LLamaWeights` shared across sessions, each gets own `LLamaContext`/KV cache). Terminal.Gui TUI replaces raw console — scrollable output view + always-free input field + status bar. Session discovery from disk with animated loading indicator. Native llama.cpp C++ log redirect to file (clean console). v10.22: Timer-based token streaming (150ms flush), KV cache monitoring, inference queue visibility, fallback regex parser, context pressure indicator, post-hoc sub-task matching, EFileReader + EWebFetch tools, mock engine test tier, session-rename, colored tool output, context tokens in status bar.
 
 ## Key Facts
 - **Language:** C# .NET 8 console app (`net8.0`, cross-platform, Nullable enabled)
@@ -11,13 +11,70 @@
 - **Secondary Executor:** StatelessExecutor (for summaries/decomposition, no cache)
 - **Primary Model:** Qwen_Qwen3-8B-Q4_K_M (bartowski) — `/Users/localdev/Agent/models/`
 - **Secondary Model:** microsoft_Phi-4-mini-instruct-Q4_K_M (bartowski) — same folder
-- **Tools:** 8 registered — EShellAgent, EFileResearchTool, EBackgroundExec, EWebSearch, EDotnetBuild, EGitTool, ECodeEditor, ESubAgent
+- **Tools:** 10 registered — EShellAgent, EFileResearchTool, EBackgroundExec, EWebSearch, EWebFetch, EDotnetBuild, EGitTool, ECodeEditor, EFileReader, ESubAgent
 - **Config:** `~/ECAssistant/appsettings.json` (user-editable, bundled as fallback)
 - **System Prompts:** SystemPrompt.Windows.md (PowerShell examples) + SystemPrompt.Mac.md (zsh examples) — OS-specific, fallback to SystemPrompt.md
 - **Working Directory:** `~/ECAssistant/` (ALL disk writes — logs, tests, temp scripts, sub-agent dirs, background agent dirs — v10.19.2)
 - **Context:** 16384 tokens, max_tokens 2048, auto-summarize at 50%
 - **Repo:** `github.com/LLamaDudeX/ECAssistant.git` (branch: `main`)
-- **UI:** EGuiConsole with ANSI scroll region + session buffer batching (v10.21.2) + logic/UI separation (v10.21.3)
+- **UI:** EGuiConsole with ANSI scroll region + session buffer batching (v10.21.2) + logic/UI separation (v10.21.3) + timer-based stream flush (v10.22)
+- **Testing:** 39 model-based tests + 5 mock engine tests (v10.22: `--test --mock` for model-independent tests)
+
+## What's New (v10.22 — 2026-08-13)
+
+### 1. Timer-Based Token Streaming
+- `AgentSession._streamFlushTimer` — 150ms interval flushes buffered tokens
+- Real-time streaming feel without per-token UI writes
+- Immediate flush on state changes and WriteLine (preserved from v10.21)
+
+### 2. KV Cache Memory Monitoring
+- `session-info [n]` command: context size, prefill status, usage ratio, est. memory (MB)
+- `EAgentEngine.KVCacheEstimatedMB` — approximate KV cache size
+- `EAgentEngine.KVCacheUsageRatio` — used context tokens / capacity
+
+### 3. Inference Queue Visibility
+- When `SemaphoreSlim.CurrentCount == 0`, session prints "Waiting for model"
+- No more silent hangs during multi-session inference serialization
+
+### 4. Fallback Regex Parser for `<lm>` Tags
+- `ExtractCleanResponse` has a regex fallback: `<l?m[^>]*>?`
+- Catches malformed tags (missing `>`, extra chars) before giving up
+- Reduces format retry loops on slightly malformed model output
+
+### 5. Context Window Pressure Indicator
+- `context-status` command: `ctx: 4200/16384 (26%) — 3992 tokens until summarize`
+- `IsContextNearOverflow` flag (>80% used)
+- `TokensUntilSummarize` — distance to 50% auto-summarize threshold
+
+### 6. Post-Hoc Sub-Task Effect Matching
+- `MatchEffectsToSubTasks()` — after tool success, checks actual effects vs remaining sub-tasks
+- Keyword overlap matching (>60% threshold) between tool output + sub-task description
+- One tool call can auto-complete multiple sub-tasks (e.g., one shell command creating 3 files)
+
+### 7. EFileReader Tool
+- `Tools/Reader/EFileReaderTool.cs`
+- Args: `file` (required), `offset` (line, 1-based), `limit` (lines), `maxchars`
+- Returns line-numbered content + total line count
+- Prevents context blowups from `cat`-ing large files
+
+### 8. EWebFetch Tool
+- `Tools/Web/EWebFetchTool.cs`
+- HTTP GET + HTML-to-text (strips script/style/nav/footer, decodes entities)
+- Args: `url` (required), `maxchars` (default 6000, max 20000)
+- No JavaScript execution — static pages only
+
+### 11. Mock Engine Test Tier
+- `Testing/MockEngine.cs` — inherits `EAgentEngine`, returns predefined responses
+- `--test --mock` flag: 5 deterministic test scenarios, no GGUF needed
+- `EAgentEngine.MockMode` static flag skips LLama native init
+- Engine unsealed + key methods made `virtual` for mock inheritance
+- Tests: direct_answer, toolcall_then_answer, format_retry, multistep, subtask_advancement
+
+### Quick Wins
+- `session-rename <n> <label>` — rename sessions
+- Colored tool output: tool results in `Dim` gray, LLM thinking in `Dim` italic
+- Context tokens in session status: `ctx: 4200/16384`
+- Session commands consolidated into `ProcessInputAsync` with arg parsing
 
 ## 📦 `<lm>` Container Tag System (v10.15.2)
 

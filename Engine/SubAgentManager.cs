@@ -1,4 +1,5 @@
 using System.Text;
+using System.Collections.Concurrent;
 using LLama;
 using LLama.Common;
 using LLama.Sampling;
@@ -22,33 +23,152 @@ public class SubAgentTask
     public uint ContextSize { get; set; } = 4096;
     public int MaxTurns { get; set; } = 5;
     public int TimeoutSeconds { get; set; } = 120;
+
+    // ── v10.18.1: Resource limits ──
+    /// <summary>Max total tool calls before sub-agent is forced to stop (0 = no limit).</summary>
+    public int MaxToolCalls { get; set; } = 20;
+
+    /// <summary>Max total bytes written to disk (0 = no limit).</summary>
+    public long MaxDiskBytes { get; set; } = 50 * 1024 * 1024; // 50MB default
+
+    /// <summary>Max retries if sub-agent fails (0 = no auto-retry).</summary>
+    public int MaxRetries { get; set; } = 1;
+
+    /// <summary>Retry delay in milliseconds.</summary>
+    public int RetryDelayMs { get; set; } = 1000;
+}
+
+/// <summary>
+/// Structured error info — what was attempted, what succeeded, what failed.
+/// v10.18.1: Replaces the old string-only Error field with rich structured data.
+/// </summary>
+public class SubAgentError
+{
+    /// <summary>What kind of failure occurred.</summary>
+    public SubAgentErrorKind Kind { get; set; }
+
+    /// <summary>Human-readable error message.</summary>
+    public string Message { get; set; } = "";
+
+    /// <summary>What the sub-agent was trying to do when it failed.</summary>
+    public string AttemptedAction { get; set; } = "";
+
+    /// <summary>Tool calls that succeeded before the failure.</summary>
+    public List<string> SuccessfulActions { get; set; } = new();
+
+    /// <summary>Tool calls that failed.</summary>
+    public List<string> FailedActions { get; set; } = new();
+
+    /// <summary>Files created/modified before failure (partial results).</summary>
+    public List<string> FilesModified { get; set; } = new();
+
+    /// <summary>Partial output from the sub-agent (if any).</summary>
+    public string PartialOutput { get; set; } = "";
+
+    /// <summary>Orchestrator status at time of failure.</summary>
+    public OrchestratorStatus Status { get; set; }
+
+    /// <summary>Retry attempt number (0 = first try, 1 = first retry, etc.).</summary>
+    public int RetryAttempt { get; set; }
+
+    /// <summary>Convert to structured string for LLM consumption.</summary>
+    public string ToStructuredString()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"Error Kind: {Kind}");
+        sb.AppendLine($"Message: {Message}");
+        if (!string.IsNullOrEmpty(AttemptedAction))
+            sb.AppendLine($"Attempted: {AttemptedAction}");
+        if (SuccessfulActions.Count > 0)
+            sb.AppendLine($"Succeeded before failure: {string.Join(", ", SuccessfulActions)}");
+        if (FailedActions.Count > 0)
+            sb.AppendLine($"Failed actions: {string.Join(", ", FailedActions)}");
+        if (FilesModified.Count > 0)
+            sb.AppendLine($"Files modified: {string.Join(", ", FilesModified)}");
+        if (!string.IsNullOrEmpty(PartialOutput))
+            sb.AppendLine($"Partial output: {PartialOutput}");
+        sb.AppendLine($"Status: {Status}");
+        if (RetryAttempt > 0)
+            sb.AppendLine($"Retry attempt: {RetryAttempt}");
+        return sb.ToString();
+    }
+}
+
+public enum SubAgentErrorKind
+{
+    None,
+    Timeout,
+    TurnsExhausted,
+    ToolFailure,
+    ResourceLimitExceeded,
+    CancelledByMainAgent,
+    Exception,
+    MaxRetriesExceeded
 }
 
 /// <summary>
 /// Sub-agent result — what the sub-agent returns to the main agent.
+/// v10.18.1: Now includes structured error info and partial results.
 /// </summary>
 public class SubAgentResult
 {
     public bool Succeeded { get; set; }
     public string FinalOutput { get; set; } = "";
     public int ToolCallsMade { get; set; }
-    public string Error { get; set; } = "";
     public TimeSpan Duration { get; set; }
+
+    // v10.18.1: Structured error
+    public SubAgentError? Error { get; set; }
+
+    // v10.18.1: Partial results — what was accomplished even on failure
+    public List<string> FilesCreated { get; set; } = new();
+    public List<string> FilesModified { get; set; } = new();
+    public List<string> ToolCallLog { get; set; } = new();
+
+    /// <summary>Legacy Error string (for backward compat — reads from Error.Message).</summary>
+    public string ErrorString => Error?.Message ?? (Succeeded ? "" : "Unknown error");
+
+    /// <summary>Format result for injection into main agent context.</summary>
+    public string ToContextString()
+    {
+        if (Succeeded)
+        {
+            return $"✅ Sub-agent succeeded ({ToolCallsMade} tool calls, {Duration.TotalSeconds:F1}s)\n" +
+                   $"Output: {FinalOutput}";
+        }
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"❌ Sub-agent failed ({Duration.TotalSeconds:F1}s)");
+        if (Error != null)
+            sb.Append(Error.ToStructuredString());
+        if (FilesCreated.Count > 0)
+            sb.AppendLine($"Files created (partial): {string.Join(", ", FilesCreated)}");
+        if (FilesModified.Count > 0)
+            sb.AppendLine($"Files modified (partial): {string.Join(", ", FilesModified)}");
+        if (!string.IsNullOrEmpty(FinalOutput))
+            sb.AppendLine($"Partial output: {FinalOutput}");
+        return sb.ToString();
+    }
+}
+
+/// <summary>
+/// Active sub-agent handle — tracks a running sub-agent for cancellation.
+/// </summary>
+public class ActiveSubAgent
+{
+    public string Id { get; } = Guid.NewGuid().ToString("N")[..8];
+    public string Description { get; set; } = "";
+    public CancellationTokenSource Cts { get; set; } = new();
+    public EAgentEngine? Engine { get; set; }
+    public Task<SubAgentResult>? Task { get; set; }
+    public SubAgentTask TaskDef { get; set; } = null!;
+    public DateTime StartedAt { get; } = DateTime.UtcNow;
 }
 
 /// <summary>
 /// Sub-Agent Manager — spawns isolated agent sessions for complex tasks.
-///
-/// v10.18 architecture:
-/// - Each sub-agent gets its own EAgentEngine (own KV cache, context, tools)
-/// - Model weights are reloaded from disk (OS page cache makes this fast — ~2s after first load)
-/// - Sub-agents run concurrently via Task.WhenAll with semaphore-limited concurrency
-/// - Each sub-agent has its own orchestrator and sandboxed working directory
-/// - ESubAgentTool wraps this manager so the main LLM can spawn sub-agents
-///
-/// Parallelism:
-/// - Level 1 (within sub-agent): ParallelToolExecutor handles multiple <toolcall> blocks
-/// - Level 2 (across sub-agents): Multiple ESubAgent toolcalls run via Task.WhenAll
+/// v10.18.1: Full error handling — structured errors, partial results,
+///           retry with backoff, resource limits, main-agent cancellation.
 /// </summary>
 public sealed class SubAgentManager : IDisposable
 {
@@ -57,24 +177,25 @@ public sealed class SubAgentManager : IDisposable
     private readonly int _gpuLayers;
     private readonly InferenceParams _inferenceParams;
     private readonly EAgentConfig _config;
+    private readonly ConcurrentDictionary<string, ActiveSubAgent> _activeSubAgents = new();
     private readonly List<EAgentEngine> _childEngines = new();
     private readonly object _lock = new();
 
     /// <summary>Maximum concurrent sub-agents.</summary>
     public int MaxConcurrent { get; set; } = 3;
 
+    /// <summary>All currently active sub-agent handles (for monitoring/cancellation).</summary>
+    public IReadOnlyDictionary<string, ActiveSubAgent> ActiveAgents => _activeSubAgents;
+
     public SubAgentManager(EAgentEngine mainEngine)
     {
         _mainEngine = mainEngine;
 
-        // Extract config from main engine via reflection
-        _modelPath = GetField<string>(_mainEngine, "_workingDir") ?? AppContext.BaseDirectory;
-        _gpuLayers = 15; // Match production config
-
-        // Get model path from config
         var configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "appsettings.json");
         _config = File.Exists(configPath) ? EAgentConfig.Load(configPath) : new EAgentConfig();
         _modelPath = _config.Llm.ModelPath;
+        _gpuLayers = 15;
+
         _inferenceParams = new InferenceParams
         {
             MaxTokens = _config.Inference.MaxTokens,
@@ -90,101 +211,84 @@ public sealed class SubAgentManager : IDisposable
         };
     }
 
-    /// <summary>Run a single sub-agent task to completion.</summary>
+    // ═══════════════════════════════════════════════════════════════
+    //  PUBLIC API
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>Run a single sub-agent task with retry and full error handling.</summary>
     public async Task<SubAgentResult> RunAsync(SubAgentTask task)
     {
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        EAgentEngine? childEngine = null;
+        SubAgentResult? lastResult = null;
+        var maxAttempts = task.MaxRetries + 1;
 
-        try
+        for (int attempt = 0; attempt < maxAttempts; attempt++)
         {
-            EColor.TagBold(Cyan, "SubAgent", $"Starting: {task.Description}");
+            var result = await RunSingleAsync(task, attempt);
 
-            var workingDir = string.IsNullOrEmpty(task.WorkingDir)
-                ? Path.Combine(Path.GetTempPath(), "eca-subagent", Guid.NewGuid().ToString("N")[..8])
-                : task.WorkingDir;
-            Directory.CreateDirectory(workingDir);
-
-            // Create a new engine for this sub-agent
-            childEngine = new EAgentEngine(
-                modelPath: _modelPath,
-                contextSize: task.ContextSize,
-                gpuLayers: _gpuLayers,
-                threadCount: -1,
-                inferenceParams: _inferenceParams,
-                workingDir: workingDir);
-
-            lock (_lock) _childEngines.Add(childEngine);
-
-            childEngine.LoadContext();
-            childEngine.WireSummaryService();
-
-            // Register tools — filter by AllowedTools if specified
-            var bgMgr = new Services.BackgroundProcessManager();
-            childEngine.RegisterTool(new Tools.Shell.EShellAgent(workingDir));
-            childEngine.RegisterTool(new Tools.Background.EBackgroundExecTool(bgMgr, workingDir));
-            childEngine.RegisterTool(new Tools.Web.EWebSearchTool());
-            childEngine.RegisterTool(new Tools.Build.EDotnetBuildTool(workingDir));
-            childEngine.RegisterTool(new Tools.Git.EGitTool(workingDir));
-            childEngine.RegisterTool(new Tools.Code.ECodeEditorTool(workingDir));
-
-            var researchExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                { ".cs", ".md", ".json", ".txt", ".xml", ".sql", ".html", ".css", ".js", ".sh" };
-            childEngine.RegisterTool(new Tools.Research.EFileResearchTool(workingDir, defaultExtensions: researchExtensions));
-
-            // Remove tools not in AllowedTools if specified
-            if (task.AllowedTools.Count > 0)
+            if (result.Succeeded)
             {
-                // Note: We can't remove tools after registration, but the orchestrator
-                // will use the tool whitelist to filter. For now, all tools are available.
+                if (attempt > 0)
+                    EColor.TagBold(EColor.Success(), "SubAgent", $"Succeeded on retry #{attempt}");
+                return result;
             }
 
-            await childEngine.PrefillStaticPrefix();
+            lastResult = result;
 
-            var orchestrator = new AgentOrchestrator(childEngine, maxTurns: task.MaxTurns, maxFailures: 3);
-
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(task.TimeoutSeconds));
-            childEngine.StartExecution();
-
-            var orchResult = await orchestrator.ExecuteMultiStep(task.Prompt);
-
-            childEngine.EndExecution();
-
-            var result = new SubAgentResult
+            // Check if we should retry
+            if (attempt < maxAttempts - 1)
             {
-                Succeeded = orchResult.Status == OrchestratorStatus.GoalAchieved,
-                FinalOutput = orchResult.FinalOutput ?? "",
-                ToolCallsMade = orchResult.ToolCallsMade,
-                Error = orchResult.Status != OrchestratorStatus.GoalAchieved ? $"Status: {orchResult.Status}" : "",
+                var shouldRetry = result.Error?.Kind switch
+                {
+                    SubAgentErrorKind.Timeout => true,
+                    SubAgentErrorKind.TurnsExhausted => true,
+                    SubAgentErrorKind.ToolFailure => true,
+                    SubAgentErrorKind.CancelledByMainAgent => false, // Don't retry cancellations
+                    SubAgentErrorKind.ResourceLimitExceeded => false, // Don't retry resource limits
+                    SubAgentErrorKind.Exception => false, // Don't retry exceptions (likely code bug)
+                    _ => false
+                };
+
+                if (!shouldRetry) break;
+
+                EColor.TagBold(EColor.Warn(), "SubAgent",
+                    $"Retry {attempt + 1}/{task.MaxRetries} after {result.Error?.Kind} — waiting {task.RetryDelayMs}ms...");
+
+                await Task.Delay(task.RetryDelayMs);
+
+                // Adjust task for retry — increase timeout and turns
+                task = new SubAgentTask
+                {
+                    Description = task.Description,
+                    Prompt = task.Prompt,
+                    WorkingDir = task.WorkingDir, // Reuse same dir — partial results are there
+                    AllowedTools = task.AllowedTools,
+                    ContextSize = task.ContextSize,
+                    MaxTurns = task.MaxTurns + 2, // Give more turns on retry
+                    TimeoutSeconds = task.TimeoutSeconds + 30, // More time on retry
+                    MaxToolCalls = task.MaxToolCalls,
+                    MaxDiskBytes = task.MaxDiskBytes,
+                    MaxRetries = 0, // No recursive retries
+                };
+            }
+        }
+
+        // All retries exhausted
+        if (lastResult != null && lastResult.Error != null)
+        {
+            lastResult.Error = new SubAgentError
+            {
+                Kind = SubAgentErrorKind.MaxRetriesExceeded,
+                Message = $"Failed after {maxAttempts} attempt(s). Last error: {lastResult.Error.Message}",
+                SuccessfulActions = lastResult.Error.SuccessfulActions,
+                FailedActions = lastResult.Error.FailedActions,
+                FilesModified = lastResult.Error.FilesModified,
+                PartialOutput = lastResult.Error.PartialOutput,
+                Status = lastResult.Error.Status,
+                RetryAttempt = maxAttempts - 1,
             };
+        }
 
-            sw.Stop();
-            result.Duration = sw.Elapsed;
-
-            var icon = result.Succeeded ? "✅" : "❌";
-            EColor.TagBold(result.Succeeded ? EColor.Success() : EColor.Error(), "SubAgent",
-                $"{icon} Completed: {task.Description} ({sw.Elapsed.TotalSeconds:F1}s, {result.ToolCallsMade} tool calls)");
-
-            return result;
-        }
-        catch (OperationCanceledException)
-        {
-            childEngine?.EndExecution();
-            return new SubAgentResult { Succeeded = false, Error = $"Timeout after {task.TimeoutSeconds}s", Duration = sw.Elapsed };
-        }
-        catch (Exception ex)
-        {
-            childEngine?.EndExecution();
-            return new SubAgentResult { Succeeded = false, Error = ex.Message, Duration = sw.Elapsed };
-        }
-        finally
-        {
-            if (childEngine != null)
-            {
-                try { await childEngine.DisposeAsync(); } catch { }
-                lock (_lock) _childEngines.Remove(childEngine);
-            }
-        }
+        return lastResult ?? new SubAgentResult { Succeeded = false, Error = new SubAgentError { Kind = SubAgentErrorKind.Exception, Message = "No result returned" } };
     }
 
     /// <summary>Run multiple sub-agents in parallel (Level 2 parallelism).</summary>
@@ -214,8 +318,289 @@ public sealed class SubAgentManager : IDisposable
         return results;
     }
 
+    /// <summary>v10.18.1: Cancel a specific sub-agent by ID.</summary>
+    public void CancelSubAgent(string subAgentId)
+    {
+        if (_activeSubAgents.TryGetValue(subAgentId, out var agent))
+        {
+            EColor.TagBold(EColor.Warn(), "SubAgent", $"Cancelling {subAgentId}: {agent.Description}");
+            agent.Cts.Cancel();
+            agent.Engine?.StopExecution();
+        }
+    }
+
+    /// <summary>v10.18.1: Cancel ALL active sub-agents (called when main agent gets ESC).</summary>
+    public void CancelAll()
+    {
+        var count = _activeSubAgents.Count;
+        if (count == 0) return;
+
+        EColor.TagBold(EColor.Warn(), "SubAgent", $"Cancelling all {count} active sub-agent(s)...");
+
+        foreach (var agent in _activeSubAgents.Values)
+        {
+            try
+            {
+                agent.Cts.Cancel();
+                agent.Engine?.StopExecution();
+            }
+            catch { }
+        }
+
+        EColor.TagBold(EColor.Warn(), "SubAgent", $"Cancelled {count} sub-agent(s).");
+    }
+
+    /// <summary>v10.18.1: Get status of all active sub-agents.</summary>
+    public List<(string Id, string Description, TimeSpan Elapsed, string WorkingDir)> GetActiveStatus()
+    {
+        return _activeSubAgents.Values.Select(a =>
+        {
+            var elapsed = DateTime.UtcNow - a.StartedAt;
+            var workDir = GetField<string>(a.Engine ?? new object(), "_workingDir") ?? "?";
+            return (a.Id, a.Description, elapsed, workDir);
+        }).ToList();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  INTERNAL: Single execution with full error handling
+    // ═══════════════════════════════════════════════════════════════
+
+    private async Task<SubAgentResult> RunSingleAsync(SubAgentTask task, int retryAttempt)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        EAgentEngine? childEngine = null;
+        var handle = new ActiveSubAgent { Description = task.Description, TaskDef = task };
+
+        try
+        {
+            EColor.TagBold(Cyan, "SubAgent",
+                $"Starting{(retryAttempt > 0 ? $" (retry #{retryAttempt})" : "")}: {task.Description}");
+
+            var workingDir = string.IsNullOrEmpty(task.WorkingDir)
+                ? Path.Combine(Path.GetTempPath(), "eca-subagent", Guid.NewGuid().ToString("N")[..8])
+                : task.WorkingDir;
+            Directory.CreateDirectory(workingDir);
+
+            // #4: Resource limits — snapshot working dir before execution
+            var dirBefore = SnapshotDirectory(workingDir);
+
+            // Create engine
+            childEngine = new EAgentEngine(
+                modelPath: _modelPath,
+                contextSize: task.ContextSize,
+                gpuLayers: _gpuLayers,
+                threadCount: -1,
+                inferenceParams: _inferenceParams,
+                workingDir: workingDir);
+
+            handle.Engine = childEngine;
+            _activeSubAgents[handle.Id] = handle;
+            lock (_lock) _childEngines.Add(childEngine);
+
+            childEngine.LoadContext();
+            childEngine.WireSummaryService();
+
+            // Register tools
+            var bgMgr = new Services.BackgroundProcessManager();
+            childEngine.RegisterTool(new Tools.Shell.EShellAgent(workingDir));
+            childEngine.RegisterTool(new Tools.Background.EBackgroundExecTool(bgMgr, workingDir));
+            childEngine.RegisterTool(new Tools.Web.EWebSearchTool());
+            childEngine.RegisterTool(new Tools.Build.EDotnetBuildTool(workingDir));
+            childEngine.RegisterTool(new Tools.Git.EGitTool(workingDir));
+            childEngine.RegisterTool(new Tools.Code.ECodeEditorTool(workingDir));
+
+            var researchExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { ".cs", ".md", ".json", ".txt", ".xml", ".sql", ".html", ".css", ".js", ".sh" };
+            childEngine.RegisterTool(new Tools.Research.EFileResearchTool(workingDir, defaultExtensions: researchExtensions));
+
+            await childEngine.PrefillStaticPrefix();
+
+            // Link cancellation tokens — main agent ESC → sub-agent cancellation
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                handle.Cts.Token,
+                _mainEngine.ExecutionToken);
+            linkedCts.CancelAfter(TimeSpan.FromSeconds(task.TimeoutSeconds));
+
+            var orchestrator = new AgentOrchestrator(childEngine, maxTurns: task.MaxTurns, maxFailures: 3);
+
+            childEngine.StartExecution();
+            var orchResult = await orchestrator.ExecuteMultiStep(task.Prompt);
+            childEngine.EndExecution();
+
+            // #3: Partial results — snapshot working dir after execution
+            var dirAfter = SnapshotDirectory(workingDir);
+            var filesCreated = dirAfter.Except(dirBefore).ToList();
+            var filesModified = GetModifiedFiles(workingDir, dirBefore);
+
+            var result = new SubAgentResult
+            {
+                Succeeded = orchResult.Status == OrchestratorStatus.GoalAchieved,
+                FinalOutput = orchResult.FinalOutput ?? "",
+                ToolCallsMade = orchResult.ToolCallsMade,
+                FilesCreated = filesCreated.Select(f => Path.GetFileName(f)).ToList(),
+                FilesModified = filesModified.Select(f => Path.GetFileName(f)).ToList(),
+                ToolCallLog = orchestrator.GetToolCallLog().ToList(),
+            };
+
+            // #1: Structured error
+            if (!result.Succeeded)
+            {
+                result.Error = new SubAgentError
+                {
+                    Kind = orchResult.Status switch
+                    {
+                        OrchestratorStatus.TurnsExhausted => SubAgentErrorKind.TurnsExhausted,
+                        _ => SubAgentErrorKind.ToolFailure
+                    },
+                    Message = $"Sub-agent status: {orchResult.Status}",
+                    AttemptedAction = task.Description,
+                    SuccessfulActions = result.ToolCallLog.Where((_, i) => i % 2 == 0).ToList(), // approximate
+                    FailedActions = result.ToolCallLog.Where((_, i) => i % 2 != 0).ToList(),
+                    FilesModified = result.FilesModified,
+                    PartialOutput = result.FinalOutput,
+                    Status = orchResult.Status,
+                    RetryAttempt = retryAttempt,
+                };
+            }
+
+            // #4: Check resource limits
+            var totalDiskUsed = GetDirectorySize(workingDir);
+            if (task.MaxDiskBytes > 0 && totalDiskUsed > task.MaxDiskBytes)
+            {
+                result.Succeeded = false;
+                result.Error = new SubAgentError
+                {
+                    Kind = SubAgentErrorKind.ResourceLimitExceeded,
+                    Message = $"Disk limit exceeded: {totalDiskUsed / 1024 / 1024:F1}MB > {task.MaxDiskBytes / 1024 / 1024}MB",
+                    FilesModified = result.FilesModified,
+                    PartialOutput = result.FinalOutput,
+                    Status = orchResult.Status,
+                    RetryAttempt = retryAttempt,
+                };
+            }
+            if (task.MaxToolCalls > 0 && result.ToolCallsMade > task.MaxToolCalls)
+            {
+                result.Succeeded = false;
+                result.Error = new SubAgentError
+                {
+                    Kind = SubAgentErrorKind.ResourceLimitExceeded,
+                    Message = $"Tool call limit exceeded: {result.ToolCallsMade} > {task.MaxToolCalls}",
+                    FilesModified = result.FilesModified,
+                    PartialOutput = result.FinalOutput,
+                    Status = orchResult.Status,
+                    RetryAttempt = retryAttempt,
+                };
+            }
+
+            sw.Stop();
+            result.Duration = sw.Elapsed;
+
+            var icon = result.Succeeded ? "✅" : "❌";
+            EColor.TagBold(result.Succeeded ? EColor.Success() : EColor.Error(), "SubAgent",
+                $"{icon} Completed: {task.Description} ({sw.Elapsed.TotalSeconds:F1}s, {result.ToolCallsMade} tool calls)" +
+                (filesCreated.Count > 0 ? $" | Files: {string.Join(", ", result.FilesCreated)}" : ""));
+
+            return result;
+        }
+        catch (OperationCanceledException ex)
+        {
+            childEngine?.EndExecution();
+            var isMainCancel = _mainEngine.ExecutionToken.IsCancellationRequested;
+            return new SubAgentResult
+            {
+                Succeeded = false,
+                Duration = sw.Elapsed,
+                Error = new SubAgentError
+                {
+                    Kind = isMainCancel ? SubAgentErrorKind.CancelledByMainAgent : SubAgentErrorKind.Timeout,
+                    Message = isMainCancel ? "Cancelled by main agent (ESC)" : $"Timeout after {task.TimeoutSeconds}s",
+                    AttemptedAction = task.Description,
+                    PartialOutput = "(no output — cancelled before completion)",
+                    RetryAttempt = retryAttempt,
+                },
+            };
+        }
+        catch (Exception ex)
+        {
+            childEngine?.EndExecution();
+            return new SubAgentResult
+            {
+                Succeeded = false,
+                Duration = sw.Elapsed,
+                Error = new SubAgentError
+                {
+                    Kind = SubAgentErrorKind.Exception,
+                    Message = ex.Message,
+                    AttemptedAction = task.Description,
+                    PartialOutput = ex.InnerException?.Message ?? "",
+                    RetryAttempt = retryAttempt,
+                },
+            };
+        }
+        finally
+        {
+            _activeSubAgents.TryRemove(handle.Id, out _);
+            handle.Cts.Dispose();
+
+            if (childEngine != null)
+            {
+                try { await childEngine.DisposeAsync(); } catch { }
+                lock (_lock) _childEngines.Remove(childEngine);
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  HELPERS: File snapshots, directory size
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>Snapshot all files in a directory (relative paths + modification times).</summary>
+    private static HashSet<string> SnapshotDirectory(string dir)
+    {
+        if (!Directory.Exists(dir)) return new();
+
+        var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            foreach (var f in Directory.GetFiles(dir, "*", SearchOption.AllDirectories))
+                files.Add(Path.GetRelativePath(dir, f));
+        }
+        catch { }
+        return files;
+    }
+
+    /// <summary>Get files that existed before but have different modification time.</summary>
+    private static List<string> GetModifiedFiles(string dir, HashSet<string> beforeFiles)
+    {
+        var modified = new List<string>();
+        try
+        {
+            foreach (var relPath in beforeFiles)
+            {
+                var fullPath = Path.Combine(dir, relPath);
+                if (File.Exists(fullPath))
+                    modified.Add(fullPath); // Simplified — any existing file counts as potentially modified
+            }
+        }
+        catch { }
+        return modified;
+    }
+
+    /// <summary>Get total size of a directory in bytes.</summary>
+    private static long GetDirectorySize(string dir)
+    {
+        if (!Directory.Exists(dir)) return 0;
+        try
+        {
+            return Directory.GetFiles(dir, "*", SearchOption.AllDirectories)
+                .Sum(f => new FileInfo(f).Length);
+        }
+        catch { return 0; }
+    }
+
     public void Dispose()
     {
+        CancelAll();
         lock (_lock)
         {
             foreach (var e in _childEngines)

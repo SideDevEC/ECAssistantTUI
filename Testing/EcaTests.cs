@@ -474,6 +474,17 @@ public static class EcaTests
                 }
             },
         },
+
+        new TestScenario
+        {
+            Name = "subagent_error_recovery",
+            Description = "Sub-agent handles a failing command and recovers — tests structured error handling",
+            Prompt = "Use ESubAgent to spawn a sub-agent that runs 'cat nonexistent_file.txt' and then reports what happened. The sub-agent should handle the error gracefully.",
+            TimeoutSeconds = 300,
+            ExpectedStatus = OrchestratorStatus.GoalAchieved,
+            MinToolCalls = 1,
+            // Should complete — sub-agent handles the error and returns a result
+        },
     };
 
     /// <summary>Get a subset of tests by name prefix.</summary>

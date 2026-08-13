@@ -205,6 +205,10 @@ public sealed class AgentOrchestrator : IAsyncDisposable
              if (llmResponse == "(Stopped by user)" || _engine.IsExecutionStopped)
             {
                 EColor.TagBold(EColor.Warn(), "Orchestrator", "Generation was stopped by user (ESC). Not retrying.");
+
+                // v10.18.1: Cancel all active sub-agents when main agent is stopped
+                _subAgentManager?.CancelAll();
+
                 // v10.11.1: Clean up stale context from the stopped attempt so the next
                 // command starts fresh. The KV cache static prefix is preserved.
                 _engine.ClearContextWindowOnly();
@@ -652,6 +656,9 @@ public sealed class AgentOrchestrator : IAsyncDisposable
         // v10.9.3: Pass execution cancellation token to tool
         return await tool.ExecuteAsync(args, _engine.ExecutionToken);
              }
+
+     /// <summary>v10.18.1: Get tool call log for sub-agent partial results.</summary>
+     public IReadOnlyList<string> GetToolCallLog() => _toolCallLog.AsReadOnly();
 
      /// <summary>Format tool call log for final summary output.</summary>
     private string FormatTurnLog()

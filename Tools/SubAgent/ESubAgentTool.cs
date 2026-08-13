@@ -8,10 +8,12 @@ namespace ECAssistant.Tools.SubAgent;
 /// for complex tasks. Sub-agents share the loaded model weights but have
 /// their own context window, KV cache, and tool set.
 ///
+/// v10.18.1: Structured error handling, retry, resource limits, cancellation.
+///
 /// Usage:
 ///   <toolcall>ESubAgent<task>Research the codebase structure and report file count</task></toolcall>
 ///   <toolcall>ESubAgent<task>Fix the bug in line 42</task><working_dir>/path/to/project</working_dir><tools>EShellAgent,ECodeEditor,EDotnetBuild</tools></toolcall>
-///   <toolcall>ESubAgent<task>Write unit tests for the auth module</task><context_size>8192</context_size></toolcall>
+///   <toolcall>ESubAgent<task>Write unit tests for the auth module</task><context_size>8192</context_size><max_turns>8</max_turns></toolcall>
 /// </summary>
 public class ESubAgentTool : EToolBase
 {
@@ -29,7 +31,8 @@ public class ESubAgentTool : EToolBase
     public override string Description =>
         "Spawn a sub-agent for a complex subtask. The sub-agent runs independently with its own " +
         "context window and tool set, then returns a result. Use for tasks that need deep focus " +
-        "or might fill up the main context. Supports parallel sub-agents via multiple toolcalls.";
+        "or might fill up the main context. Supports parallel sub-agents via multiple toolcalls. " +
+        "Includes automatic retry, resource limits, and structured error reporting.";
 
     public override string UsageExample =>
         "ESubAgent(task=\"Research the codebase\")";
@@ -40,6 +43,8 @@ public class ESubAgentTool : EToolBase
         "<tools>=comma-separated tool names to allow (optional, empty=all). " +
         "<context_size>=context window size (optional, default 4096). " +
         "<max_turns>=max turns for sub-agent (optional, default 5). " +
+        "<timeout>=timeout in seconds (optional, default 120). " +
+        "<max_retries>=auto-retry attempts on failure (optional, default 1). " +
         "Multiple ESubAgent toolcalls in one response run in PARALLEL.";
 
     public override string GetToolExample() =>
@@ -71,31 +76,46 @@ public class ESubAgentTool : EToolBase
         if (int.TryParse(arguments.GetValueOrDefault("timeout"), out var ts))
             timeoutSeconds = ts;
 
+        int maxRetries = 1;
+        if (int.TryParse(arguments.GetValueOrDefault("max_retries"), out var mr))
+            maxRetries = mr;
+
         var task = new SubAgentTask
         {
             Description = taskDesc,
-            Prompt = taskDesc, // The task description IS the prompt for the sub-agent
+            Prompt = taskDesc,
             WorkingDir = workingDir,
             AllowedTools = allowedTools,
             ContextSize = contextSize,
             MaxTurns = maxTurns,
             TimeoutSeconds = timeoutSeconds,
+            MaxRetries = maxRetries,
         };
 
         try
         {
             var result = await _manager.RunAsync(task);
 
-            var output = result.Succeeded
-                ? $"✅ Sub-agent completed: {taskDesc}\nResult: {result.FinalOutput}\nTool calls: {result.ToolCallsMade}, Time: {result.Duration.TotalSeconds:F1}s"
-                : $"❌ Sub-agent failed: {taskDesc}\nError: {result.Error}\nPartial output: {result.FinalOutput}";
+            // v10.18.1: Use structured result for output
+            var output = result.ToContextString();
 
-            return EToolResult.Success(Name, output, new Dictionary<string, string>
+            var metadata = new Dictionary<string, string>
             {
                 ["succeeded"] = result.Succeeded.ToString(),
                 ["tool_calls"] = result.ToolCallsMade.ToString(),
                 ["duration_s"] = result.Duration.TotalSeconds.ToString("F1"),
-            });
+                ["files_created"] = string.Join(",", result.FilesCreated),
+            };
+
+            if (result.Error != null)
+            {
+                metadata["error_kind"] = result.Error.Kind.ToString();
+                metadata["retry_attempt"] = result.Error.RetryAttempt.ToString();
+            }
+
+            return result.Succeeded
+                ? EToolResult.Success(Name, output, metadata)
+                : EToolResult.Failure(Name, output, metadata);
         }
         catch (Exception ex)
         {

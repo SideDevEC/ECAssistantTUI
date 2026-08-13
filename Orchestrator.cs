@@ -216,19 +216,17 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                         _completedSteps.Add(stepDesc);
                     }
 
-                    // v10.15.5: Sub-task advancement for batch results.
-                    // A single toolcall (e.g. one PowerShell command with semicolons) can
-                    // cover multiple sub-tasks. We can't know how many, so we advance by
-                    // the number of tool calls in the batch (minimum) and let the LLM
-                    // self-assess the rest via the directive.
+                    // v10.15.6: When all tools in a batch succeed, advance ALL remaining
+                    // sub-tasks to completed. A single PowerShell command with semicolons
+                    // can cover all planned steps — the LLM did everything in one call.
+                    // Only keep sub-tasks pending when there are actual failures.
                     if (_subTasks != null && _subTasks.Count > 1)
                     {
                         if (failCount == 0 && okCount > 0)
                         {
-                            // All succeeded — advance by at least the number of tool calls
-                            var toAdvance = Math.Min(okCount, _subTasks.Count - _currentSubTask);
-                            for (int i = 0; i < toAdvance; i++)
-                                AdvanceSubTask(true, "Batch", $"Batch tool {i + 1}/{toAdvance} succeeded");
+                            // All succeeded — mark ALL remaining sub-tasks as completed
+                            while (_currentSubTask < _subTasks.Count)
+                                AdvanceSubTask(true, "Batch", "Batch succeeded — all steps covered");
                         }
                         else if (okCount == 0 && failCount > 0)
                         {
@@ -236,6 +234,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                         }
                         else if (okCount > 0 && failCount > 0)
                         {
+                            // Mixed — advance succeeded ones, leave failed one pending
                             var toAdvance = Math.Min(okCount, _subTasks.Count - _currentSubTask);
                             for (int i = 0; i < toAdvance; i++)
                                 AdvanceSubTask(true, "Batch", $"Batch tool {i + 1}/{toAdvance} succeeded");

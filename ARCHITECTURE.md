@@ -1,4 +1,4 @@
-# ECAssistant Architecture (v10.21.2 — 2026-08-13)
+# ECAssistant Architecture (v10.21.3 — 2026-08-13)
 
 **Summary:** A local, offline AI agent in C# .NET 8 using LLamaSharp. Runs GGUF models locally with no external API calls. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags (`<thinking>`, `<toolcall>`, `<output>`). 8 registered tools self-register their rules at runtime. Multi-step autonomous loops with dual memory (keyword + TF-IDF vector), sliding context windows with LLM summarization, self-correction with failure loop detection and file rollback, project context awareness with dependency graph, two-phase task planning (decompose → map → execute), surgical code editing, background process management, file watching, structured logging, and sub-agent system with shared model weights. Token-optimized for 8B models. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.16: Cross-platform (Windows + macOS). v10.17: StepMapper (two-phase planning), automated test framework. v10.18: Sub-agent system. v10.19.2: All artifacts in working directory. v10.20: Fully isolated multi-session architecture — each session has own engine, KV cache, tools, memory, output buffer, and prompt queue. Sessions share one model in RAM with serialized inference. File-based JSONL output buffer with output states (not colors). Session is the UI gateway — all components route output through ISessionOutput. No inter-session communication (tool-level concern for later). v10.21: Shared model weights (one GGUF load via `LLamaWeights` shared across sessions, each gets own `LLamaContext`/KV cache). Terminal.Gui TUI replaces raw console — scrollable output view + always-free input field + status bar. Session discovery from disk with animated loading indicator. Native llama.cpp C++ log redirect to file (clean console).
 
@@ -17,7 +17,7 @@
 - **Working Directory:** `~/ECAssistant/` (ALL disk writes — logs, tests, temp scripts, sub-agent dirs, background agent dirs — v10.19.2)
 - **Context:** 16384 tokens, max_tokens 2048, auto-summarize at 50%
 - **Repo:** `github.com/LLamaDudeX/ECAssistant.git` (branch: `main`)
-- **UI:** EGuiConsole with ANSI scroll region + session buffer batching (v10.21.2)
+- **UI:** EGuiConsole with ANSI scroll region + session buffer batching (v10.21.2) + logic/UI separation (v10.21.3)
 
 ## 📦 `<lm>` Container Tag System (v10.15.2)
 
@@ -143,6 +143,14 @@ The ANSI scroll region () confines scrolling to rows 1..(H-1), keeping the input
 ### 18. ConsoleUiRenderer Must Route Through Gui (v10.21.2)
 `ConsoleUiRenderer.OnOutput()` called `Console.Write`/`Console.WriteLine` directly, bypassing EGuiConsole. Session output went to wrong cursor position, garbling the input line.
 **Fix:** `ConsoleUiRenderer` now takes `EGuiBase` constructor param. All output calls go through `_gui.WriteRaw()`/`_gui.WriteLineColored()`/`_gui.BlankLine()`.
+
+### 19. Logic/UI Separation — No Console Calls Outside UI Layer (v10.21.3)
+`EAgentEngine.cs` used `Console.KeyAvailable` + `Console.ReadKey` directly for ESC detection during token streaming. This violated the logic/UI separation — the engine had a direct dependency on the console.
+**Fix:** Added `EGuiBase.IsEscapePressed()` virtual method (default: `false`). `EGuiConsole` implements via `Console.KeyAvailable` + `ReadKey(true)`. Engine calls `Program.Gui.IsEscapePressed()`. `EGuiBase.LogInternal` default changed to no-op (was `Console.WriteLine`). Result: zero `Console.*` calls in Engine/, Session/, Tools/, Services/, Orchestrator.cs. All console I/O is in `UI/EGuiConsole.cs` only.
+
+### 20. Dead Code Must Be Removed Promptly (v10.21.3)
+After reverting Terminal.Gui (v10.21.1), the Terminal.Gui files (`EGuiTerminal.cs`, `TerminalGuiRenderer.cs`), NuGet package, and several unused methods (`ShowConfigSummary`, `_originalGoal`) remained in the codebase for 2 versions. Dead code confuses contributors and adds build weight.
+**Fix:** Deleted 406 lines: `EGuiTerminal.cs` (279 lines), `TerminalGuiRenderer.cs` (77 lines), `Terminal.Gui` package, `ShowConfigSummary()`, `Orchestrator._originalGoal`. Warnings dropped from 9 to 8.
 
 ## Session Architecture (v10.20 + v10.21)
 
@@ -442,6 +450,8 @@ All components (orchestrator, engine, tools) receive an `ISessionOutput` referen
 26. **Session buffer for token batching (v10.21.2)** — `AgentSession.WriteRaw()` appends to `_streamBuffer` without pushing to UI. `FlushBuffer()` on `WriteLine()`/state change delivers batch `stream` entries. One `Console.Write` per batch. Tradeoff: no real-time per-token streaming (can add timer flush later).
 27. **EColor routing through Gui (v10.21.2)** — `EColor.WriteHandler`/`WriteLineHandler` delegates route all EColor output through EGuiConsole. Prevents startup messages from bypassing scroll region.
 28. **ConsoleUiRenderer through Gui (v10.21.2)** — ConsoleUiRenderer takes `EGuiBase` constructor param, routes all output through Gui methods. Prevents session output from bypassing scroll region.
+29. **IsEscapePressed abstraction (v10.21.3)** — `EGuiBase.IsEscapePressed()` virtual method abstracts ESC detection. Engine calls `Program.Gui.IsEscapePressed()` instead of `Console.KeyAvailable`. UI implementations override; test harness returns false. Zero Console calls outside UI layer.
+30. **quit/exit application termination (v10.21.3)** — `_quitRequested` static flag set by quit/exit command, checked by `RunAgentLoop`. `stop` = stop session only. `quit`/`exit` = stop all sessions + exit application. Previous bug: quit only stopped the session, loop continued.
 
 ## 🔖 Known-Good Builds (Git Tags)
 

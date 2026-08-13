@@ -1,6 +1,6 @@
-# ECAssistant — Project Summary (v10.21.2 — 2026-08-13)
+# ECAssistant — Project Summary (v10.21.3 — 2026-08-13)
 
-**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Cross-platform (Windows + macOS). Loads GGUF models from disk — no API calls, no cloud, fully self-contained. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags for tool calling. Multi-step autonomous loops, dual memory (keyword + vector/semantic), sliding context windows, self-correction with failure loop detection, project context awareness, task decomposition, surgical code editing, 8 registered tools, sub-agent system with shared model weights. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.15: KV cache hybrid rewind, off-by-one fixes, `<llm>`→`<lm>` rename, sub-task advancement fixes. v10.16: Cross-platform migration — EShellAgent, dual system prompts, Mac support. v10.17: StepMapper (two-phase planning: decompose → map → execute), automated test framework. v10.18: Sub-agent system — isolated agents with shared model weights. v10.19.2: All artifacts in working directory, BackgroundProcessManager OS-aware. v10.19.3: Removed background agents — session architecture design drafted. v10.20: Fully isolated multi-session architecture — each session has own engine, KV cache, tools, memory, output buffer (JSONL), prompt queue. Session is UI gateway via ISessionOutput. Output states (not colors). SemaphoreSlim inference scheduler. No inter-session communication. v10.21.2: ANSI scroll region UI — output scrolls above a fixed input line at the bottom of the terminal. User can type freely while LLM executes. Session buffer batches tokens (no per-token UI writes). EColor output routed through Gui. ConsoleUiRenderer routes through EGuiConsole. Build: 0 errors.
+**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Cross-platform (Windows + macOS). Loads GGUF models from disk — no API calls, no cloud, fully self-contained. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags for tool calling. Multi-step autonomous loops, dual memory (keyword + vector/semantic), sliding context windows, self-correction with failure loop detection, project context awareness, task decomposition, surgical code editing, 8 registered tools, sub-agent system with shared model weights. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.15: KV cache hybrid rewind, off-by-one fixes, `<llm>`→`<lm>` rename, sub-task advancement fixes. v10.16: Cross-platform migration — EShellAgent, dual system prompts, Mac support. v10.17: StepMapper (two-phase planning: decompose → map → execute), automated test framework. v10.18: Sub-agent system — isolated agents with shared model weights. v10.19.2: All artifacts in working directory, BackgroundProcessManager OS-aware. v10.19.3: Removed background agents — session architecture design drafted. v10.20: Fully isolated multi-session architecture — each session has own engine, KV cache, tools, memory, output buffer (JSONL), prompt queue. Session is UI gateway via ISessionOutput. Output states (not colors). SemaphoreSlim inference scheduler. No inter-session communication. v10.21.2: ANSI scroll region UI — output scrolls above a fixed input line. User can type freely while LLM executes. Session buffer batches tokens. EColor + ConsoleUiRenderer routed through Gui. v10.21.3: Logic/UI separation — all Console calls encapsulated in UI layer (EGuiBase.IsEscapePressed). Dead code removed (Terminal.Gui, EGuiTerminal, TerminalGuiRenderer, ShowConfigSummary, _originalGoal). Build: 0 errors, 8 warnings.
 
 ## Key Facts
 - **Language:** C# .NET 8 console app (`net8.0`, cross-platform, Nullable enabled)
@@ -12,10 +12,10 @@
 - **Secondary Model:** microsoft_Phi-4-mini-instruct-Q4_K_M (bartowski, 2.3 GiB)
 - **Models location:** `~/Agent/models/` (gitignored, absolute paths in config)
 - **Repo:** `github.com/LLamaDudeX/ECAssistant.git` (branch: `main`)
-- **Latest Tags:** `v10.19.5-safe` (v10.19.5), `v10.19.4-safe` (v10.19.4), `v10.19.3-safe` (v10.19.3), `v10.18-subagent` (v10.18), `mac-safe` (v10.16.0), `pre-mac` (v10.15.8)
+- **Latest Tags:** `v10.21.2-safe` (v10.21.2), `v10.21.1-safe` (v10.21.1), `v10.19.5-safe` (v10.19.5), `v10.19.4-safe` (v10.19.4), `v10.19.3-safe` (v10.19.3), `v10.18-subagent` (v10.18), `mac-safe` (v10.16.0)
 - **Executor:** InteractiveExecutor with KV cache (static prefix prefilled once, incremental feed per turn)
 - **Secondary Executor:** StatelessExecutor (fresh context per call, no cache)
-- **Source files:** 41 .cs files, dual system prompts
+- **Source files:** 39 .cs files, dual system prompts
 
 ## What's New (v10.15 — Session 2026-08-13)
 
@@ -467,6 +467,38 @@ Existing files moved from old locations into `~/ECAssistant/`.
 - Old `SessionState` enum (Active/Idle/Archived) — replaced by `SessionRunState` (Idle/Running/Stopping)
 
 **Status:** v10.20 — Build: 0 errors, 12 warnings (pre-existing). Session architecture implemented, all output routed through ISessionOutput, session commands working. Tests require model loading (couldn't complete — logic unchanged, only output routing refactored).
+
+## What's New (v10.21.3 — Logic/UI Separation + Dead Code Cleanup — 2026-08-13)
+
+### Logic/UI Separation
+- **Problem:** `EAgentEngine.cs` used `Console.KeyAvailable` + `Console.ReadKey` directly for ESC detection during token streaming
+- **Fix:** Added `EGuiBase.IsEscapePressed()` virtual method (default: false)
+- `EGuiConsole` implements via `Console.KeyAvailable` + `ReadKey(true)`
+- Engine calls `Program.Gui.IsEscapePressed()` — no direct Console calls in Engine/Session/Tools/Services
+- `EGuiBase.LogInternal` default changed to no-op (was `Console.WriteLine`)
+
+### Dead Code Cleanup
+- **Deleted** `UI/EGuiTerminal.cs` (279 lines — Terminal.Gui TUI, reverted and unused)
+- **Deleted** `Session/TerminalGuiRenderer.cs` (77 lines — Terminal.Gui renderer, unused)
+- **Removed** `Terminal.Gui` NuGet package from `.csproj`
+- **Removed** `ShowConfigSummary()` (defined but never called)
+- **Removed** `Orchestrator._originalGoal` (assigned but never used — eliminated CS0414 warning)
+- **Result:** 406 lines deleted, 0 errors, 8 warnings (down from 9), zero Terminal.Gui references
+
+### quit/exit Fix
+- `quit`/`exit` now properly exits the application (was only stopping the session)
+- Added `_quitRequested` flag checked by `RunAgentLoop`
+- `stop` = stop running session only (app stays alive)
+- `quit`/`exit` = stop all sessions + exit application
+
+### Files Changed
+- `UI/EGuiBase.cs` — added `IsEscapePressed()`, `LogInternal` default no-op
+- `UI/EGuiConsole.cs` — implemented `IsEscapePressed()`
+- `Engine/EAgentEngine.cs` — use `Program.Gui.IsEscapePressed()` instead of Console.KeyAvailable
+- `Program.cs` — `_quitRequested` flag, removed `ShowConfigSummary`, updated help text
+- `Orchestrator.cs` — removed `_originalGoal`
+- `ECAssistant.csproj` — removed Terminal.Gui package
+- Deleted: `UI/EGuiTerminal.cs`, `Session/TerminalGuiRenderer.cs`
 
 ## What's New (v10.21.2 — ANSI Scroll Region + Session Buffer Batching — 2026-08-13)
 

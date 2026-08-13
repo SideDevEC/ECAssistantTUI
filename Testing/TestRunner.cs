@@ -464,6 +464,9 @@ public sealed class TestRunner : IAsyncDisposable
         // v10.18: Initialize sub-agent support (async — rebuilds KV cache)
         await orchestrator.InitializeSubAgentsAsync(workingDir);
 
+        // v10.19: Initialize background agent support
+        await orchestrator.InitializeBackgroundAgentsAsync(workingDir);
+
         return (engine, orchestrator);
     }
 

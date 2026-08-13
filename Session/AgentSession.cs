@@ -57,6 +57,36 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
     private OutputState _currentState = OutputState.Raw;
     private readonly object _bufferLock = new();
 
+    // ── v10.22: Timer-based stream flushing ──
+    // Tokens accumulate in _streamBuffer and flush on:
+    // 1. WriteLine() / state change (immediate)
+    // 2. Timer tick (every 150ms — real-time streaming feel without per-token UI writes)
+    private Timer? _streamFlushTimer;
+    private const int StreamFlushIntervalMs = 150;
+    private DateTime _lastFlushTime = DateTime.MinValue;
+
+    /// <summary>Initialize the stream flush timer. Call once after construction.
+    /// Provides real-time token streaming without per-token UI writes.
+    /// </summary>
+    public void StartStreamFlushTimer()
+    {
+        _streamFlushTimer = new Timer(_ =>
+        {
+            try
+            {
+                lock (_bufferLock)
+                {
+                    if (_streamBuffer.Length > 0 &&
+                        (DateTime.UtcNow - _lastFlushTime).TotalMilliseconds >= StreamFlushIntervalMs)
+                    {
+                        FlushBuffer();
+                    }
+                }
+            }
+            catch { /* timer errors must never crash the session */ }
+        }, null, StreamFlushIntervalMs, StreamFlushIntervalMs);
+    }
+
     // ── UI Attachment ─────────────────────────────────
     private IUiRenderer? _attachedUi;
     private readonly object _uiLock = new();
@@ -179,6 +209,52 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
         }
     }
 
+    /// <summary>Rename this session's label.</summary>
+    public void Rename(string newLabel)
+    {
+        Label = newLabel;
+        LastActivity = DateTime.UtcNow;
+        WriteSystem($"Session renamed to '{newLabel}'.");
+    }
+
+    /// <summary>Get detailed session info: KV cache, context, memory, run state.</summary>
+    public string GetDetailedInfo()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"=== Session '{Key}' ===");
+        if (Label != null) sb.AppendLine($"Label: {Label}");
+        sb.AppendLine($"State: {_runState}");
+        sb.AppendLine($"Created: {CreatedAt:O}");
+        sb.AppendLine($"Last Activity: {LastActivity:O}");
+        sb.AppendLine();
+        sb.AppendLine($"── Context ──");
+        sb.AppendLine($"  Tokens: {Engine.UsedTokens}/{Engine.MaxContextTokens} ({Engine.ContextUsagePercent}%)");
+        sb.AppendLine($"  Until summarize: {Engine.TokensUntilSummarize} tokens");
+        sb.AppendLine($"  Near overflow: {(Engine.IsContextNearOverflow ? "⚠️ Yes" : "No")}");
+        sb.AppendLine();
+        sb.AppendLine($"── KV Cache ──");
+        sb.AppendLine($"  Context size: {Engine.KVCacheContextSize} tokens");
+        sb.AppendLine($"  Prefilled: {(Engine.IsKVCachePrefilled ? "Yes" : "No")}");
+        sb.AppendLine($"  Usage ratio: {Engine.KVCacheUsageRatio:P1}");
+        sb.AppendLine($"  Est. memory: {Engine.KVCacheEstimatedMB} MB (approx)");
+        sb.AppendLine();
+        sb.AppendLine($"── Session ──");
+        sb.AppendLine($"  Messages: {MessageCount}");
+        sb.AppendLine($"  Prompt queue: {QueueCount}");
+        if (_runState == SessionRunState.Running)
+        {
+            var elapsed = DateTime.UtcNow - RunStartedAt;
+            sb.AppendLine($"  Running for: {elapsed.TotalSeconds:F0}s");
+            sb.AppendLine($"  Last prompt: {TruncatePrompt(LastPrompt)}");
+        }
+        sb.AppendLine();
+        sb.AppendLine($"── Tools ──");
+        sb.AppendLine($"  Registered: {Engine.Tools.Count}");
+        foreach (var t in Engine.Tools)
+            sb.AppendLine($"    {t.Name}");
+        return sb.ToString();
+    }
+
     // ═══════════════════════════════════════════════════
     //  UI OUTPUT METHODS — the session is the UI gateway
     // ═══════════════════════════════════════════════════
@@ -272,7 +348,7 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
 
     /// <summary>
     /// Flush the internal stream buffer as a "stream" entry to the file + UI.
-    /// Called internally on state changes and before WriteLine.
+    /// Called internally on state changes, before WriteLine, and by the timer.
     /// </summary>
     private void FlushBuffer()
     {
@@ -280,6 +356,7 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
 
         var text = _streamBuffer.ToString();
         _streamBuffer.Clear();
+        _lastFlushTime = DateTime.UtcNow;
 
         var entry = new OutputEntry
         {
@@ -444,6 +521,11 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
         {
             try
             {
+                // v10.22: Show inference waiting indicator if lock is contended
+                if (_inferenceLock.CurrentCount == 0)
+                {
+                    WriteDim("[Waiting] Another session is generating — waiting for model...");
+                }
                 // Acquire inference lock (serialize across sessions)
                 await _inferenceLock.WaitAsync(ct);
                 try
@@ -659,7 +741,8 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
 
         var queueStr = QueueCount > 0 ? $"  queue: {QueueCount}" : "";
         var labelStr = Label != null ? $" ({Label})" : "";
-        return $"[{Key}]{labelStr}  {stateStr}{queueStr}";
+        var ctxStr = $"  ctx: {Engine.UsedTokens}/{Engine.MaxContextTokens}";
+        return $"[{Key}]{labelStr}  {stateStr}{ctxStr}{queueStr}";
     }
 
     /// <summary>Truncate a prompt for display.</summary>
@@ -686,6 +769,9 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
         // Flush and close output file
         lock (_bufferLock) { FlushBuffer(); }
         lock (_fileLock) { try { _outputFile.Dispose(); } catch { } }
+
+        // Dispose timer
+        try { _streamFlushTimer?.Dispose(); _streamFlushTimer = null; } catch { }
 
         // Dispose engine
         await _engine.DisposeAsync();

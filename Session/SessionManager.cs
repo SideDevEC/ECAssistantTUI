@@ -317,6 +317,23 @@ public class SessionManager : IAsyncDisposable
         return list[index - 1];
     }
 
+    /// <summary>Rename a session's label by key.</summary>
+    public bool RenameSession(string key, string newLabel)
+    {
+        if (!_sessions.TryGetValue(key, out var session)) return false;
+        session.Rename(newLabel);
+        return true;
+    }
+
+    /// <summary>Rename a session's label by index (1-based).</summary>
+    public bool RenameSession(int index, string newLabel)
+    {
+        var session = GetByIndex(index);
+        if (session == null) return false;
+        session.Rename(newLabel);
+        return true;
+    }
+
     public async ValueTask DisposeAsync()
     {
         await StopAllAsync();

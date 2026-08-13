@@ -58,10 +58,27 @@ public class ConsoleUiRenderer : IUiRenderer
 
             case "stream":
                 // Flushed stream buffer — write as a block
+                // v10.22: Tool output uses Dim color to distinguish from LLM output
                 if (!string.IsNullOrEmpty(entry.Text))
                 {
                     var color = StateToColor(entry.State);
                     _gui.WriteLineColored(color + entry.Text + Reset);
+                }
+                break;
+
+            case "tool_output":
+                // v10.22: Tool results in dim gray for visual distinction
+                if (!string.IsNullOrEmpty(entry.Text))
+                {
+                    _gui.WriteLineColored(Dim + entry.Text + Reset);
+                }
+                break;
+
+            case "thinking":
+                // v10.22: LLM thinking in italic/dim
+                if (!string.IsNullOrEmpty(entry.Text))
+                {
+                    _gui.WriteLineColored(Dim + "💭 " + entry.Text + Reset);
                 }
                 break;
 

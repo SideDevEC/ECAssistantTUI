@@ -10,6 +10,7 @@ using ECAssistant.Tools.Web;
 using ECAssistant.Tools.Build;
 using ECAssistant.Tools.Git;
 using ECAssistant.Tools.Code;
+using ECAssistant.Tools.Reader;
 using ECAssistant.Tools;
 using ECAssistant.Analysis;
 using ECAssistant.UI;
@@ -175,7 +176,7 @@ public class Program
                     Gui.BlankLine();
 
                    // v10.21.1: Simple console input loop — PromptRaw uses ReadKey (non-blocking)
-                    await RunAgentLoop(activeSession, sessionManager, effectiveDir, bgMgr, fileWatcher);
+                    await RunAgentLoop(activeSession, sessionManager, effectiveDir, bgMgr, fileWatcher, userConfigDir);
                         }
             else
                      {
@@ -228,6 +229,9 @@ public class Program
 
     private static async Task<int> RunTestsAsync(string[] testArgs)
     {
+        // v10.22: --mock flag runs model-independent tests with MockEngine (no GGUF needed)
+        bool useMock = testArgs.Any(a => a.Equals("--mock", StringComparison.OrdinalIgnoreCase));
+
         // Resolve model path from ~/ECAssistant/appsettings.json
         var userConfigDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant");
         var configPath = Path.Combine(userConfigDir, "appsettings.json");
@@ -245,10 +249,11 @@ public class Program
                 modelPath = testArgs[++i];
         }
 
-        if (string.IsNullOrEmpty(modelPath) || !File.Exists(modelPath))
+        if (!useMock && (string.IsNullOrEmpty(modelPath) || !File.Exists(modelPath)))
         {
             Console.WriteLine($"❌ Model not found: {modelPath}");
             Console.WriteLine("   Set model path in ~/ECAssistant/appsettings.json or pass --model /path/to/model.gguf");
+            Console.WriteLine("   Or use --mock for model-independent tests (no GGUF needed).");
             return 1;
         }
 
@@ -264,7 +269,8 @@ public class Program
         }
 
         // Select tests
-        var allTests = EcaTests.All;
+        // v10.22: In mock mode, use MockScenarios instead of All (no real model needed)
+        var allTests = useMock ? EcaTests.MockScenarios : EcaTests.All;
         List<TestScenario> tests;
         if (!string.IsNullOrEmpty(filter))
         {
@@ -282,18 +288,18 @@ public class Program
             tests = allTests;
         }
 
-        Console.WriteLine($"\n🧪 Running {tests.Count} test(s) with model: {Path.GetFileName(modelPath)}");
+        Console.WriteLine($"\n🧪 Running {tests.Count} test(s) with {(useMock ? "MOCK ENGINE (no model)" : $"model: {Path.GetFileName(modelPath)}")}");
         Console.WriteLine($"   Filter: {filter ?? "(all)"}\n");
 
         // Run the test suite
-        await using var runner = new TestRunner(modelPath) { Verbose = verbose };
+        await using var runner = new TestRunner(useMock ? "/mock/model.gguf" : modelPath) { Verbose = verbose, UseMockEngine = useMock };
         var results = await runner.RunAllAsync(tests);
 
         // Write detailed results to a log file
         var logPath = Path.Combine(runner._testRootDir, "test_results.log");
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"ECAssistant Test Results — {DateTime.UtcNow:O}");
-        sb.AppendLine($"Model: {modelPath}");
+        sb.AppendLine($"Model: {(useMock ? "MOCK ENGINE" : modelPath)}");
         sb.AppendLine();
         foreach (var r in results)
         {
@@ -322,6 +328,9 @@ public class Program
         var uiRenderer = new ConsoleUiRenderer(Gui);
         session.AttachUi(uiRenderer);
 
+        // v10.22: Start timer-based stream flushing for real-time token output
+        session.StartStreamFlushTimer();
+
         // ── Vector Memory (semantic search) ──
         if (_config.VectorMemory.Enabled)
         {
@@ -340,6 +349,12 @@ public class Program
         session.RegisterTool(new EDotnetBuildTool(workingDir));
         session.RegisterTool(new EGitTool(workingDir));
         session.RegisterTool(new ECodeEditorTool(workingDir));
+
+        // v10.22: EFileReader — controlled file reading with offset/limit/token budget
+        session.RegisterTool(new EFileReaderTool(workingDir));
+
+        // v10.22: EWebFetch — fetch URL content as plain text
+        session.RegisterTool(new EWebFetchTool());
 
         // EFileResearchTool
         {
@@ -397,7 +412,8 @@ public class Program
         SessionManager sessionManager,
         string workingDir,
         BackgroundProcessManager bgMgr,
-        FileWatcherService fileWatcher)
+        FileWatcherService fileWatcher,
+        string userConfigDir)
     {
         var agent = activeSession.Engine;
         var orchestrator = activeSession.Orchestrator;
@@ -438,13 +454,198 @@ public class Program
                 else { EColor.Tag(Info(), "Stop", "Nothing is running."); }
                 return;
             }
+            case "context-status":
+            {
+                var s = sessionManager.ActiveSession;
+                if (s != null)
+                {
+                    Gui.BlankLine();
+                    EColor.TagBold(Cyan, "Context", s.Engine.ContextStatusSummary);
+                    Gui.BlankLine();
+                }
+                return;
+            }
             default: break;
         }
 
-        // Session commands that need PromptRaw — for now, handle inline
-        // (These are less common commands that need additional input)
+        // Session commands that need argument parsing
         var lowerInput = input.ToLower();
-        
+        var parts = input.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+        var cmd = parts[0].ToLower();
+        var arg = parts.Length > 1 ? parts[1].Trim() : "";
+
+        // ── v10.22: Session management commands ──
+        switch (cmd)
+        {
+            case "sessions":
+            {
+                Gui.BlankLine();
+                Gui.WriteLineColored(sessionManager.GetStatusReport());
+                Gui.BlankLine();
+                return;
+            }
+            case "session":
+            {
+                // session <n> — switch to session by index or key
+                if (string.IsNullOrEmpty(arg))
+                {
+                    EColor.Tag(Info(), "Session", "Usage: session <n> | session <key>");
+                    return;
+                }
+                if (int.TryParse(arg, out var idx))
+                {
+                    if (sessionManager.SwitchTo(idx))
+                    {
+                        var newActive = sessionManager.ActiveSession!;
+                        // Re-attach UI
+                        foreach (var s in sessionManager.List())
+                            if (s != newActive) s.DetachUi();
+                        var ui = new ConsoleUiRenderer(Gui);
+                        newActive.AttachUi(ui);
+                        Gui.BlankLine();
+                        EColor.TagBold(EColor.Success(), "Session", $"Switched to [{newActive.Key}] {newActive.GetStatusSummary()}");
+                        Gui.BlankLine();
+                    }
+                    else EColor.TagBold(EColor.Error(), "Session", $"No session at index {idx}");
+                }
+                else if (sessionManager.SwitchTo(arg))
+                {
+                    var newActive = sessionManager.ActiveSession!;
+                    foreach (var s in sessionManager.List())
+                        if (s != newActive) s.DetachUi();
+                    var ui = new ConsoleUiRenderer(Gui);
+                    newActive.AttachUi(ui);
+                    Gui.BlankLine();
+                    EColor.TagBold(EColor.Success(), "Session", $"Switched to [{newActive.Key}]");
+                    Gui.BlankLine();
+                }
+                else EColor.TagBold(EColor.Error(), "Session", $"No session with key '{arg}'");
+                return;
+            }
+            case "session-new":
+            {
+                var name = string.IsNullOrEmpty(arg) ? $"session-{DateTime.UtcNow:HHmmss}" : arg;
+                try
+                {
+                    var newSession = sessionManager.CreateSession(name, label: arg);
+                    await InitSessionAsync(newSession, workingDir, bgMgr, userConfigDir);
+                    Gui.BlankLine();
+                    EColor.TagBold(EColor.Success(), "Session", $"Created [{name}]. Use 'session <index>' to switch.");
+                    Gui.BlankLine();
+                }
+                catch (Exception ex)
+                {
+                    EColor.TagBold(EColor.Error(), "Session", $"Failed: {ex.Message}");
+                }
+                return;
+            }
+            case "session-stop":
+            {
+                if (int.TryParse(arg, out var stopIdx))
+                {
+                    var s = sessionManager.GetByIndex(stopIdx);
+                    if (s != null) { s.Stop(); EColor.TagBold(EColor.Warn(), "Session", $"Stopped [{s.Key}]."); }
+                    else EColor.TagBold(EColor.Error(), "Session", $"No session at index {stopIdx}");
+                }
+                return;
+            }
+            case "session-close":
+            {
+                if (int.TryParse(arg, out var closeIdx))
+                {
+                    try
+                    {
+                        await sessionManager.CloseSessionAsync(sessionManager.GetByIndex(closeIdx)?.Key ?? "");
+                        EColor.TagBold(EColor.Success(), "Session", $"Closed session {closeIdx}.");
+                    }
+                    catch (Exception ex) { EColor.TagBold(EColor.Error(), "Session", $"Failed: {ex.Message}"); }
+                }
+                return;
+            }
+            case "session-peek":
+            {
+                if (int.TryParse(arg, out var peekIdx))
+                {
+                    var s = sessionManager.GetByIndex(peekIdx);
+                    if (s != null)
+                    {
+                        Gui.BlankLine();
+                        EColor.TagBold(Cyan, "Peek", $"[{s.Key}] last 5 lines:");
+                        var history = s.ReadOutputHistory(5);
+                        foreach (var e in history)
+                            Gui.WriteLineColored($"  {e.Text}");
+                        Gui.BlankLine();
+                    }
+                }
+                return;
+            }
+            case "session-rename":
+            {
+                // session-rename <n> <newlabel>
+                var renameParts = arg.Split(' ', 2);
+                if (renameParts.Length == 2 && int.TryParse(renameParts[0], out var renameIdx))
+                {
+                    if (sessionManager.RenameSession(renameIdx, renameParts[1]))
+                        EColor.TagBold(EColor.Success(), "Session", $"Renamed session {renameIdx} to '{renameParts[1]}'");
+                    else
+                        EColor.TagBold(EColor.Error(), "Session", $"No session at index {renameIdx}");
+                }
+                else
+                {
+                    EColor.Tag(Info(), "Session", "Usage: session-rename <n> <label>");
+                }
+                return;
+            }
+            case "session-info":
+            {
+                // session-info [n] — detailed info about a session
+                AgentSession? infoSession;
+                if (int.TryParse(arg, out var infoIdx))
+                    infoSession = sessionManager.GetByIndex(infoIdx);
+                else
+                    infoSession = sessionManager.ActiveSession;
+                if (infoSession != null)
+                {
+                    Gui.BlankLine();
+                    Gui.WriteLineColored(infoSession.GetDetailedInfo());
+                    Gui.BlankLine();
+                }
+                else EColor.Tag(Info(), "Session", "No active session.");
+                return;
+            }
+            case "session-queue":
+            {
+                var q = sessionManager.ActiveSession?.GetQueue() ?? new List<string>();
+                Gui.BlankLine();
+                if (q.Count == 0)
+                    EColor.Tag(Info(), "Queue", "Empty");
+                else
+                {
+                    EColor.TagBold(Cyan, "Queue", $"{q.Count} pending:");
+                    for (int i = 0; i < q.Count; i++)
+                        Gui.WriteLineColored($"  {i}: {TruncatePrompt(q[i])}");
+                }
+                Gui.BlankLine();
+                return;
+            }
+            case "session-queue-remove":
+            {
+                if (int.TryParse(arg, out var qi))
+                {
+                    if (sessionManager.ActiveSession?.RemoveFromQueue(qi) == true)
+                        EColor.TagBold(EColor.Success(), "Queue", $"Removed prompt {qi}");
+                    else EColor.TagBold(EColor.Error(), "Queue", $"No prompt at index {qi}");
+                }
+                return;
+            }
+            case "session-queue-clear":
+            {
+                sessionManager.ActiveSession?.ClearQueue();
+                EColor.Tag(EColor.Success(), "Queue", "Cleared.");
+                return;
+            }
+        }
+
         // Route all other inputs as prompts to the active session
         var activeSessionForPrompt = sessionManager.ActiveSession;
         if (activeSessionForPrompt != null)
@@ -464,7 +665,8 @@ public class Program
         SessionManager sessionManager,
         string workingDir,
         BackgroundProcessManager bgMgr,
-        FileWatcherService fileWatcher)
+        FileWatcherService fileWatcher,
+        string userConfigDir)
     {
         Gui.BlankLine();
         EColor.TagBold(Cyan, "ECLoop", "Type your request (help | quit)");
@@ -477,7 +679,7 @@ public class Program
             var input = Gui.PromptRaw(Cyan + "> " + Reset)?.Trim();
             if (string.IsNullOrEmpty(input)) continue;
 
-            await ProcessInputAsync(input, activeSession, sessionManager, workingDir, bgMgr, fileWatcher);
+            await ProcessInputAsync(input, activeSession, sessionManager, workingDir, bgMgr, fileWatcher, userConfigDir);
 
             // Check if active session changed (e.g. session switch)
             var currentActive = sessionManager.ActiveSession;
@@ -544,9 +746,14 @@ public class Program
         EColor.WriteLine(Yellow + Bold, "  session-stop <n>     Stop session n's execution");
         EColor.WriteLine(Yellow + Bold, "  session-close <n>    Close and delete session n");
         EColor.WriteLine(Yellow + Bold, "  session-peek <n>     Quick glance at session n's output");
+        EColor.WriteLine(Yellow + Bold, "  session-rename <n> <label>  Rename session n");
+        EColor.WriteLine(Yellow + Bold, "  session-info [n]     Detailed session info (KV cache, context, tools)");
         EColor.WriteLine(Yellow + Bold, "  session-queue         Show active session's prompt queue");
         EColor.WriteLine(Yellow + Bold, "  session-queue-remove <i>  Remove prompt i from queue");
         EColor.WriteLine(Yellow + Bold, "  session-queue-clear  Clear active session's queue");
+        Gui.BlankLine();
+        EColor.WriteLine(EColor.Dim, "  Context:");
+        EColor.WriteLine(Yellow + Bold, "  context-status       Show context window usage and summarize threshold");;
         Gui.BlankLine();
         EColor.WriteLine(EColor.Dim, "  Background:");
         EColor.WriteLine(Yellow + Bold, "  bg-run <cmd>         Start a background process");

@@ -460,7 +460,7 @@ public sealed class TestRunner : IAsyncDisposable
 
         // Create orchestrator with tool policy (all allowed for tests)
         var policy = new ToolPolicy();
-        var orchestrator = new AgentOrchestrator(engine, maxTurns: 10, maxFailures: 3, toolPolicy: policy);
+        var orchestrator = new AgentOrchestrator(engine, sessionOutput: null, maxTurns: 10, maxFailures: 3, toolPolicy: policy);
 
         // v10.18: Initialize sub-agent support (async — rebuilds KV cache)
         // v10.19.4: Only if enabled in config

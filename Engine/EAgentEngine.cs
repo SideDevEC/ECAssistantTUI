@@ -11,6 +11,7 @@ using ECAssistant.Memory;
 using Microsoft.Extensions.Logging;
 using ECAssistant.Services;
 using ECAssistant.UI;
+using ECAssistant.Session;
 
 namespace ECAssistant.Engine;
 
@@ -55,6 +56,9 @@ public sealed class EAgentEngine : IAsyncDisposable
     private int _turnCount = 0;
     private string? _systemPromptText;
 
+       // -- Session Output (v10.18: replaces direct Gui calls) ----
+    private ISessionOutput? _out;
+    public ISessionOutput? SessionOutput { get => _out; set => _out = value; }
     // v10.5: KV cache state management
     private bool _isPrefilled = false;           // Has the static prefix been prefilled?
     private string? _cachedStaticPrefix;          // The static prefix that's in the KV cache
@@ -107,16 +111,16 @@ public sealed class EAgentEngine : IAsyncDisposable
     public async Task RebuildCacheAfterStopAsync()
     {
         if (!_isPrefilled) return;  // nothing to rebuild if never prefilled
-        EColor.TagBold(EColor.Warn(), "KVCache", "Rebuilding after ESC stop...");
+        _out?.WriteWarning("[KVCache] Rebuilding after ESC stop...");
         await ResetAndRebuildCacheAsync();
-        EColor.TagBold(EColor.Success(), "KVCache", "Cache rebuilt after stop.");
+        _out?.WriteSuccess("[KVCache] Cache rebuilt after stop.");
     }
 
     /// <summary>Initialize self-correction manager.</summary>
     public void InitializeSelfCorrection(string workingDir)
     {
         _selfCorrection = new SelfCorrectionManager(workingDir);
-        EColor.TagBold(EColor.Success(), "SelfCorrect", "Self-correction manager ready.");
+        _out?.WriteSuccess("[SelfCorrect] Self-correction manager ready.");
     }
 
     /// <summary>Initialize project context manager and scan project.</summary>
@@ -124,7 +128,7 @@ public sealed class EAgentEngine : IAsyncDisposable
     {
         _projectContext = new ProjectContextManager(workingDir);
         await _projectContext.InitializeAsync();
-        EColor.TagBold(EColor.Success(), "ProjectCtx", $"Project context loaded: {_projectContext.FileCount} files.");
+        _out?.WriteSuccess($"[ProjectCtx] Project context loaded: {_projectContext.FileCount} files.");
     }
 
     /// <summary>Initialize task planner for this session.</summary>
@@ -137,7 +141,7 @@ public sealed class EAgentEngine : IAsyncDisposable
     public void SetSecondaryModel(SecondaryModelLoader secondary)
     {
         _secondaryModel = secondary;
-        EColor.TagBold(EColor.Success(), "Secondary", "Secondary model attached to engine.");
+        _out?.WriteSuccess("[Secondary] Secondary model attached to engine.");
     }
 
     /// <summary>Inject project context into prompt — only for code-related tasks.</summary>
@@ -181,7 +185,7 @@ public sealed class EAgentEngine : IAsyncDisposable
         };
         
         await _vectorMemory.InitializeAsync(embeddingGenerator);
-        EColor.TagBold(EColor.Success(), "VecMem", $"Vector memory ready: {_vectorMemory.Count} entries in {storeDir}");
+        _out?.WriteSuccess($"[VecMem] Vector memory ready: {_vectorMemory.Count} entries in {storeDir}");
     }
 
     /// <summary>Simple TF-IDF style embedding — no external dependencies.</summary>
@@ -248,7 +252,7 @@ public sealed class EAgentEngine : IAsyncDisposable
             return string.IsNullOrWhiteSpace(result) ? "(Summary generation failed)" : result;
         }));
         var mode = (_secondaryModel != null && _secondaryModel.IsLoaded) ? "secondary model" : "stateless side-executor";
-        Program.Gui.WriteLineColored($"[Context] SummaryService wired to {mode}.");
+        _out?.WriteInfo($"[Context] SummaryService wired to {mode}.");
     }
 
     /// <summary>
@@ -282,7 +286,7 @@ public sealed class EAgentEngine : IAsyncDisposable
         }
 
         var result = sb.ToString().Trim();
-        EColor.TagBold(EColor.Info(), "StepMapper", $"Plan generated ({result.Length} chars)");
+        _out?.WriteInfo($"[StepMapper] Plan generated ({result.Length} chars)");
         return result;
     }
 
@@ -360,12 +364,12 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                              _transcript.Messages.AddRange(loaded.Messages);
                            foreach (var msg in loaded.Messages)
                                  _contextWindow.AddUserMessage(msg.Content); // restore token budget
-                              Program.Gui.WriteLineColored($"[Context] Loaded {loaded.MessageCount} messages from previous session.");
+                               _out?.WriteInfo($"[Context] Loaded {loaded.MessageCount} messages from previous session.");
                             // v9.9: Show compact summary of previous session
                             var userMsgs = loaded.Messages.Where(m => m.Role == "user").TakeLast(3);
                             if (userMsgs.Any())
                             {
-                                EColor.Tag(EColor.Info(), "Last session", string.Join(" | ", userMsgs.Select(m => EGuiBase.Truncate(m.Content, 60))));
+                                 _out?.WriteInfo($"[Last session] {string.Join(" | ", userMsgs.Select(m => EGuiBase.Truncate(m.Content, 60)))}");
                             }
                           }
                     }
@@ -375,19 +379,19 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                         }
                     }
 
-            EColor.TagBold(Cyan, "Engine", $"Model loaded: {modelPath}");
+             _out?.WriteInfo($"[Engine] Model loaded: {modelPath}");
             Logger.Info("Engine", $"Model loaded: {modelPath} | Context: {contextSize} | GPU: {gpuLayers} | Threads: {threadCount}");
-             EColor.TagBold(EColor.Info(), "Config", $"ContextSize: {contextSize} tokens | GPU Layers: {_gpuLayers}");
+              _out?.WriteInfo($"[Config] ContextSize: {contextSize} tokens | GPU Layers: {_gpuLayers}");
 
            // Load memory and show how many entries are active
                _memoryManager.Load();
                if (_memoryManager.Count > 0)
                  {
-                  EColor.TagBold(EColor.Info(), "Memory", $"Active memories loaded: {_memoryManager.Count}");
+                   _out?.WriteInfo($"[Memory] Active memories loaded: {_memoryManager.Count}");
                       }
               else
                     {
-                    EColor.Tag(EColor.Info(), "Memory", "No prior memory entries found (first session).");
+                  _out?.WriteInfo("No prior memory entries found (first session).");
                         }
 
              // v10.16: Load OS-specific system prompt at startup
@@ -410,7 +414,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                  if (File.Exists(sysPromptPath))
                       {
                          _systemPromptText = File.ReadAllText(sysPromptPath);
-                          Program.Gui.WriteLineColored($"[Config] System prompt loaded from: {promptFileName} ({_systemPromptText.Length} chars)");
+                          _out?.WriteInfo($"[Config] System prompt loaded from: {promptFileName} ({_systemPromptText.Length} chars)");
                       }
                     else
                          {
@@ -463,7 +467,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
 
         _cachedStaticPrefix = BuildSystemToolsPrompt();
 
-        EColor.TagBold(EColor.Info(), "KVCache", $"Prefilling static prefix ({_cachedStaticPrefix.Length} chars)...");
+        _out?.WriteInfo($"[KVCache] Prefilling static prefix ({_cachedStaticPrefix.Length} chars)...");
         var startMs = DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
 
         // Feed the static prefix through the executor as a "prompt run".
@@ -484,12 +488,12 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
         }
         catch (OperationCanceledException)
         {
-            EColor.TagBold(EColor.Warn(), "KVCache", "Prefill timed out (120s) — continuing anyway.");
+             _out?.WriteWarning("[KVCache] Prefill timed out (120s) — continuing anyway.");
         }
 
         var elapsedMs = (long)((DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond) - startMs);
         _isPrefilled = true;
-        EColor.TagBold(EColor.Success(), "KVCache", $"Static prefix prefilled in {elapsedMs}ms. KV cache active.");
+        _out?.WriteSuccess($"[KVCache] Static prefix prefilled in {elapsedMs}ms. KV cache active.");
     }
 
     // v10.5: Build only the new tokens to feed since the last turn.
@@ -767,7 +771,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
    public void RegisterTool(EToolBase tool)
            {
                _tools.Add(tool);
-            EColor.TagBold(Cyan, "Tool", $"Registered: {tool.Name}");
+             _out?.WriteInfo($"[Tool] Registered: {tool.Name}");
                 }
 
       /// <summary>Add tool result to both transcript and context window.</summary>
@@ -900,7 +904,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                  _executor.LoadState(_savedStateBeforeGen);
                  rewindOK = true;
                  _consecutiveRewindFailures = 0;  // reset on success
-                 EColor.TagBold(EColor.Info(), "KVCache", "Rewound to pre-generation state (format retry, fast path).");
+               _out?.WriteInfo("[KVCache] Rewound to pre-generation state (format retry, fast path).");
              }
              catch (Exception ex)
              {
@@ -912,9 +916,9 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
          // Fallback: full KV cache rebuild
          if (!rewindOK)
          {
-             EColor.TagBold(EColor.Warn(), "KVCache", _consecutiveRewindFailures >= MaxRewindFailures
+              _out?.WriteWarning("[KVCache] " + (_consecutiveRewindFailures >= MaxRewindFailures
                  ? $"Rewind failed {_consecutiveRewindFailures}x — forcing full rebuild."
-                 : "No saved state — forcing full rebuild.");
+                    : "No saved state — forcing full rebuild."));
 
              await ResetAndRebuildCacheAsync();
 
@@ -922,7 +926,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
              var messages = _contextWindow.GetWindowMessages();
              if (messages.Count > 0)
              {
-                 EColor.TagBold(EColor.Info(), "KVCache", $"Re-feeding {messages.Count} conversation messages into rebuilt cache...");
+               _out?.WriteInfo($"[KVCache] Re-feeding {messages.Count} conversation messages into rebuilt cache...");
                  var historySb = new StringBuilder();
                  foreach (var msg in messages)
                  {
@@ -959,14 +963,14 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                      }
                      catch (OperationCanceledException)
                      {
-                         EColor.TagBold(EColor.Warn(), "KVCache", "History re-feed timed out (60s) — continuing anyway.");
+                         _out?.WriteWarning("[KVCache] History re-feed timed out (60s) — continuing anyway.");
                      }
-                     EColor.TagBold(EColor.Success(), "KVCache", $"Re-fed {messages.Count} messages ({historySb.Length} chars) into cache.");
+                   _out?.WriteSuccess($"[KVCache] Re-fed {messages.Count} messages ({historySb.Length} chars) into cache.");
                  }
              }
 
              _consecutiveRewindFailures = 0;  // reset after successful rebuild
-             EColor.TagBold(EColor.Success(), "KVCache", "Cache rebuilt for format retry (fallback path).");
+             _out?.WriteSuccess("[KVCache] Cache rebuilt for format retry (fallback path).");
          }
      }
 
@@ -983,7 +987,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
      {
          _contextWindow.AddSystemMessage(planText);
          _transcript.AddSystem(planText);
-         EColor.TagBold(EColor.Success(), "Plan", "Execution plan injected into context.");
+         _out?.WriteSuccess("[Plan] Execution plan injected into context.");
      }
 
       /// <summary>Clear context window and transcript.</summary>
@@ -992,7 +996,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                _contextWindow.Clear();
               _transcript.Messages.Clear();
                 _turnCount = 0;
-            Program.Gui.WriteLineColored("[Context] History and transcript cleared.");
+             _out?.WriteInfo("[Context] History and transcript cleared.");
                 }
 
     // v10.11.1: Clear only the context window (not transcript) — used after ESC stop
@@ -1001,7 +1005,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
     {
         _contextWindow.Clear();
         _turnCount = 0;
-        Program.Gui.WriteLineColored("[Context] Context window cleared (transcript preserved).");
+           _out?.WriteInfo("[Context] Context window cleared (transcript preserved).");
     }
 
       /// <summary>Reset the turn counter for a new user request (v10.4.4).
@@ -1033,7 +1037,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
     {
         if (_executor == null || _context == null) return;
         
-        EColor.TagBold(EColor.Warn(), "KVCache", "Full reset — rebuilding from scratch...");
+        _out?.WriteWarning("[KVCache] Full reset — rebuilding from scratch...");
         
         // Dispose current context and executor
         try { _context.Dispose(); } catch { }
@@ -1050,7 +1054,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
         // Re-prefill the static prefix (await!)
         await PrefillStaticPrefix();
         
-        EColor.TagBold(EColor.Success(), "KVCache", "Cache rebuilt and prefilled.");
+        _out?.WriteSuccess("[KVCache] Cache rebuilt and prefilled.");
     }
 
        /// <summary>Generate text from the LLM using incremental KV cache feed (v10.5).</summary>
@@ -1077,7 +1081,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
             var maxBudget = (int)_contextWindow.MaxTokens;
             if (maxBudget > 0 && tokenBudget > maxBudget * 0.8)
             {
-                EColor.TagBold(EColor.Warn(), "KVCache", $"Context at {tokenBudget}/{maxBudget} tokens ({tokenBudget*100/maxBudget}%). Rebuilding cache...");
+                _out?.WriteWarning($"[KVCache] Context at {tokenBudget}/{maxBudget} tokens ({tokenBudget*100/maxBudget}%). Rebuilding cache...");
                 
                 // v10.12.13: Cap convText relative to secondary model context size (75% of it)
                 var allMessages = _contextWindow.GetWindowMessages();
@@ -1105,7 +1109,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                 if (!string.IsNullOrWhiteSpace(summaryText))
                 {
                     _contextWindow.AddSystemMessage($"[Previous conversation summary: {summaryText.Trim()}]");
-                    EColor.TagBold(EColor.Info(), "KVCache", $"Re-injected summary: {summaryText.Length} chars");
+                    _out?.WriteInfo($"[KVCache] Re-injected summary: {summaryText.Length} chars");
                 }
                 
                 // v10.9.4: After overflow rebuild on turn 2+, re-add the latest tool output
@@ -1143,10 +1147,10 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
               
               if (Logger.IsDebugEnabled)
               {
-                  EColor.TagBold(EColor.Info(), "IncrementalInput", $"Turn {_turnCount} — {incrementalInput.Length} chars");
-                  EColor.WriteLine(EColor.Dim, new string('=', 60));
-                  EColor.WriteLine(EColor.Dim, incrementalInput);
-                  EColor.WriteLine(EColor.Dim, new string('=', 60));
+                   _out?.WriteInfo($"[IncrementalInput] Turn {_turnCount} — {incrementalInput.Length} chars");
+                  _out?.WriteDim(new string('=', 60));
+                  _out?.WriteDim(incrementalInput);
+                  _out?.WriteDim(new string('=', 60));
               }
 
               var sb = new StringBuilder();
@@ -1163,8 +1167,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                     // </output> removed - if model writes </output> inside content (code, HTML),
                     // it would stop early. If model forgets </lm>, generation runs to max_tokens.
                     var stopTags = new[] { "</lm>" };
-                    EColor.WriteLine(EColor.Yellow + EColor.Bold, $"── Token Stream (Turn {_turnCount}) ── [ESC to stop] ──");
-                    Program.Gui.WriteRawDirect(EColor.Dim);
+                    _out?.WriteLine($"── Token Stream (Turn {_turnCount}) ── [ESC to stop] ──", OutputState.Bold);
                     var tokenCount = 0;
                     await foreach (var token in _executor.InferAsync(incrementalInput, _inferenceParams, cts.Token))
                          {
@@ -1175,8 +1178,8 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                               if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape)
                               {
                                   _escPressed = true;
-                                  Program.Gui.BlankLine();
-                                  EColor.TagBold(EColor.Error(), "Stop", "Generation stopped by user (ESC).");
+                                  _out?.BlankLine();
+                                  _out?.WriteError("[Stop] Generation stopped by user (ESC).");
                                   goto inferenceDone;
                               }
                           }
@@ -1184,11 +1187,11 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                           // v10.9: Check cancellation token from orchestrator
                           if (ExecutionToken.IsCancellationRequested)
                           {
-                              Program.Gui.BlankLine();
-                              EColor.TagBold(EColor.Warn(), "Stop", "Execution cancelled by user.");
+                              _out?.BlankLine();
+                              _out?.WriteWarning("[Stop] Execution cancelled by user.");
                               goto inferenceDone;
                           }
-                          Program.Gui.WriteRawDirect(token);
+                          _out?.WriteRaw(token);
                            sb.Append(token);
                            tokenCount++;
                            var soFar = sb.ToString();
@@ -1196,22 +1199,21 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                            {
                                if (soFar.Contains(stopTag, StringComparison.OrdinalIgnoreCase))
                                {
-                                   Program.Gui.BlankLine();
-                                   EColor.TagBold(EColor.Info(), "Stop", $"Manual anti-prompt hit: {stopTag} (after {tokenCount} tokens)");
+                                   _out?.BlankLine();
+                                   _out?.WriteInfo($"[Stop] Manual anti-prompt hit: {stopTag} (after {tokenCount} tokens)");
                                    goto inferenceDone;
                                }
                            }
                               }
                         inferenceDone:
-                    Program.Gui.WriteRawDirect(EColor.Reset);
-                    EColor.WriteLine(EColor.Yellow + EColor.Bold, $"── End Token Stream ({tokenCount} tokens) ──");
-                    Program.Gui.BlankLine();
+                    _out?.WriteLine($"── End Token Stream ({tokenCount} tokens) ──", OutputState.Bold);
+                    _out?.BlankLine();
                                }
                           catch (OperationCanceledException)
                                  {
                                    timedOut = true;
-                                     Program.Gui.BlankLine();
-                                       EColor.TagBold(EColor.Error(), "Timeout", "Inference timed out (90s). Truncating.");
+                                     _out?.BlankLine();
+                                       _out?.WriteError("[Timeout] Inference timed out (90s). Truncating.");
                                            }
 
               var rawResult = sb.ToString().Trim();
@@ -1222,11 +1224,11 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                   rawResult = rawResult.Substring("<assistant>".Length).Trim();
               if (rawResult.EndsWith("</assistant>", StringComparison.OrdinalIgnoreCase))
                   rawResult = rawResult.Substring(0, rawResult.Length - "</assistant>".Length).Trim();
-              EColor.WriteLine(EColor.Dim, $"[Engine] Raw ({rawResult.Length} chars): {EGuiBase.Truncate(rawResult, 500)}");
+              _out?.WriteDim($"[Engine] Raw ({rawResult.Length} chars): {EGuiBase.Truncate(rawResult, 500)}");
 
                    cleanResponse = ExtractCleanResponse(rawResult);
 
-              EColor.WriteLine(EColor.Dim, $"[Engine] Clean ({cleanResponse.Length} chars): {EGuiBase.Truncate(cleanResponse, 500)}");
+              _out?.WriteDim($"[Engine] Clean ({cleanResponse.Length} chars): {EGuiBase.Truncate(cleanResponse, 500)}");
 
               if (string.IsNullOrEmpty(cleanResponse))
                   cleanResponse = timedOut ? "(Response truncated — model timed out)" : "(Empty response from model)";
@@ -1234,14 +1236,14 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                  // v10.9.2: Don't store partial/cancelled/ESC responses in transcript
                  if (ExecutionToken.IsCancellationRequested || _escPressed)
                  {
-                     EColor.TagBold(EColor.Dim, "Engine", "Execution stopped — not storing partial response.");
+                      _out?.WriteWarning($"[Engine] Execution stopped — not storing partial response.");
                      // v10.9.2: Rewind KV cache to before this partial generation
                      if (_savedStateBeforeGen != null && _executor != null)
                      {
                          try
                          {
                              _executor.LoadState(_savedStateBeforeGen);
-                             EColor.TagBold(EColor.Info(), "KVCache", "Rewound to pre-generation state (stopped).");
+                             _out?.WriteInfo("[KVCache] Rewound to pre-generation state (stopped).");
                          }
                          catch (Exception ex)
                          {
@@ -1257,13 +1259,13 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                          _contextWindow.AddAssistantMessage(cleanResponse);
                            }
 
-                 Program.Gui.BlankLine();
+                 _out?.BlankLine();
                   Logger.Info("Engine", $"Response: {cleanResponse.Length} chars");
                   return cleanResponse;
                     }
               catch (Exception ex)
                    {
-               EColor.TagBold(EColor.Error(), "Error", ex.Message);
+               _out?.WriteError("[Error] " + ex.Message);
                      return "[Error] " + ex.Message;
                     }
                  }
@@ -1397,7 +1399,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
    public void LoadContext()
         {
            if (_memoryManager != null) _memoryManager.Load();
-         EColor.TagBold(EColor.Info(), "Memory", "Loaded.");
+         _out?.WriteInfo("[Memory] Loaded.");
              }
 
       /// <summary>Save memory manager to disk.</summary>
@@ -1409,13 +1411,13 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
            {
              var p = path ?? Path.Combine(_workingDir, "transcript.json");
                 _transcript.SaveToDisk(p);
-          Program.Gui.WriteLineColored($"[Context] Transcript saved ({_transcript.MessageCount} messages, {_contextWindow.GetTotalTokens()} tokens).");
+          _out?.WriteInfo($"[Context] Transcript saved ({_transcript.MessageCount} messages, {_contextWindow.GetTotalTokens()} tokens).");
                }
 
    public async ValueTask DisposeAsync()
         {
            try { _context?.Dispose(); } catch { }
               foreach (var t in _tools) { if (t is IDisposable d) d.Dispose(); }
-                EColor.TagBold(EColor.Info(), "Exit", "Engine disposed.");
+                _out?.WriteInfo("[Exit] Engine disposed.");
                     }
          }

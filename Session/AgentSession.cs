@@ -31,7 +31,7 @@ namespace ECAssistant.Session;
 /// get a reference to the session and call session.Write/WriteLine/WriteRaw for output.
 /// The session writes to a JSONL file (always) and notifies an attached IUiRenderer (if any).
 /// </summary>
-public class AgentSession : IAsyncDisposable
+public class AgentSession : ISessionOutput, IAsyncDisposable
 {
     // ── Identity ──────────────────────────────────────
     public string Key { get; }
@@ -132,7 +132,10 @@ public class AgentSession : IAsyncDisposable
         _engine.WireSummaryService();
 
         // Create orchestrator
-        _orchestrator = new AgentOrchestrator(_engine, maxTurns: 5, maxFailures: 3, toolPolicy: _toolPolicy);
+        _orchestrator = new AgentOrchestrator(_engine, sessionOutput: this, maxTurns: 5, maxFailures: 3, toolPolicy: _toolPolicy);
+
+        // Wire engine output through this session
+        _engine.SessionOutput = this;
 
         // Initialize sub-agents if enabled
         if (_subAgentConfig.Enabled)

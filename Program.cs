@@ -225,7 +225,7 @@ public class Program
                     var maxTurns = 5; // Hard limit: 5 turns per task
                     var maxFailures = 3;
 
-                    var orchestrator = new AgentOrchestrator(agent, maxTurns: maxTurns, maxFailures: maxFailures, toolPolicy: new ToolPolicy());
+                    var orchestrator = new AgentOrchestrator(agent, sessionOutput: null, maxTurns: maxTurns, maxFailures: maxFailures, toolPolicy: new ToolPolicy());
 
                     // v10.18: Initialize sub-agent system (only if enabled in config)
                     if (_config.SubAgent.Enabled)

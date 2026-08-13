@@ -452,7 +452,7 @@ public sealed class SubAgentManager : IDisposable
                 _mainEngine.ExecutionToken);
             linkedCts.CancelAfter(TimeSpan.FromSeconds(task.TimeoutSeconds));
 
-            var orchestrator = new AgentOrchestrator(childEngine, maxTurns: task.MaxTurns, maxFailures: 3);
+            var orchestrator = new AgentOrchestrator(childEngine, sessionOutput: null, maxTurns: task.MaxTurns, maxFailures: 3);
 
             // Fix #2: Start execution with the linked token so ESC + timeout both work
             childEngine.StartExecution();

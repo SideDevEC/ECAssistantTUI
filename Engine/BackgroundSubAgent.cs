@@ -109,6 +109,8 @@ public sealed class BackgroundSubAgent : IAsyncDisposable
     private readonly int _gpuLayers;
     private readonly InferenceParams _inferenceParams;
     private readonly Channel<BackgroundEvent> _eventChannel;
+    // v10.19.2: Main working dir — temp dirs created inside it
+    private readonly string _mainWorkingDir;
     private readonly CancellationTokenSource _cts = new();
 
     private EAgentEngine? _engine;
@@ -139,13 +141,15 @@ public sealed class BackgroundSubAgent : IAsyncDisposable
         NotificationQueue notifications,
         string modelPath,
         int gpuLayers,
-        InferenceParams inferenceParams)
+        InferenceParams inferenceParams,
+        string mainWorkingDir = "")
     {
         _config = config;
         _notifications = notifications;
         _modelPath = modelPath;
         _gpuLayers = gpuLayers;
         _inferenceParams = inferenceParams;
+        _mainWorkingDir = mainWorkingDir;
         _eventChannel = Channel.CreateUnbounded<BackgroundEvent>();
     }
 
@@ -286,8 +290,10 @@ public sealed class BackgroundSubAgent : IAsyncDisposable
     /// <summary>Initialize the background agent's engine.</summary>
     private async Task InitializeEngineAsync()
     {
+        // v10.19.2: Background agent temp dirs inside main working dir, not OS temp
         var workingDir = string.IsNullOrEmpty(_config.WorkingDir)
-            ? Path.Combine(Path.GetTempPath(), "eca-bgagent", Id)
+            ? Path.Combine(string.IsNullOrEmpty(_mainWorkingDir) ? Path.GetTempPath() : _mainWorkingDir,
+                ".bgagents", Id)
             : _config.WorkingDir;
         Directory.CreateDirectory(workingDir);
 
@@ -303,6 +309,9 @@ public sealed class BackgroundSubAgent : IAsyncDisposable
         _engine.WireSummaryService();
 
         // Register tools
+        // Note: ESubAgent and EDispatch are intentionally NOT registered for background agents
+        // to prevent recursive spawning (background agent spawning background agents).
+        // This is by design — background agents are focused workers, not orchestrators.
         var bgMgr = new Services.BackgroundProcessManager();
         _engine.RegisterTool(new Tools.Shell.EShellAgent(workingDir));
         _engine.RegisterTool(new Tools.Background.EBackgroundExecTool(bgMgr, workingDir));
@@ -366,6 +375,7 @@ public sealed class BackgroundSubAgent : IAsyncDisposable
     }
 
     /// <summary>Poll for events via shell command.</summary>
+    // Fix #5: Guard against channel completion race — wrap PushEvent in try/catch
     private void DoPoll()
     {
         if (_state != BackgroundAgentState.Waiting) return;
@@ -391,13 +401,17 @@ public sealed class BackgroundSubAgent : IAsyncDisposable
 
             if (!string.IsNullOrWhiteSpace(output))
             {
-                PushEvent(new BackgroundEvent
+                try
                 {
-                    Source = "poll",
-                    Type = "poll_result",
-                    Description = $"Poll output: {output.Trim()}",
-                    Data = new() { ["output"] = output.Trim() }
-                });
+                    PushEvent(new BackgroundEvent
+                    {
+                        Source = "poll",
+                        Type = "poll_result",
+                        Description = $"Poll output: {output.Trim()}",
+                        Data = new() { ["output"] = output.Trim() }
+                    });
+                }
+                catch (ChannelClosedException) { /* Agent stopped — ignore */ }
             }
         }
         catch { /* Poll errors are non-fatal */ }
@@ -434,6 +448,8 @@ public sealed class BackgroundAgentManager : IAsyncDisposable
     private readonly string _modelPath;
     private readonly int _gpuLayers;
     private readonly InferenceParams _inferenceParams;
+    // v10.19.2: Main working dir — background agent temp dirs created inside it
+    private readonly string _mainWorkingDir;
 
     /// <summary>The shared notification queue — main orchestrator reads from this.</summary>
     public NotificationQueue Notifications => _notifications;
@@ -441,9 +457,10 @@ public sealed class BackgroundAgentManager : IAsyncDisposable
     /// <summary>Maximum number of concurrent background agents.</summary>
     public int MaxAgents { get; set; } = 5;
 
-    public BackgroundAgentManager(EAgentEngine mainEngine, NotificationQueue? notifications = null)
+    public BackgroundAgentManager(EAgentEngine mainEngine, NotificationQueue? notifications = null, string mainWorkingDir = "")
     {
         _mainEngine = mainEngine;
+        _mainWorkingDir = mainWorkingDir;
         _notifications = notifications ?? new NotificationQueue();
 
         var configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "appsettings.json");
@@ -467,15 +484,19 @@ public sealed class BackgroundAgentManager : IAsyncDisposable
     }
 
     /// <summary>Spawn a background agent. Returns the agent ID. Runs in background immediately.</summary>
+    // Fix #8: Check model file exists before spawning
     public async Task<string> SpawnAsync(BackgroundAgentConfig config)
     {
         if (_agents.Count >= MaxAgents)
             throw new InvalidOperationException($"Max background agents ({MaxAgents}) reached. Stop one first.");
 
+        if (!File.Exists(_modelPath))
+            throw new InvalidOperationException($"Model file not found: {_modelPath}");
+
         if (string.IsNullOrEmpty(config.Name))
             config.Name = $"bg-agent-{_agents.Count + 1}";
 
-        var agent = new BackgroundSubAgent(config, _notifications, _modelPath, _gpuLayers, _inferenceParams);
+        var agent = new BackgroundSubAgent(config, _notifications, _modelPath, _gpuLayers, _inferenceParams, _mainWorkingDir);
         _agents[agent.Id] = agent;
 
         await agent.StartAsync();

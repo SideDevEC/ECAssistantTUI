@@ -70,8 +70,10 @@ public sealed class NotificationQueue : IDisposable
 {
     private readonly ConcurrentQueue<AgentNotification> _queue = new();
     private readonly SemaphoreSlim _signal = new(0);
-    private readonly object _lock = new();
+    private static readonly object _consoleLock = new(); // Fix #7: Thread-safe console writes
     private bool _disposed = false;
+
+    // Fix #10: Removed unused _lock field — ConcurrentQueue and SemaphoreSlim are already thread-safe
 
     private int _totalQueued;
     private int _totalDrained;
@@ -91,7 +93,7 @@ public sealed class NotificationQueue : IDisposable
         Interlocked.Increment(ref _totalQueued);
         _signal.Release();
 
-        // Also write directly to UI for immediate display
+        // Fix #7: Use lock to prevent interleaved console output from concurrent notifications
         try
         {
             var color = notification.Priority switch
@@ -100,7 +102,11 @@ public sealed class NotificationQueue : IDisposable
                 NotificationPriority.Warning => EColor.Warn(),
                 _ => EColor.Info()
             };
-            EColor.TagBold(color, "Notify", notification.ToDisplayString());
+            // Console.Out is not thread-safe for multi-line writes — use lock
+            lock (_consoleLock)
+            {
+                EColor.TagBold(color, "Notify", notification.ToDisplayString());
+            }
         }
         catch { }
     }

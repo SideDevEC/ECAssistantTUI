@@ -138,7 +138,10 @@ public class EShellAgent : EToolBase
     /// </summary>
     private static async Task<ShellProcessResult> RunShellAsync(string command, string workingDir, CancellationToken cancellationToken = default)
     {
-        var tempScript = Path.Combine(Path.GetTempPath(),
+        // v10.19.2: Temp scripts inside working dir, not OS temp — keeps all artifacts in one place
+        var tempDir = Path.Combine(workingDir, ".tmp");
+        Directory.CreateDirectory(tempDir);
+        var tempScript = Path.Combine(tempDir,
             $"ecagent_{Guid.NewGuid():N}{(IsWindows ? ".ps1" : ".sh")}");
 
         string scriptContent;

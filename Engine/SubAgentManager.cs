@@ -180,6 +180,8 @@ public sealed class SubAgentManager : IDisposable
     private readonly ConcurrentDictionary<string, ActiveSubAgent> _activeSubAgents = new();
     private readonly List<EAgentEngine> _childEngines = new();
     private readonly object _lock = new();
+    // v10.19.2: Main working dir — sub-agent temp dirs created inside it
+    private readonly string _mainWorkingDir;
 
     /// <summary>Maximum concurrent sub-agents.</summary>
     public int MaxConcurrent { get; set; } = 3;
@@ -187,9 +189,10 @@ public sealed class SubAgentManager : IDisposable
     /// <summary>All currently active sub-agent handles (for monitoring/cancellation).</summary>
     public IReadOnlyDictionary<string, ActiveSubAgent> ActiveAgents => _activeSubAgents;
 
-    public SubAgentManager(EAgentEngine mainEngine)
+    public SubAgentManager(EAgentEngine mainEngine, string mainWorkingDir = "")
     {
         _mainEngine = mainEngine;
+        _mainWorkingDir = mainWorkingDir;
 
         var configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "appsettings.json");
         _config = File.Exists(configPath) ? EAgentConfig.Load(configPath) : new EAgentConfig();
@@ -220,10 +223,11 @@ public sealed class SubAgentManager : IDisposable
     {
         SubAgentResult? lastResult = null;
         var maxAttempts = task.MaxRetries + 1;
+        var currentTask = task; // Fix #9: Don't mutate caller's task
 
         for (int attempt = 0; attempt < maxAttempts; attempt++)
         {
-            var result = await RunSingleAsync(task, attempt);
+            var result = await RunSingleAsync(currentTask, attempt);
 
             if (result.Succeeded)
             {
@@ -251,22 +255,22 @@ public sealed class SubAgentManager : IDisposable
                 if (!shouldRetry) break;
 
                 EColor.TagBold(EColor.Warn(), "SubAgent",
-                    $"Retry {attempt + 1}/{task.MaxRetries} after {result.Error?.Kind} — waiting {task.RetryDelayMs}ms...");
+                    $"Retry {attempt + 1}/{currentTask.MaxRetries} after {result.Error?.Kind} — waiting {currentTask.RetryDelayMs}ms...");
 
-                await Task.Delay(task.RetryDelayMs);
+                await Task.Delay(currentTask.RetryDelayMs);
 
                 // Adjust task for retry — increase timeout and turns
-                task = new SubAgentTask
+                currentTask = new SubAgentTask
                 {
-                    Description = task.Description,
-                    Prompt = task.Prompt,
-                    WorkingDir = task.WorkingDir, // Reuse same dir — partial results are there
-                    AllowedTools = task.AllowedTools,
-                    ContextSize = task.ContextSize,
-                    MaxTurns = task.MaxTurns + 2, // Give more turns on retry
-                    TimeoutSeconds = task.TimeoutSeconds + 30, // More time on retry
-                    MaxToolCalls = task.MaxToolCalls,
-                    MaxDiskBytes = task.MaxDiskBytes,
+                    Description = currentTask.Description,
+                    Prompt = currentTask.Prompt,
+                    WorkingDir = currentTask.WorkingDir, // Reuse same dir — partial results are there
+                    AllowedTools = currentTask.AllowedTools,
+                    ContextSize = currentTask.ContextSize,
+                    MaxTurns = currentTask.MaxTurns + 2, // Give more turns on retry
+                    TimeoutSeconds = currentTask.TimeoutSeconds + 30, // More time on retry
+                    MaxToolCalls = currentTask.MaxToolCalls,
+                    MaxDiskBytes = currentTask.MaxDiskBytes,
                     MaxRetries = 0, // No recursive retries
                 };
             }
@@ -376,8 +380,10 @@ public sealed class SubAgentManager : IDisposable
             EColor.TagBold(Cyan, "SubAgent",
                 $"Starting{(retryAttempt > 0 ? $" (retry #{retryAttempt})" : "")}: {task.Description}");
 
+            // v10.19.2: Sub-agent temp dirs inside main working dir, not OS temp
             var workingDir = string.IsNullOrEmpty(task.WorkingDir)
-                ? Path.Combine(Path.GetTempPath(), "eca-subagent", Guid.NewGuid().ToString("N")[..8])
+                ? Path.Combine(string.IsNullOrEmpty(_mainWorkingDir) ? Path.GetTempPath() : _mainWorkingDir,
+                    ".subagents", Guid.NewGuid().ToString("N")[..8])
                 : task.WorkingDir;
             Directory.CreateDirectory(workingDir);
 
@@ -416,6 +422,7 @@ public sealed class SubAgentManager : IDisposable
             await childEngine.PrefillStaticPrefix();
 
             // Link cancellation tokens — main agent ESC → sub-agent cancellation
+            // Fix #2: Actually pass the linked token to the child engine
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
                 handle.Cts.Token,
                 _mainEngine.ExecutionToken);
@@ -423,13 +430,26 @@ public sealed class SubAgentManager : IDisposable
 
             var orchestrator = new AgentOrchestrator(childEngine, maxTurns: task.MaxTurns, maxFailures: 3);
 
+            // Fix #2: Start execution with the linked token so ESC + timeout both work
             childEngine.StartExecution();
+            // Override the engine's CTS with our linked one by stopping execution and restarting
+            // Actually, we can't inject the token directly, but we can wire cancellation:
+            // When linkedCts fires, it cancels the child engine via StopExecution
+            _ = Task.Run(() =>
+            {
+                try { linkedCts.Token.WaitHandle.WaitOne(); }
+                catch { }
+                if (linkedCts.Token.IsCancellationRequested)
+                    childEngine.StopExecution();
+            });
+
             var orchResult = await orchestrator.ExecuteMultiStep(task.Prompt);
             childEngine.EndExecution();
 
             // #3: Partial results — snapshot working dir after execution
+            // Fix #3: Use Dictionary<string, DateTime> for proper modification tracking
             var dirAfter = SnapshotDirectory(workingDir);
-            var filesCreated = dirAfter.Except(dirBefore).ToList();
+            var filesCreated = dirAfter.Keys.Except(dirBefore.Keys).ToList();
             var filesModified = GetModifiedFiles(workingDir, dirBefore);
 
             var result = new SubAgentResult
@@ -454,8 +474,9 @@ public sealed class SubAgentManager : IDisposable
                     },
                     Message = $"Sub-agent status: {orchResult.Status}",
                     AttemptedAction = task.Description,
-                    SuccessfulActions = result.ToolCallLog.Where((_, i) => i % 2 == 0).ToList(), // approximate
-                    FailedActions = result.ToolCallLog.Where((_, i) => i % 2 != 0).ToList(),
+                    // Fix #4: Parse actual success/failure from log entries instead of odd/even heuristic
+                    SuccessfulActions = result.ToolCallLog.Where(l => l.Contains("OK", StringComparison.OrdinalIgnoreCase) || l.Contains("succeeded", StringComparison.OrdinalIgnoreCase)).ToList(),
+                    FailedActions = result.ToolCallLog.Where(l => l.Contains("FAIL", StringComparison.OrdinalIgnoreCase) || l.Contains("failed", StringComparison.OrdinalIgnoreCase)).ToList(),
                     FilesModified = result.FilesModified,
                     PartialOutput = result.FinalOutput,
                     Status = orchResult.Status,
@@ -555,31 +576,39 @@ public sealed class SubAgentManager : IDisposable
     // ═══════════════════════════════════════════════════════════════
 
     /// <summary>Snapshot all files in a directory (relative paths + modification times).</summary>
-    private static HashSet<string> SnapshotDirectory(string dir)
+    private static Dictionary<string, DateTime> SnapshotDirectory(string dir)
     {
         if (!Directory.Exists(dir)) return new();
 
-        var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var files = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
         try
         {
             foreach (var f in Directory.GetFiles(dir, "*", SearchOption.AllDirectories))
-                files.Add(Path.GetRelativePath(dir, f));
+            {
+                var rel = Path.GetRelativePath(dir, f);
+                files[rel] = File.GetLastWriteTimeUtc(f);
+            }
         }
         catch { }
         return files;
     }
 
     /// <summary>Get files that existed before but have different modification time.</summary>
-    private static List<string> GetModifiedFiles(string dir, HashSet<string> beforeFiles)
+    // Fix #3: Actually compare modification times instead of flagging all pre-existing files
+    private static List<string> GetModifiedFiles(string dir, Dictionary<string, DateTime> beforeFiles)
     {
         var modified = new List<string>();
         try
         {
-            foreach (var relPath in beforeFiles)
+            foreach (var (relPath, beforeTime) in beforeFiles)
             {
                 var fullPath = Path.Combine(dir, relPath);
                 if (File.Exists(fullPath))
-                    modified.Add(fullPath); // Simplified — any existing file counts as potentially modified
+                {
+                    var afterTime = File.GetLastWriteTimeUtc(fullPath);
+                    if (afterTime != beforeTime)
+                        modified.Add(fullPath);
+                }
             }
         }
         catch { }

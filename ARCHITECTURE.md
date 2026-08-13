@@ -1,6 +1,6 @@
-# ECAssistant Architecture (v10.17.0 — 2026-08-13)
+# ECAssistant Architecture (v10.19.2 — 2026-08-13)
 
-**Summary:** A local, offline AI agent in C# .NET 8 using LLamaSharp. Runs GGUF models locally with no external API calls. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags (`<thinking>`, `<toolcall>`, `<output>`). 7 registered tools self-register their rules at runtime. Multi-step autonomous loops with dual memory (keyword + TF-IDF vector), sliding context windows with LLM summarization, self-correction with failure loop detection and file rollback, project context awareness with dependency graph, two-phase task planning (decompose → map → execute), surgical code editing, background process management, file watching, and structured logging. Token-optimized for 8B models. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.16: Cross-platform (Windows + macOS). v10.17: StepMapper (two-phase planning), automated test framework (17 tests).
+**Summary:** A local, offline AI agent in C# .NET 8 using LLamaSharp. Runs GGUF models locally with no external API calls. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags (`<thinking>`, `<toolcall>`, `<output>`). 10 registered tools self-register their rules at runtime. Multi-step autonomous loops with dual memory (keyword + TF-IDF vector), sliding context windows with LLM summarization, self-correction with failure loop detection and file rollback, project context awareness with dependency graph, two-phase task planning (decompose → map → execute), surgical code editing, background process management, file watching, structured logging, sub-agent system with shared model weights, and background agents with notification system. Token-optimized for 8B models. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.16: Cross-platform (Windows + macOS). v10.17: StepMapper (two-phase planning), automated test framework. v10.18: Sub-agent system. v10.19: Background agents + notifications. v10.19.2: All artifacts in working directory.
 
 ## Key Facts
 - **Language:** C# .NET 8 console app (`net8.0`, cross-platform, Nullable enabled)
@@ -11,10 +11,10 @@
 - **Secondary Executor:** StatelessExecutor (for summaries/decomposition, no cache)
 - **Primary Model:** Qwen_Qwen3-8B-Q4_K_M (bartowski) — `/Users/localdev/Agent/models/`
 - **Secondary Model:** microsoft_Phi-4-mini-instruct-Q4_K_M (bartowski) — same folder
-- **Tools:** 7 registered — EShellAgent, EFileResearchTool, EBackgroundExec, EWebSearch, EDotnetBuild, EGitTool, ECodeEditor
+- **Tools:** 10 registered — EShellAgent, EFileResearchTool, EBackgroundExec, EWebSearch, EDotnetBuild, EGitTool, ECodeEditor, ESubAgent, EDispatch, ENotify
 - **Config:** `~/ECAssistant/appsettings.json` (user-editable, bundled as fallback)
 - **System Prompts:** SystemPrompt.Windows.md (PowerShell examples) + SystemPrompt.Mac.md (zsh examples) — OS-specific, fallback to SystemPrompt.md
-- **Working Directory:** `~/ECAssistant/` (all disk writes, build dir read-only)
+- **Working Directory:** `~/ECAssistant/` (ALL disk writes — logs, tests, temp scripts, sub-agent dirs, background agent dirs — v10.19.2)
 - **Context:** 16384 tokens, max_tokens 2048, auto-summarize at 50%
 - **Repo:** `github.com/LLamaDudeX/ECAssistant.git` (branch: `main`)
 
@@ -87,6 +87,16 @@ On single-tool failure: log to `_toolCallLog` (for streak detection), feed error
 ### 13. Cross-Platform Shell Execution (v10.16)
 `EShellAgent` detects OS at runtime: Windows uses `powershell.exe` with `.ps1` temp scripts, macOS uses `/bin/zsh` with `.sh` temp scripts. Tool examples and rules are OS-aware. System prompts are OS-specific (SystemPrompt.Windows.md / SystemPrompt.Mac.md).
 
+### 14. All Artifacts in Working Directory (v10.19.2)
+Previously: test sandboxes in `~/ECAssistant-Tests/`, temp scripts in `/tmp/`, sub-agent dirs in `/tmp/eca-subagent/`, background agent dirs in `/tmp/eca-bgagent/`, test logs scattered in `/tmp/`.
+Now: everything inside `~/ECAssistant/`:
+- Test sandboxes → `~/ECAssistant/tests/`
+- Test logs → `~/ECAssistant/logs/`
+- Shell temp scripts → `~/ECAssistant/.tmp/`
+- Sub-agent working dirs → `~/ECAssistant/.subagents/`
+- Background agent working dirs → `~/ECAssistant/.bgagents/`
+`BackgroundProcessManager` also made OS-aware (was Windows-only `powershell.exe`, now uses `/bin/zsh` on Mac).
+
 ## Architecture Overview
 
 ```
@@ -144,7 +154,7 @@ Program.cs (entry point, CLI loop, startup, tool registration)
         │       └── After 2 failures → stop with error
 ```
 
-## Tool System (7 Tools)
+## Tool System (10 Tools)
 
 ```
 EToolBase (abstract) — Name, Description, UsageExample, GetToolRules(), GetToolExample()
@@ -157,6 +167,9 @@ EToolBase (abstract) — Name, Description, UsageExample, GetToolRules(), GetToo
 5. EDotnetBuild      — build/test/test-filter/format with structured error parsing
 6. EGitTool          — git operations with structured output
 7. ECodeEditor       — surgical code editing: patch/diff/search/replace-all/insert/delete-lines
+8. ESubAgent         — spawn isolated child agents with shared model weights (v10.18)
+9. EDispatch         — manage background agents: spawn/stop/status/notify (v10.19)
+10. ENotify          — push notifications from background agents to main (v10.19)
 
 ToolPolicy: 3 levels (Allowed / ApprovalRequired / Blocked) checked before every execution
 ```
@@ -315,20 +328,24 @@ Centralized truncation in `EGuiBase`:
 13. **InteractiveExecutor with KV cache** — static prefix prefilled once, incremental feed per turn
 14. **Parallel multi-tool execution (v10.13)** — multiple toolcalls per `<lm>`, dependency analysis, Task.WhenAll
 15. **Models outside repo** — `~/Agent/models/`, gitignored, absolute paths in config
+16. **All artifacts in working dir (v10.19.2)** — no leaks to `/tmp/` or `~/ECAssistant-Tests/`
+17. **Sub-agents share model weights (v10.18)** — isolated engines, same GGUF on disk, 4096 context
+18. **Background agents event-driven (v10.19)** — long-lived async agents with poll-based events, notification queue, 3-phase display (generation, between-turns, idle)
 
 ## 🔖 Known-Good Builds (Git Tags)
 
 | Tag | Version | Description |
 |-----|---------|-------------|
+| `v10.19.2-safe` | v10.19.2 | All artifacts in working dir, BackgroundProcessManager OS-aware ← CURRENT |
 | `mac-safe` | v10.16.0 | Cross-platform, EShellAgent, dual prompts, Mac-tested |
 | `pre-mac` | v10.15.8 | Pre-migration checkpoint (Windows-only, EPowerShellAgent) |
 | `v10.12.20-working` | v10.12.20 | Centralized truncation, audited clean |
 
 **If any change breaks multi-turn:**
 ```bash
-git checkout mac-safe       # Current (cross-platform, Mac-tested)
+git checkout v10.19.2-safe  # Current (all artifacts in working dir)
 git checkout pre-mac        # Pre-migration (Windows-only)
 git checkout v10.12.20-working  # Pre-<lm> audit baseline
 ```
 
-**Status:** v10.16.0 — Cross-platform (Windows + macOS), EShellAgent, dual system prompts, all v10.15.x fixes. Tested on Mac with Qwen3-8B. Ready for production testing on both platforms.
+**Status:** v10.19.2 — All artifacts in working directory, 10 tools, sub-agents, background agents, 30/30 tests passing. Cross-platform (Windows + macOS). Ready for production testing on both platforms.

@@ -53,7 +53,6 @@ public sealed class EGuiConsole : EGuiBase
         Console.Write(label);
 
         // Background task: poll for notifications while waiting for input
-        // We use a separate task that reads the notification queue's signal
         var inputTask = Task.Run(() => Console.ReadLine());
         var notifTask = Task.Run(async () =>
         {
@@ -75,8 +74,14 @@ public sealed class EGuiConsole : EGuiBase
             }
         });
 
-        // Wait for user input (notification task exits when input completes)
+        // Fix #1: Observe notifTask exceptions to prevent unobserved task exceptions
+        notifTask.ContinueWith(t => { var _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
+
+        // Wait for user input (blocking — this is the console read thread)
         var result = inputTask.Result;
+
+        // Ensure notifTask has completed (it exits when inputTask completes)
+        try { notifTask.Wait(1000); } catch { }
 
         // Drain any remaining notifications after input
         DrainAndDisplayNotifications();

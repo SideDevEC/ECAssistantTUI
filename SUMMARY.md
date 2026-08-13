@@ -1,6 +1,6 @@
-# ECAssistant — Project Summary (v10.17.0 — 2026-08-13)
+# ECAssistant — Project Summary (v10.19.2 — 2026-08-13)
 
-**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Cross-platform (Windows + macOS). Loads GGUF models from disk — no API calls, no cloud, fully self-contained. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags for tool calling. Multi-step autonomous loops, dual memory (keyword + vector/semantic), sliding context windows, self-correction with failure loop detection, project context awareness, task decomposition, surgical code editing, 7 registered tools. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.15: KV cache hybrid rewind, off-by-one fixes, `<llm>`→`<lm>` rename, sub-task advancement fixes. v10.16: Cross-platform migration — EShellAgent, dual system prompts, Mac support. v10.17: StepMapper (two-phase planning: decompose → map → execute), automated test framework (17 tests, non-interactive UI harness).
+**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Cross-platform (Windows + macOS). Loads GGUF models from disk — no API calls, no cloud, fully self-contained. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags for tool calling. Multi-step autonomous loops, dual memory (keyword + vector/semantic), sliding context windows, self-correction with failure loop detection, project context awareness, task decomposition, surgical code editing, 10 registered tools, sub-agent system with shared model weights, background agents with notification system. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.15: KV cache hybrid rewind, off-by-one fixes, `<llm>`→`<lm>` rename, sub-task advancement fixes. v10.16: Cross-platform migration — EShellAgent, dual system prompts, Mac support. v10.17: StepMapper (two-phase planning: decompose → map → execute), automated test framework. v10.18: Sub-agent system — isolated agents with shared model weights. v10.19: Background agents + notification system. v10.19.2: All artifacts in working directory, BackgroundProcessManager OS-aware.
 
 ## Key Facts
 - **Language:** C# .NET 8 console app (`net8.0`, cross-platform, Nullable enabled)
@@ -12,10 +12,10 @@
 - **Secondary Model:** microsoft_Phi-4-mini-instruct-Q4_K_M (bartowski, 2.3 GiB)
 - **Models location:** `~/Agent/models/` (gitignored, absolute paths in config)
 - **Repo:** `github.com/LLamaDudeX/ECAssistant.git` (branch: `main`)
-- **Latest Tags:** `mac-safe` (v10.16.0), `pre-mac` (v10.15.8)
+- **Latest Tags:** `v10.19.2-safe` (v10.19.2), `v10.19-background-agents` (v10.19), `v10.18-subagent` (v10.18), `mac-safe` (v10.16.0), `pre-mac` (v10.15.8)
 - **Executor:** InteractiveExecutor with KV cache (static prefix prefilled once, incremental feed per turn)
 - **Secondary Executor:** StatelessExecutor (fresh context per call, no cache)
-- **Source files:** 34 .cs files, dual system prompts
+- **Source files:** 41 .cs files, dual system prompts
 
 ## What's New (v10.15 — Session 2026-08-13)
 
@@ -84,7 +84,7 @@
 - Build/git → always after code-modifying tools
 - Different tools, different targets → independent
 
-## Registered Tools (7)
+## Registered Tools (10)
 
 | Tool | Purpose | Key Feature |
 |------|---------|-------------|
@@ -95,6 +95,9 @@
 | **EDotnetBuild** | .NET build/test/format | Structured errors, test-filter |
 | **EGitTool** | Git operations | status/diff/commit/push/pull/log |
 | **ECodeEditor** | Surgical code editing | patch/diff/search/replace/insert/delete |
+| **ESubAgent** | Spawn child agents | Isolated engines, shared model weights (v10.18) |
+| **EDispatch** | Manage background agents | spawn/stop/status/notify (v10.19) |
+| **ENotify** | Push notifications | Background → main agent communication (v10.19) |
 
 ## Response Format (v10.15 — `<lm>` Container)
 
@@ -169,7 +172,7 @@ ECAssistant/
 │
 ├── Session/AgentSession.cs
 ├── Services/
-│   ├── BackgroundProcessManager.cs
+│   ├── BackgroundProcessManager.cs     ← v10.19.2: OS-aware, temp scripts in working dir
 │   ├── FileWatcherService.cs
 │   └── Logger.cs
 ├── Memory/
@@ -181,10 +184,10 @@ ECAssistant/
     ├── EGuiBase.cs                     ← Abstract UI + Truncate() centralized
     └── EGuiConsole.cs                  ← Console implementation
 │
-├── Testing/                            ← v10.17: Automated test framework
+├── Testing/                            ← v10.17: Automated test framework, v10.19: 30 tests
 │   ├── EGuiTestHarness.cs              ← Non-interactive UI (captures output, scripts input)
 │   ├── TestRunner.cs                   ← Orchestrates test scenarios, sandboxed dirs, assertions
-│   └── EcaTests.cs                     ← 17 predefined test scenarios (7 tiers)
+│   └── EcaTests.cs                     ← 30 test scenarios (11 tiers)
 ```
 
 ## What's New (v10.17 — Two-Phase Planning + Test Framework)
@@ -244,7 +247,7 @@ dotnet run -- --test --filter tool_     # Run specific tier
 dotnet run -- --test --model /path.gguf # Override model
 ```
 
-**Test results (v10.17):** 17/17 passing (509s total, ~30s per test)
+**Test results (v10.19.2):** 30/30 passing
 
 ### Bug Fixes (v10.16.1-v10.16.2)
 - `Console.KeyAvailable` guard — throws `InvalidOperationException` when no real console (test mode, redirected input). Wrapped in try/catch.
@@ -254,9 +257,16 @@ dotnet run -- --test --model /path.gguf # Override model
 ## Git Tags (Session 2026-08-13)
 
 ```
-pre-mac            — Pre-migration checkpoint (v10.15.8, Windows-only)
-mac-safe           — Cross-platform, Mac-tested (v10.16.0)
-v10.17-safe        — Two-phase planning + test framework (v10.17.0) ← CURRENT
+v10.19.2-safe      — All artifacts in working dir, OS-aware BgProcessMgr ← CURRENT
+v10.19.1-notification-events — Event-driven notification display
+v10.19-background-agents    — Background sub-agents + notification system
+v10.18.1-error-handling     — Sub-agent structured errors, retry, resource limits
+v10.18-subagent             — Sub-agent system with shared model weights
+v10.17.2-enhanced           — Tool fixes, error recovery tests, CI, StepMapper dedup
+v10.17.1-parallel-audited   — Parallel multi-tool tested and audited
+v10.17-safe                 — Two-phase planning + test framework
+pre-mac                     — Pre-migration checkpoint (v10.15.8, Windows-only)
+mac-safe                    — Cross-platform, Mac-tested (v10.16.0)
 
 Previous session tags:
 v10.12.20-working  — Centralized truncation
@@ -266,4 +276,57 @@ v10.11.1-working   — ESC stop fix
 v10.9.4-working    — Pre-<lm> baseline
 ```
 
-**Status:** v10.17.0 — Two-phase planning (decompose → map → execute), automated test framework (17/17 tests passing), cross-platform (Windows + macOS). StepMapper eliminates sub-task advancement heuristics. EGuiTestHarness enables non-interactive testing. Ready for production testing on both platforms.
+## What's New (v10.18 — Sub-Agent System)
+
+### Sub-Agent System (v10.18)
+- `SubAgentManager` — spawns isolated child agents sharing the same GGUF model on disk
+- Each sub-agent gets its own `EAgentEngine` with 4096 context, 7 tools, own KV cache
+- `ESubAgentTool` — LLM calls via `<toolcall>ESubAgent<task>...</task></toolcall>`
+- Sub-agents run autonomously (up to 5 turns), return result to main agent
+- Parallel sub-agent spawning supported (multiple ESubAgent toolcalls in one `<lm>`)
+
+### Sub-Agent Error Handling (v10.18.1)
+- Structured errors: `SubAgentError` with kind, message, attempted action, successful/failed actions
+- Resource limits: `MaxToolCalls` (20), `MaxDiskBytes` (50MB), `MaxRetries` (1)
+- Cancellation support via `CancellationTokenSource`
+- Partial results returned on failure
+
+## What's New (v10.19 — Background Agents + Notifications)
+
+### Background Sub-Agents (v10.19)
+- `BackgroundSubAgent` — long-lived, event-driven async agents running concurrently with main
+- Event loop: Wait → Process → Notify → Wait
+- Poll-based events (shell command at intervals) + external events (PushEvent)
+- State machine: Created → Running → (Waiting ↔ Processing)* → Stopped/Failed
+- `EDispatchTool` — main agent manages background agents: spawn/stop/stop_all/status/notify
+- `ENotifyTool` — background agents push notifications to main
+- `NotificationQueue` — thread-safe channel, priority levels (Info/Warning/Critical)
+
+### Notification Display — 3 Phases (v10.19.1)
+1. During generation: `NotificationQueue.Push` writes to console immediately
+2. Between turns: `Orchestrator.DrainNotifications` at turn start
+3. During idle: `PromptWithNotifications` monitors queue while `Console.ReadLine` blocks
+
+## What's New (v10.19.2 — All Artifacts in Working Directory)
+
+### Problem
+Test sandboxes, temp scripts, sub-agent dirs, and test logs were scattered:
+- `~/ECAssistant-Tests/` — test sandboxes
+- `/tmp/eca-subagent/` — sub-agent working dirs
+- `/tmp/eca-bgagent/` — background agent working dirs
+- `/tmp/` — shell temp scripts, BackgroundProcessManager temp scripts
+- `/tmp/eca_*.log` — historical test logs
+
+### Solution
+Everything now goes inside `~/ECAssistant/`:
+- Test sandboxes → `~/ECAssistant/tests/`
+- Test logs → `~/ECAssistant/logs/`
+- Shell temp scripts → `~/ECAssistant/.tmp/`
+- Sub-agent working dirs → `~/ECAssistant/.subagents/`
+- Background agent working dirs → `~/ECAssistant/.bgagents/`
+
+`BackgroundProcessManager` also made OS-aware (was Windows-only `powershell.exe`, now uses `/bin/zsh` on Mac with proper temp script handling).
+
+Existing files moved from old locations into `~/ECAssistant/`.
+
+**Status:** v10.19.2 — All artifacts in working directory, 10 tools, sub-agents, background agents with notifications, 30/30 tests passing. Cross-platform (Windows + macOS). Ready for production testing on both platforms.

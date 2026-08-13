@@ -74,7 +74,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
      /// <summary>v10.18: Initialize sub-agent support. Creates SubAgentManager and registers ESubAgent tool.</summary>
      public void InitializeSubAgents(string defaultWorkingDir)
      {
-         _subAgentManager = new SubAgentManager(_engine);
+         _subAgentManager = new SubAgentManager(_engine, defaultWorkingDir);
          _engine.RegisterTool(new Tools.SubAgent.ESubAgentTool(_subAgentManager, defaultWorkingDir));
          _toolWhitelist.Add("ESubAgent");
          _toolPolicy.SetPermission("ESubAgent", ToolPermissionLevel.Allowed, "Sub-agent spawning");
@@ -85,7 +85,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
      public void InitializeBackgroundAgents(string defaultWorkingDir)
      {
          _notificationQueue = new NotificationQueue();
-         _bgAgentManager = new BackgroundAgentManager(_engine, _notificationQueue);
+         _bgAgentManager = new BackgroundAgentManager(_engine, _notificationQueue, defaultWorkingDir);
          _engine.RegisterTool(new Tools.Dispatch.EDispatchTool(_bgAgentManager));
          _toolWhitelist.Add("EDispatch");
          _toolPolicy.SetPermission("EDispatch", ToolPermissionLevel.Allowed, "Background agent dispatch");

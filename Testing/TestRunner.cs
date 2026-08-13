@@ -112,13 +112,14 @@ public sealed class TestRunner : IAsyncDisposable
 
     /// <summary>Create a test runner with the given model path.</summary>
     /// <param name="modelPath">Absolute path to the GGUF model file.</param>
-    /// <param name="testRootDir">Root directory for test sandboxes (default: ~/ECAssistant-Tests).</param>
+    /// <param name="testRootDir">Root directory for test sandboxes (default: ~/ECAssistant/tests/).</param>
     public TestRunner(string modelPath, string? testRootDir = null)
     {
         _modelPath = modelPath;
+        // v10.19.2: All test artifacts stay inside the working directory (~/ECAssistant/tests/)
         _testRootDir = testRootDir ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            "ECAssistant-Tests");
+            "ECAssistant", "tests");
         Directory.CreateDirectory(_testRootDir);
     }
 

@@ -24,13 +24,20 @@ public class BackgroundProcessManager : IDisposable
     public async Task<string> StartAsync(string command, string workingDirectory, int timeoutSeconds = 300)
     {
         var id = $"bg-{++_counter}";
-        var tempScript = Path.Combine(Path.GetTempPath(), $"ecagent_bg_{id}.ps1");
+        // v10.19.2: Temp scripts inside working dir, not OS temp. OS-aware.
+        var tempDir = Path.Combine(workingDirectory, ".tmp");
+        Directory.CreateDirectory(tempDir);
+        var isWindows = OperatingSystem.IsWindows();
+        var ext = isWindows ? ".ps1" : ".sh";
+        var tempScript = Path.Combine(tempDir, $"ecagent_bg_{id}{ext}");
         await File.WriteAllTextAsync(tempScript, command);
 
         var psi = new ProcessStartInfo
         {
-            FileName = "powershell.exe",
-            Arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{tempScript}\"",
+            FileName = isWindows ? "powershell.exe" : "/bin/zsh",
+            Arguments = isWindows
+                ? $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{tempScript}\""
+                : $"-c \"{command}\"",
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,

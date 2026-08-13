@@ -20,7 +20,8 @@ public class SubAgentTask
     public string Prompt { get; set; } = "";
     public string WorkingDir { get; set; } = "";
     public List<string> AllowedTools { get; set; } = new();
-    public uint ContextSize { get; set; } = 4096;
+    /// <summary>Context window size for the sub-agent. Default matches the main model's config.</summary>
+    public uint ContextSize { get; set; } = 16384;
     public int MaxTurns { get; set; } = 5;
     public int TimeoutSeconds { get; set; } = 120;
 
@@ -175,6 +176,7 @@ public sealed class SubAgentManager : IDisposable
     private readonly EAgentEngine _mainEngine;
     private readonly string _modelPath;
     private readonly int _gpuLayers;
+    private readonly int _threadCount;
     private readonly InferenceParams _inferenceParams;
     private readonly EAgentConfig _config;
     private readonly ConcurrentDictionary<string, ActiveSubAgent> _activeSubAgents = new();
@@ -185,6 +187,9 @@ public sealed class SubAgentManager : IDisposable
 
     /// <summary>Maximum concurrent sub-agents.</summary>
     public int MaxConcurrent { get; set; } = 3;
+
+    /// <summary>Default context size for sub-agents — matches the main model's configured context size.</summary>
+    public uint DefaultContextSize { get; set; } = 16384;
 
     /// <summary>All currently active sub-agent handles (for monitoring/cancellation).</summary>
     public IReadOnlyDictionary<string, ActiveSubAgent> ActiveAgents => _activeSubAgents;
@@ -197,7 +202,9 @@ public sealed class SubAgentManager : IDisposable
         var configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "appsettings.json");
         _config = File.Exists(configPath) ? EAgentConfig.Load(configPath) : new EAgentConfig();
         _modelPath = _config.Llm.ModelPath;
-        _gpuLayers = 15;
+        _gpuLayers = _config.Llm.GpuLayers;
+        DefaultContextSize = _config.Llm.ContextSize;
+        _threadCount = _config.Llm.Threads;
 
         _inferenceParams = new InferenceParams
         {
@@ -395,7 +402,7 @@ public sealed class SubAgentManager : IDisposable
                 modelPath: _modelPath,
                 contextSize: task.ContextSize,
                 gpuLayers: _gpuLayers,
-                threadCount: -1,
+                threadCount: _threadCount,
                 inferenceParams: _inferenceParams,
                 workingDir: workingDir);
 

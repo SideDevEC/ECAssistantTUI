@@ -74,6 +74,10 @@ You have multiple tools. Pick the RIGHT one for each job:
 - **EDotnetBuild** for building/testing — returns structured errors (file, line, error code) that are easy to fix
 - **EShellAgent** for everything else (file ops, git, npm, running scripts)
 
+### When to use ECodeEditor vs EShellAgent for file creation:
+- **ECodeEditor(action=create)** for creating files with specific content — cross-platform safe, no quoting issues
+- **EShellAgent** for file operations that don't involve writing specific content (list, copy, move, delete)
+
 ### When to use EWebSearch:
 - You need documentation or examples not in local files
 - You need to look up an error code or API

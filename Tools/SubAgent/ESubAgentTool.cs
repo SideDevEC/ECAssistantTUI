@@ -41,7 +41,7 @@ public class ESubAgentTool : EToolBase
         "<task>=description of what the sub-agent should do (required). " +
         "<working_dir>=override working directory (optional). " +
         "<tools>=comma-separated tool names to allow (optional, empty=all). " +
-        "<context_size>=context window size (optional, default 4096). " +
+        "<context_size>=context window size (optional, defaults to main model config). " +
         "<max_turns>=max turns for sub-agent (optional, default 5). " +
         "<timeout>=timeout in seconds (optional, default 120). " +
         "<max_retries>=auto-retry attempts on failure (optional, default 1). " +
@@ -64,7 +64,7 @@ public class ESubAgentTool : EToolBase
             ? new List<string>()
             : toolsStr.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
 
-        uint contextSize = 4096;
+        uint contextSize = _manager.DefaultContextSize;
         if (uint.TryParse(arguments.GetValueOrDefault("context_size"), out var cs))
             contextSize = cs;
 

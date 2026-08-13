@@ -127,7 +127,8 @@ Rules:
 1. Map EACH step to exactly one tool call.
 2. If multiple steps use the same tool with similar args, COMBINE them into one call (e.g., shell commands with semicolons).
 3. If a step doesn't need a tool (e.g., just answering a question), skip it.
-4. Output ONLY a <plan> block. No thinking, no explanation.
+4. For file creation with specific content, prefer ECodeEditor(action=create) over shell echo/redirect -- it is cross-platform safe and avoids quoting issues.
+5. Output ONLY a <plan> block. No thinking, no explanation.
 
 Format:
 <plan>
@@ -249,6 +250,28 @@ Combine steps into one call when possible (e.g., batch shell commands).
         {
             Logger.Info("StepMapper", $"Deduplicated: {plan.Calls.Count} → {deduped.Count} calls");
             plan.Calls = deduped;
+        }
+
+        // v10.19.4: Validate EShellAgent commands -- detect method-call syntax (e.g. CreateFile("..."))
+        // that won't work in any shell. Invalidate plan so LLM falls back to ad-hoc tool selection.
+        foreach (var call in plan.Calls)
+        {
+            if (!call.ToolName.Equals("EShellAgent", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (!call.Args.TryGetValue("command", out var cmd) || string.IsNullOrEmpty(cmd))
+                continue;
+            // Simple heuristic: "Word(" followed by a quote is method-call syntax, not shell
+            // Exclude: $( ... ) command substitution
+            if (cmd.Contains("(") && cmd.Contains(")") && !cmd.Contains("$(")
+                && cmd.Contains("\"") && cmd.IndexOf("(") > 0
+                && char.IsLetterOrDigit(cmd[cmd.IndexOf("(") - 1]))
+            {
+                Logger.Warn("StepMapper", $"Invalid shell syntax in plan (method-call notation), falling back to ad-hoc");
+                plan.IsValid = false;
+                plan.Error = "Plan contains invalid shell syntax (method-call notation)";
+                plan.Calls.Clear();
+                return plan;
+            }
         }
 
         // Validate: every sub-task should be covered

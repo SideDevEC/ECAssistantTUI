@@ -183,24 +183,18 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
     //  UI OUTPUT METHODS — the session is the UI gateway
     // ═══════════════════════════════════════════════════
 
-    /// <summary>Append a raw token to the stream buffer (no flush, no file I/O).</summary>
+    /// <summary>
+    /// Append a raw token to the stream buffer (no flush, no file I/O).
+    /// Also push to attached UI for real-time streaming (Console.Write doesn't block).
+    /// </summary>
     public void WriteRaw(string token)
     {
         lock (_bufferLock)
         {
             _streamBuffer.Append(token);
 
-            // If UI is attached, push raw token in real-time
             if (_attachedUi != null)
             {
-                // For raw tokens, we don't create an OutputEntry — just let the UI render
-                // The UI handles raw token rendering (streaming display)
-                // We only notify on flush, so raw tokens during streaming go to UI
-                // via the flush that happens on state change or WriteLine
-                // Actually — for real-time streaming, we need to push tokens live.
-                // The UI can handle this with a lightweight notification.
-                // For now, we push via OnOutput with type="raw_token" so the UI can
-                // render it immediately without waiting for a flush.
                 try
                 {
                     _attachedUi.OnOutput(new OutputEntry

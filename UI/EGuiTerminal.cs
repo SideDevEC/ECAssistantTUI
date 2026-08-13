@@ -35,6 +35,13 @@ public sealed class EGuiTerminal : EGuiBase
     private readonly object _outputLock = new();
     private readonly System.Text.StringBuilder _outputBuffer = new();
 
+    // Throttled UI update — accumulate text, flush to MainLoop every 50ms
+    private System.Text.StringBuilder _pendingText = new();
+    private DateTime _lastUiFlush = DateTime.MinValue;
+    private const int UiFlushIntervalMs = 50;
+    private Timer? _flushTimer;
+    private bool _flushScheduled = false;
+
     // Callback for when user submits input
     public Func<string, Task>? OnInputSubmitted { get; set; }
 
@@ -145,22 +152,57 @@ public sealed class EGuiTerminal : EGuiBase
 
     // ── Thread-safe output writing ──
 
-    /// <summary>Append text to the output view (thread-safe via MainLoop).</summary>
+    /// <summary>Append text to the output view (thread-safe, throttled).
+    /// Accumulates text in _pendingText and schedules a MainLoop flush every 50ms.
+    /// This prevents flooding the event loop with thousands of per-token invokes.
+    /// </summary>
     private void AppendOutput(string text)
     {
         if (string.IsNullOrEmpty(text)) return;
 
-        Application.MainLoop?.Invoke(() =>
+        lock (_outputLock)
         {
-            if (_outputView == null) return;
+            _pendingText.Append(text);
+            ScheduleFlush();
+        }
+    }
 
-            // Append text to the TextView
-            _outputView.Text = _outputView.Text + text;
+    /// <summary>Schedule a throttled flush to the MainLoop. Only one flush is
+    /// scheduled at a time; subsequent calls just add to _pendingText.</summary>
+    private void ScheduleFlush()
+    {
+        if (_flushScheduled) return;
+        _flushScheduled = true;
 
-            // Auto-scroll to bottom — move cursor to end
-            var len = _outputView.Text.Length;
-            _outputView.CursorPosition = new Point(0, len);
-        });
+        _flushTimer = new Timer(_ =>
+        {
+            Application.MainLoop?.Invoke(() =>
+            {
+                string textToWrite;
+                lock (_outputLock)
+                {
+                    textToWrite = _pendingText.ToString();
+                    _pendingText.Clear();
+                    _flushScheduled = false;
+                }
+
+                if (_outputView == null || string.IsNullOrEmpty(textToWrite)) return;
+
+                // Append text to TextView — ustring doesn't support + operator with string
+                var currentText = _outputView.Text.ToString() ?? "";
+                var combined = currentText + textToWrite;
+                _outputView.Text = combined;
+
+                // Auto-scroll to bottom — scroll to the last line
+                // TextView uses row-based scrolling, not character offset
+                var lines = combined.Split('\n');
+                if (lines.Length > 0)
+                {
+                    _outputView.CursorPosition = new Point(0, Math.Max(0, lines.Length - 1));
+                    _outputView.ScrollTo(lines.Length - 1);
+                }
+            });
+        }, null, UiFlushIntervalMs, Timeout.Infinite);
     }
 
     // ── EGuiBase implementation ──

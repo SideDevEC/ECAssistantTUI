@@ -1,4 +1,3 @@
-using Terminal.Gui;
 using static ECAssistant.EColor;
 
 using ECAssistant.Config;
@@ -37,10 +36,9 @@ public class Program
                  }
 
                  // ── UI initialisation — single line, swap anywhere ──
-             // v10.21: Terminal.Gui-based UI — no console sync issues, free last line for input
-            var termGui = new EGuiTerminal();
-            termGui.Init("ECAssistant v10.21");
-            Gui = termGui;
+            // v10.21.1: Reverted to EGuiConsole — Terminal.Gui caused distortion and freezing.
+            // EGuiConsole uses ReadKey-based input (non-blocking) for the free input line.
+            Gui = new EGuiConsole();
 
             // ── Initialize structured logging (P2) ──
             var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "ECAssistant.log");
@@ -162,7 +160,7 @@ public class Program
                     string activeKey = await sessionManager.LoadSessionsFromDiskAsync(async (session) =>
                     {
                         loading.UpdateLabel($"Initializing session '{session.Key}'");
-                        await InitSessionAsync(session, effectiveDir, bgMgr, userConfigDir, termGui);
+                        await InitSessionAsync(session, effectiveDir, bgMgr, userConfigDir);
                     });
 
                     loading.Stop();
@@ -172,14 +170,8 @@ public class Program
                     EColor.TagBold(EColor.Success(), "Ready", $"Active session: {activeKey} ({sessionManager.List().Count} total)");
                     Gui.BlankLine();
 
-                   // v10.21: Terminal.Gui event loop — input comes from TextField, not PromptRaw
-                    termGui.OnInputSubmitted = async (input) =>
-                    {
-                        await ProcessInputAsync(input, activeSession, sessionManager, effectiveDir, bgMgr, fileWatcher, termGui);
-                    };
-                    termGui.SetSessionName(activeSession.Key);
-                    termGui.FocusInput();
-                    termGui.Run(); // blocks until Application.RequestStop()
+                   // v10.21.1: Simple console input loop — PromptRaw uses ReadKey (non-blocking)
+                    await RunAgentLoop(activeSession, sessionManager, effectiveDir, bgMgr, fileWatcher);
                         }
             else
                      {
@@ -326,10 +318,10 @@ public class Program
     /// Called for each session during startup loading.
     /// </summary>
     private static async Task InitSessionAsync(AgentSession session, string workingDir,
-        BackgroundProcessManager bgMgr, string userConfigDir, EGuiTerminal termGui)
+        BackgroundProcessManager bgMgr, string userConfigDir)
     {
         // ── Attach UI renderer to the session ──
-        var uiRenderer = new TerminalGuiRenderer(termGui);
+        var uiRenderer = new ConsoleUiRenderer();
         session.AttachUi(uiRenderer);
 
         // ── Vector Memory (semantic search) ──
@@ -399,7 +391,7 @@ public class Program
     }
 
 /// <summary>
-    /// Process a single user input (command or prompt). Called by the Terminal.Gui TextField KeyPress handler.
+    /// Process a single user input (command or prompt). Called by the console input loop.
     /// </summary>
     private static async Task ProcessInputAsync(
         string input,
@@ -407,8 +399,7 @@ public class Program
         SessionManager sessionManager,
         string workingDir,
         BackgroundProcessManager bgMgr,
-        FileWatcherService fileWatcher,
-        EGuiTerminal termGui)
+        FileWatcherService fileWatcher)
     {
         var agent = activeSession.Engine;
         var orchestrator = activeSession.Orchestrator;
@@ -422,7 +413,6 @@ public class Program
                 EColor.TagBold(EColor.Info(), "Bye", "Goodbye.");
                 Gui.BlankLine();
                 await sessionManager.StopAllAsync();
-                Application.RequestStop();
                 return;
             case "help": await PrintHelp(); return;
             case "tools": ListTools(agent); return;
@@ -461,6 +451,45 @@ public class Program
         if (activeSessionForPrompt != null)
         {
             activeSessionForPrompt.Prompt(input);
+        }
+    }
+
+
+    /// <summary>
+    /// Simple console input loop — uses Gui.PromptRaw (ReadKey-based, non-blocking).
+    /// Replaces the Terminal.Gui event loop. Output from sessions goes to Console.Write
+    /// via ConsoleUiRenderer, input comes from PromptRaw on the main thread.
+    /// </summary>
+    private static async Task RunAgentLoop(
+        AgentSession activeSession,
+        SessionManager sessionManager,
+        string workingDir,
+        BackgroundProcessManager bgMgr,
+        FileWatcherService fileWatcher)
+    {
+        Gui.BlankLine();
+        EColor.TagBold(Cyan, "ECLoop", "Type your request (help | quit)");
+        Gui.WriteLine("===========================================");
+        EColor.TagBold(EColor.Info(), "Mode", "The agent decides tools automatically.");
+        Gui.BlankLine();
+
+        while (true)
+        {
+            var input = Gui.PromptRaw(Cyan + "> " + Reset)?.Trim();
+            if (string.IsNullOrEmpty(input)) continue;
+
+            await ProcessInputAsync(input, activeSession, sessionManager, workingDir, bgMgr, fileWatcher);
+
+            // Check if active session changed (e.g. session switch)
+            var currentActive = sessionManager.ActiveSession;
+            if (currentActive != null && currentActive != activeSession)
+            {
+                activeSession = currentActive;
+            }
+
+            // If quit was requested, active session will be stopped
+            if (activeSession.RunState == SessionRunState.Stopping)
+                return;
         }
     }
 

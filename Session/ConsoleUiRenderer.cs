@@ -1,19 +1,24 @@
 using static ECAssistant.EColor;
+using ECAssistant.UI;
 
 namespace ECAssistant.Session;
 
 /// <summary>
 /// Console-based IUiRenderer implementation.
 ///
-/// Attaches to a session and renders output to the console in real-time.
-/// Maps OutputState → ANSI colors for the console.
-///
-/// This is the bridge between the session (which produces output entries)
-/// and the console (which displays them). The session doesn't know about
-/// colors — this renderer maps states to colors.
+/// Routes session output through EGuiConsole (which handles ANSI scroll region
+/// cursor management). Without this routing, Console.Write would bypass the
+/// scroll region and garble the input line.
 /// </summary>
 public class ConsoleUiRenderer : IUiRenderer
 {
+    private readonly EGuiBase _gui;
+
+    public ConsoleUiRenderer(EGuiBase gui)
+    {
+        _gui = gui;
+    }
+
     /// <summary>Map output states to ANSI color codes for the console.</summary>
     private static string StateToColor(OutputState state) => state switch
     {
@@ -47,9 +52,8 @@ public class ConsoleUiRenderer : IUiRenderer
         switch (entry.Type)
         {
             case "raw_token":
-                // Raw token from streaming — write inline, no newline
-                Console.Write(entry.Text);
-                Console.Out.Flush(); // v10.21: Flush after each token for real-time streaming
+                // No longer sent — tokens batch in session _streamBuffer
+                // and arrive as "stream" entries on flush
                 break;
 
             case "stream":
@@ -57,7 +61,7 @@ public class ConsoleUiRenderer : IUiRenderer
                 if (!string.IsNullOrEmpty(entry.Text))
                 {
                     var color = StateToColor(entry.State);
-                    Console.WriteLine(color + entry.Text + Reset);
+                    _gui.WriteLineColored(color + entry.Text + Reset);
                 }
                 break;
 
@@ -65,16 +69,16 @@ public class ConsoleUiRenderer : IUiRenderer
                 // Discrete line
                 if (string.IsNullOrEmpty(entry.Text))
                 {
-                    Console.WriteLine(); // blank line
+                    _gui.BlankLine();
                 }
                 else
                 {
                     var color = StateToColor(entry.State);
                     var tag = StateToTag(entry.State);
                     if (tag != null)
-                        Console.WriteLine($"{color}[{tag}] {entry.Text}{Reset}");
+                        _gui.WriteLineColored($"{color}[{tag}] {entry.Text}{Reset}");
                     else
-                        Console.WriteLine($"{color}{entry.Text}{Reset}");
+                        _gui.WriteLineColored($"{color}{entry.Text}{Reset}");
                 }
                 break;
         }
@@ -82,23 +86,20 @@ public class ConsoleUiRenderer : IUiRenderer
 
     public void OnQueueChanged(List<string> queue)
     {
-        // UI can show queue count — handled by the UI loop, not here
-        // to avoid spamming the console. The UI loop polls queue on demand.
+        // Queue display handled by UI loop — not here to avoid console spam
     }
 
     public void OnStateChanged(SessionRunState state)
     {
-        // UI can show state changes — handled by the UI loop for display
-        // to avoid interrupting the console mid-output. The UI loop polls state.
+        // State display handled by UI loop
     }
 
     /// <summary>
     /// Render a full output history (from JSONL file) to the console.
     /// Used when switching to a session to display its complete history.
     /// </summary>
-    public static void RenderHistory(List<OutputEntry> entries)
+    public static void RenderHistory(EGuiBase gui, List<OutputEntry> entries)
     {
-        Console.Clear(); // clear previous session's display
         foreach (var entry in entries)
         {
             switch (entry.Type)
@@ -107,26 +108,24 @@ public class ConsoleUiRenderer : IUiRenderer
                     if (!string.IsNullOrEmpty(entry.Text))
                     {
                         var color = StateToColor(entry.State);
-                        Console.WriteLine(color + entry.Text + Reset);
+                        gui.WriteLineColored(color + entry.Text + Reset);
                     }
                     break;
 
                 case "line":
                     if (string.IsNullOrEmpty(entry.Text))
-                        Console.WriteLine();
+                        gui.BlankLine();
                     else
                     {
                         var color = StateToColor(entry.State);
                         var tag = StateToTag(entry.State);
                         if (tag != null)
-                            Console.WriteLine($"{color}[{tag}] {entry.Text}{Reset}");
+                            gui.WriteLineColored($"{color}[{tag}] {entry.Text}{Reset}");
                         else
-                            Console.WriteLine($"{color}{entry.Text}{Reset}");
+                            gui.WriteLineColored($"{color}{entry.Text}{Reset}");
                     }
                     break;
 
-                // Skip raw_token entries in history — they were already
-                // accumulated into "stream" entries via the buffer flush
                 case "raw_token":
                     break;
             }

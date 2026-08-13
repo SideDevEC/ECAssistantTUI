@@ -3,7 +3,7 @@ namespace ECAssistant;
 /// <summary>Simple ANSI-based console coloring for ECAssistant.</summary>
 public static class EColor
 {
-        // Color constants — const fields accessible via EColor.Cyan everywhere in namespace
+    // Color constants — const fields accessible via EColor.Cyan everywhere in namespace
     public const string Reset      = "\x1b[0m";
     public const string Bold       = "\x1b[1m";
     public const string Dim        = "\x1b[2m";
@@ -17,7 +17,7 @@ public static class EColor
     public const string Cyan      = "\x1b[36m";
     public const string White    = "\x1b[37m";
 
-        // Variant helpers — returns combo of color + bold for readability
+    // Variant helpers — returns combo of color + bold for readability
     public static string Cfg()          => Yellow;
     public static string Info()         => Cyan;
     public static string Success()      => Green;
@@ -27,12 +27,29 @@ public static class EColor
     public static string ToolCall()     => Magenta;
     public static string Token()        => Dim;
 
-        // Print colored text. Always writes with color.
+    // ── Output redirect ──
+    // v10.21.2: Route EColor output through a delegate so EGuiConsole can
+    // intercept it for ANSI scroll region cursor management.
+    // Default: Console.WriteLine/Write (fallback when no UI is set)
+
+    public static Action<string>? WriteHandler { get; set; }
+    public static Action<string>? WriteLineHandler { get; set; }
+
     public static void Write(string color, string text)
-           { Console.Write(color + text + "\x1b[0m"); }
+    {
+        if (WriteHandler != null)
+            WriteHandler(color + text + Reset);
+        else
+            Console.Write(color + text + Reset);
+    }
 
     public static void WriteLine(string color, string text)
-           { Console.WriteLine(color + text + "\x1b[0m"); }
+    {
+        if (WriteLineHandler != null)
+            WriteLineHandler(color + text + Reset);
+        else
+            Console.WriteLine(color + text + Reset);
+    }
 
     public static void Tag(string tagColor, string tag, string msg)
            => WriteLine(tagColor, $"[{tag}] {msg}");

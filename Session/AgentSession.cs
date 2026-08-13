@@ -184,29 +184,15 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
     // ═══════════════════════════════════════════════════
 
     /// <summary>
-    /// Append a raw token to the stream buffer (no flush, no file I/O).
-    /// Also push to attached UI for real-time streaming (Console.Write doesn't block).
+    /// Append a raw token to the stream buffer. No UI push — tokens accumulate
+    /// and are flushed to the UI as a batch "stream" entry when WriteLine() is
+    /// called or state changes. This prevents per-token cursor repositioning issues.
     /// </summary>
     public void WriteRaw(string token)
     {
         lock (_bufferLock)
         {
             _streamBuffer.Append(token);
-
-            if (_attachedUi != null)
-            {
-                try
-                {
-                    _attachedUi.OnOutput(new OutputEntry
-                    {
-                        Type = "raw_token",
-                        Text = token,
-                        State = _currentState,
-                        Ts = DateTime.UtcNow.ToString("O")
-                    });
-                }
-                catch { }
-            }
         }
     }
 

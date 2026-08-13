@@ -36,9 +36,12 @@ public class Program
                  }
 
                  // ── UI initialisation — single line, swap anywhere ──
-            // v10.21.1: Reverted to EGuiConsole — Terminal.Gui caused distortion and freezing.
-            // EGuiConsole uses ReadKey-based input (non-blocking) for the free input line.
+            // v10.21.2: EGuiConsole with ANSI scroll region — output scrolls above, input fixed at bottom
+            EGuiConsole.InitConsole();
             Gui = new EGuiConsole();
+            // Route EColor output through Gui for scroll region cursor management
+            EColor.WriteLineHandler = (s) => Gui.WriteLineColored(s);
+            EColor.WriteHandler = (s) => Gui.WriteRaw(s);
 
             // ── Initialize structured logging (P2) ──
             var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "ECAssistant.log");
@@ -321,7 +324,7 @@ public class Program
         BackgroundProcessManager bgMgr, string userConfigDir)
     {
         // ── Attach UI renderer to the session ──
-        var uiRenderer = new ConsoleUiRenderer();
+        var uiRenderer = new ConsoleUiRenderer(Gui);
         session.AttachUi(uiRenderer);
 
         // ── Vector Memory (semantic search) ──

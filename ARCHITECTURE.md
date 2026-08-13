@@ -1,4 +1,4 @@
-# ECAssistant Architecture (v10.21 — 2026-08-13)
+# ECAssistant Architecture (v10.21.1 — 2026-08-13)
 
 **Summary:** A local, offline AI agent in C# .NET 8 using LLamaSharp. Runs GGUF models locally with no external API calls. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags (`<thinking>`, `<toolcall>`, `<output>`). 8 registered tools self-register their rules at runtime. Multi-step autonomous loops with dual memory (keyword + TF-IDF vector), sliding context windows with LLM summarization, self-correction with failure loop detection and file rollback, project context awareness with dependency graph, two-phase task planning (decompose → map → execute), surgical code editing, background process management, file watching, structured logging, and sub-agent system with shared model weights. Token-optimized for 8B models. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.16: Cross-platform (Windows + macOS). v10.17: StepMapper (two-phase planning), automated test framework. v10.18: Sub-agent system. v10.19.2: All artifacts in working directory. v10.20: Fully isolated multi-session architecture — each session has own engine, KV cache, tools, memory, output buffer, and prompt queue. Sessions share one model in RAM with serialized inference. File-based JSONL output buffer with output states (not colors). Session is the UI gateway — all components route output through ISessionOutput. No inter-session communication (tool-level concern for later). v10.21: Shared model weights (one GGUF load via `LLamaWeights` shared across sessions, each gets own `LLamaContext`/KV cache). Terminal.Gui TUI replaces raw console — scrollable output view + always-free input field + status bar. Session discovery from disk with animated loading indicator. Native llama.cpp C++ log redirect to file (clean console).
 
@@ -17,7 +17,7 @@
 - **Working Directory:** `~/ECAssistant/` (ALL disk writes — logs, tests, temp scripts, sub-agent dirs, background agent dirs — v10.19.2)
 - **Context:** 16384 tokens, max_tokens 2048, auto-summarize at 50%
 - **Repo:** `github.com/LLamaDudeX/ECAssistant.git` (branch: `main`)
-- **UI:** Terminal.Gui v1.9.0 (MIT) — scrollable output view + always-free input field + status bar (v10.21)
+- **UI:** EGuiConsole with ReadKey-based non-blocking input (v10.21.1 — Terminal.Gui reverted)
 
 ## 📦 `<lm>` Container Tag System (v10.15.2)
 

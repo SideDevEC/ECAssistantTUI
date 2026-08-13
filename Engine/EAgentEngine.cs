@@ -813,13 +813,13 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
     }
 
       /// <summary>Remove the last assistant response from history (for format retries).</summary>
-     // v10.14: Full cache rebuild on format retry instead of state rewind.
-     // The old LoadState approach corrupted the KV cache because _savedStateBeforeGen
-     // was captured AFTER the incremental input tokens were already fed. Rewinding
-     // to that state left stale input tokens in the cache, and the next GenerateAsync
-     // would feed new tokens on top, causing llama_decode invalidInputBatch errors.
-     // Full rebuild guarantees a clean KV cache. Conversation history is re-fed from
-     // the context window so the LLM retains full context.
+     // v10.15: Hybrid approach — fast LoadState rewind as default, full rebuild as fallback.
+     // _savedStateBeforeGen is captured BEFORE InferAsync feeds the incremental input,
+     // so LoadState should give a clean state without the input tokens. If LoadState
+     // fails or has been failing repeatedly, fall back to full ResetAndRebuildCacheAsync.
+     private int _consecutiveRewindFailures = 0;
+     private const int MaxRewindFailures = 2;  // After this, force full rebuild
+
      public async Task RemoveLastAssistantResponseAsync()
      {
          _contextWindow.RemoveLastAssistantMessage();
@@ -833,61 +833,83 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
              }
          }
 
-         // Full KV cache rebuild — guaranteed clean state
-         await ResetAndRebuildCacheAsync();
-
-         // Re-feed conversation history from context window into the fresh KV cache.
-         // The static prefix (system prompt + tools) is already re-prefilled by
-         // ResetAndRebuildCacheAsync. We need to feed all dynamic conversation messages
-         // so the LLM has context.
-         var messages = _contextWindow.GetWindowMessages();
-         if (messages.Count > 0)
+         // v10.15: Try fast LoadState rewind first (default path)
+         bool rewindOK = false;
+         if (_consecutiveRewindFailures < MaxRewindFailures && _savedStateBeforeGen != null && _executor != null)
          {
-             EColor.TagBold(EColor.Info(), "KVCache", $"Re-feeding {messages.Count} conversation messages into rebuilt cache...");
-             var historySb = new StringBuilder();
-             foreach (var msg in messages)
+             try
              {
-                 switch (msg.Role)
-                 {
-                     case "user":
-                         historySb.AppendLine("<user>");
-                         historySb.AppendLine(msg.Content);
-                         historySb.AppendLine("</user>");
-                         break;
-                     case "assistant":
-                         historySb.AppendLine("<assistant><llm>");
-                         historySb.AppendLine(msg.Content);
-                         historySb.AppendLine("</llm></assistant>");
-                         break;
-                     case "tool_output":
-                         historySb.AppendLine($"<tooloutput>{msg.Source}<result>");
-                         historySb.AppendLine(msg.Content);
-                         historySb.AppendLine("</result></tooloutput>");
-                         break;
-                     case "system":
-                         historySb.AppendLine($"<system>{msg.Content}</system>");
-                         break;
-                 }
+                 _executor.LoadState(_savedStateBeforeGen);
+                 rewindOK = true;
+                 _consecutiveRewindFailures = 0;  // reset on success
+                 EColor.TagBold(EColor.Info(), "KVCache", "Rewound to pre-generation state (format retry, fast path).");
              }
-
-             // Feed the conversation history into the executor (prefill only)
-             if (historySb.Length > 0 && _executor != null)
+             catch (Exception ex)
              {
-                 try
-                 {
-                     using var feedCts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-                     await foreach (var _ in _executor.InferAsync(historySb.ToString(), _inferenceParams, feedCts.Token))
-                         break; // Just prefill, do not generate
-                 }
-                 catch (OperationCanceledException)
-                 {
-                     EColor.TagBold(EColor.Warn(), "KVCache", "History re-feed timed out (60s) — continuing anyway.");
-                 }
-                 EColor.TagBold(EColor.Success(), "KVCache", $"Re-fed {messages.Count} messages ({historySb.Length} chars) into cache.");
+                 _consecutiveRewindFailures++;
+                 Logger.Warn("KVCache", $"LoadState rewind failed (attempt {_consecutiveRewindFailures}/{MaxRewindFailures}): {ex.Message}");
              }
          }
 
-         EColor.TagBold(EColor.Success(), "KVCache", "Cache rebuilt for format retry.");
+         // Fallback: full KV cache rebuild
+         if (!rewindOK)
+         {
+             EColor.TagBold(EColor.Warn(), "KVCache", _consecutiveRewindFailures >= MaxRewindFailures
+                 ? $"Rewind failed {_consecutiveRewindFailures}x — forcing full rebuild."
+                 : "No saved state — forcing full rebuild.");
+
+             await ResetAndRebuildCacheAsync();
+
+             // Re-feed conversation history from context window into the fresh KV cache.
+             var messages = _contextWindow.GetWindowMessages();
+             if (messages.Count > 0)
+             {
+                 EColor.TagBold(EColor.Info(), "KVCache", $"Re-feeding {messages.Count} conversation messages into rebuilt cache...");
+                 var historySb = new StringBuilder();
+                 foreach (var msg in messages)
+                 {
+                     switch (msg.Role)
+                     {
+                         case "user":
+                             historySb.AppendLine("<user>");
+                             historySb.AppendLine(msg.Content);
+                             historySb.AppendLine("</user>");
+                             break;
+                         case "assistant":
+                             historySb.AppendLine("<assistant><llm>");
+                             historySb.AppendLine(msg.Content);
+                             historySb.AppendLine("</llm></assistant>");
+                             break;
+                         case "tool_output":
+                             historySb.AppendLine($"<tooloutput>{msg.Source}<result>");
+                             historySb.AppendLine(msg.Content);
+                             historySb.AppendLine("</result></tooloutput>");
+                             break;
+                         case "system":
+                             historySb.AppendLine($"<system>{msg.Content}</system>");
+                             break;
+                     }
+                 }
+
+                 if (historySb.Length > 0 && _executor != null)
+                 {
+                     try
+                     {
+                         using var feedCts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                         await foreach (var _ in _executor.InferAsync(historySb.ToString(), _inferenceParams, feedCts.Token))
+                             break; // Just prefill, do not generate
+                     }
+                     catch (OperationCanceledException)
+                     {
+                         EColor.TagBold(EColor.Warn(), "KVCache", "History re-feed timed out (60s) — continuing anyway.");
+                     }
+                     EColor.TagBold(EColor.Success(), "KVCache", $"Re-fed {messages.Count} messages ({historySb.Length} chars) into cache.");
+                 }
+             }
+
+             _consecutiveRewindFailures = 0;  // reset after successful rebuild
+             EColor.TagBold(EColor.Success(), "KVCache", "Cache rebuilt for format retry (fallback path).");
+         }
      }
 
       /// <summary>Inject a format retry prompt as a user message.</summary>

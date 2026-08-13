@@ -227,8 +227,15 @@ public class Program
 
                     var orchestrator = new AgentOrchestrator(agent, maxTurns: maxTurns, maxFailures: maxFailures, toolPolicy: new ToolPolicy());
 
-                    // v10.18: Initialize sub-agent system
-                    await orchestrator.InitializeSubAgentsAsync(effectiveDir);
+                    // v10.18: Initialize sub-agent system (only if enabled in config)
+                    if (_config.SubAgent.Enabled)
+                    {
+                        await orchestrator.InitializeSubAgentsAsync(effectiveDir);
+                    }
+                    else
+                    {
+                        EColor.Tag(EColor.Info(), "SubAgent", "Sub-agents disabled in config — skipping initialization.");
+                    }
 
                     // ── Session Manager (P0: session abstraction) ──
                     var sessionManager = new SessionManager(agent, orchestrator.Policy);

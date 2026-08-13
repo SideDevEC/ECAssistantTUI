@@ -41,10 +41,10 @@ public class ESubAgentTool : EToolBase
         "<task>=description of what the sub-agent should do (required). " +
         "<working_dir>=override working directory (optional). " +
         "<tools>=comma-separated tool names to allow (optional, empty=all). " +
-        "<context_size>=context window size (optional, defaults to main model config). " +
-        "<max_turns>=max turns for sub-agent (optional, default 5). " +
-        "<timeout>=timeout in seconds (optional, default 120). " +
-        "<max_retries>=auto-retry attempts on failure (optional, default 1). " +
+        "<context_size>=context window size (optional, defaults to subagent config). " +
+        "<max_turns>=max turns for sub-agent (optional, defaults to subagent config). " +
+        "<timeout>=timeout in seconds (optional, defaults to subagent config). " +
+        "<max_retries>=auto-retry attempts on failure (optional, defaults to subagent config). " +
         "Multiple ESubAgent toolcalls in one response run in PARALLEL.";
 
     public override string GetToolExample() =>
@@ -68,15 +68,15 @@ public class ESubAgentTool : EToolBase
         if (uint.TryParse(arguments.GetValueOrDefault("context_size"), out var cs))
             contextSize = cs;
 
-        int maxTurns = 5;
+        int maxTurns = _manager.DefaultMaxTurns;
         if (int.TryParse(arguments.GetValueOrDefault("max_turns"), out var mt))
             maxTurns = mt;
 
-        int timeoutSeconds = 120;
+        int timeoutSeconds = _manager.DefaultTimeoutSeconds;
         if (int.TryParse(arguments.GetValueOrDefault("timeout"), out var ts))
             timeoutSeconds = ts;
 
-        int maxRetries = 1;
+        int maxRetries = _manager.DefaultMaxRetries;
         if (int.TryParse(arguments.GetValueOrDefault("max_retries"), out var mr))
             maxRetries = mr;
 

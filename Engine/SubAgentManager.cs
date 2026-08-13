@@ -188,8 +188,20 @@ public sealed class SubAgentManager : IDisposable
     /// <summary>Maximum concurrent sub-agents.</summary>
     public int MaxConcurrent { get; set; } = 3;
 
-    /// <summary>Default context size for sub-agents — matches the main model's configured context size.</summary>
+    /// <summary>Default context size for sub-agents — from subagent config.</summary>
     public uint DefaultContextSize { get; set; } = 16384;
+
+    /// <summary>Default max turns for sub-agents — from subagent config.</summary>
+    public int DefaultMaxTurns { get; set; } = 5;
+
+    /// <summary>Default timeout in seconds for sub-agents — from subagent config.</summary>
+    public int DefaultTimeoutSeconds { get; set; } = 120;
+
+    /// <summary>Default max retries for sub-agents — from subagent config.</summary>
+    public int DefaultMaxRetries { get; set; } = 1;
+
+    /// <summary>Default max tool calls for sub-agents — from subagent config.</summary>
+    public int DefaultMaxToolCalls { get; set; } = 20;
 
     /// <summary>All currently active sub-agent handles (for monitoring/cancellation).</summary>
     public IReadOnlyDictionary<string, ActiveSubAgent> ActiveAgents => _activeSubAgents;
@@ -202,9 +214,14 @@ public sealed class SubAgentManager : IDisposable
         var configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "appsettings.json");
         _config = File.Exists(configPath) ? EAgentConfig.Load(configPath) : new EAgentConfig();
         _modelPath = _config.Llm.ModelPath;
-        _gpuLayers = _config.Llm.GpuLayers;
-        DefaultContextSize = _config.Llm.ContextSize;
-        _threadCount = _config.Llm.Threads;
+        _gpuLayers = _config.SubAgent.GpuLayers;
+        DefaultContextSize = _config.SubAgent.ContextSize;
+        _threadCount = _config.SubAgent.Threads;
+        MaxConcurrent = _config.SubAgent.MaxConcurrent;
+        DefaultMaxTurns = _config.SubAgent.MaxTurns;
+        DefaultTimeoutSeconds = _config.SubAgent.TimeoutSeconds;
+        DefaultMaxToolCalls = _config.SubAgent.MaxToolCalls;
+        DefaultMaxRetries = _config.SubAgent.MaxRetries;
 
         _inferenceParams = new InferenceParams
         {

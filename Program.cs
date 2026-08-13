@@ -318,10 +318,13 @@ public class Program
 
         // Parse test filter
         string? filter = null;
+        bool verbose = false;
         for (int i = 0; i < testArgs.Length; i++)
         {
             if (testArgs[i].Equals("--filter", StringComparison.OrdinalIgnoreCase) && i + 1 < testArgs.Length)
                 filter = testArgs[++i];
+            if (testArgs[i].Equals("--verbose", StringComparison.OrdinalIgnoreCase) || testArgs[i].Equals("-v", StringComparison.OrdinalIgnoreCase))
+                verbose = true;
         }
 
         // Select tests
@@ -347,7 +350,7 @@ public class Program
         Console.WriteLine($"   Filter: {filter ?? "(all)"}\n");
 
         // Run the test suite
-        await using var runner = new TestRunner(modelPath);
+        await using var runner = new TestRunner(modelPath) { Verbose = verbose };
         var results = await runner.RunAllAsync(tests);
 
         // Write detailed results to a log file

@@ -1,0 +1,66 @@
+name: ECAssistant Tests
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '**/*.cs'
+      - '**/*.csproj'
+      - 'appsettings.json'
+      - '.github/workflows/tests.yml'
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup .NET 8
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+    
+    - name: Restore dependencies
+      run: dotnet restore
+    
+    - name: Build
+      run: dotnet build --no-restore
+    
+    - name: Check for model
+      id: check-model
+      run: |
+        if [ -n "${{ secrets.MODEL_PATH }}" ]; then
+          echo "has_model=true" >> $GITHUB_OUTPUT
+        else
+          echo "has_model=false" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Download test model (if configured)
+      if: steps.check-model.outputs.has_model == 'true'
+      run: |
+        # Model path provided via secrets — download or mount
+        echo "Model path configured: ${{ secrets.MODEL_PATH }}"
+    
+    - name: Run tests (if model available)
+      if: steps.check-model.outputs.has_model == 'true'
+      run: dotnet run -- --test --model "${{ secrets.MODEL_PATH }}"
+      timeout-minutes: 30
+    
+    - name: Run tests (no model — build only)
+      if: steps.check-model.outputs.has_model != 'true'
+      run: |
+        echo "No model configured — build verification only."
+        echo "To run full tests, set MODEL_PATH secret to a downloadable GGUF model URL."
+    
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results
+        path: |
+          **/test_results.log
+          **/*_full_log.txt
+        if-no-files-found: ignore

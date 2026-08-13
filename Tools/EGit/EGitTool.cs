@@ -24,18 +24,19 @@ public class EGitTool : EToolBase
     public override string Name => "EGitTool";
 
     public override string Description =>
-        "Git operations with structured output. Actions: status, diff, commit, push, pull, log, " +
-        "add, branch, checkout. Better than raw PowerShell for git — parses output into clean format.";
+        "Git operations with structured output. Actions: init, status, diff, commit, push, pull, log, " +
+        "add, branch, checkout. Better than raw shell for git — parses output into clean format.";
 
     public override string UsageExample =>
         "EGitTool(action=\"status\")";
 
     public override string GetToolRules() =>
-        "<action>=status|diff|commit|push|pull|log|add|branch|checkout. " +
-        "commit: +<message>. add: +<files>('all'=-A). log: +<max_entries>. checkout: +<branch>.";
+        "<action>=init|status|diff|commit|push|pull|log|add|branch|checkout. " +
+        "init: no args. commit: +<message>. add: +<files>('all'=-A). log: +<max_entries>. checkout: +<branch>.";
 
 
     public override string GetToolExample() =>
+        "<toolcall>EGitTool<action>init</action></toolcall>\n" +
         "<toolcall>EGitTool<action>status</action></toolcall>\n" +
         "<toolcall>EGitTool<action>commit</action><message>fix: update</message></toolcall>";
 
@@ -108,6 +109,8 @@ public class EGitTool : EToolBase
     {
         switch (action)
         {
+            case "init":
+                return ("init", false);
             case "status":
                 return ("status --porcelain", false);
             case "diff":
@@ -157,6 +160,12 @@ public class EGitTool : EToolBase
 
         switch (action)
         {
+            case "init":
+                if (output.Contains("Reinitialized") || output.Contains("Initialized"))
+                    sb.AppendLine("✅ Git repository initialized.");
+                else
+                    sb.AppendLine($"Git init output: {output}");
+                break;
             case "status":
                 if (string.IsNullOrEmpty(output))
                 {

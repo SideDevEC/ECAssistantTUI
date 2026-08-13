@@ -235,6 +235,22 @@ Combine steps into one call when possible (e.g., batch shell commands).
                 plan.Calls.Add(plannedCall);
         }
 
+        // v10.17.2: Deduplicate calls — LLM sometimes produces duplicate calls covering the same steps.
+        // Keep only the first call for each unique set of (ToolName + Args + CoversSubTasks).
+        var deduped = new List<PlannedToolCall>();
+        var seen = new HashSet<string>();
+        foreach (var call in plan.Calls)
+        {
+            var key = $"{call.ToolName}|{string.Join(",", call.Args.OrderBy(a => a.Key).Select(a => $"{a.Key}={a.Value}"))}|{string.Join(",", call.CoversSubTasks.OrderBy(x => x))}";
+            if (seen.Add(key))
+                deduped.Add(call);
+        }
+        if (deduped.Count < plan.Calls.Count)
+        {
+            Logger.Info("StepMapper", $"Deduplicated: {plan.Calls.Count} → {deduped.Count} calls");
+            plan.Calls = deduped;
+        }
+
         // Validate: every sub-task should be covered
         var uncovered = new List<int>();
         for (int i = 0; i < subTasks.Count; i++)

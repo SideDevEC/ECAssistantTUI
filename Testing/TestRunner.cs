@@ -107,6 +107,9 @@ public sealed class TestRunner : IAsyncDisposable
 
     public List<TestResult> Results { get; } = new();
 
+    /// <summary>v10.17.2: Verbose mode — dump full captured log for each test (including token stream).</summary>
+    public bool Verbose { get; set; } = false;
+
     /// <summary>Create a test runner with the given model path.</summary>
     /// <param name="modelPath">Absolute path to the GGUF model file.</param>
     /// <param name="testRootDir">Root directory for test sandboxes (default: ~/ECAssistant-Tests).</param>
@@ -292,6 +295,14 @@ public sealed class TestRunner : IAsyncDisposable
         {
             Console.WriteLine($"     Reason: {result.FailureReason}");
             Console.WriteLine($"     Output: {TruncateForConsole(result.FinalOutput, 200)}");
+        }
+
+        // v10.17.2: Verbose mode — dump full captured log for debugging
+        if (Verbose && _testGui != null)
+        {
+            var dumpPath = Path.Combine(_testRootDir, $"{scenario.Name.Replace(" ", "_")}_full_log.txt");
+            _testGui.DumpToFile(dumpPath);
+            Console.WriteLine($"     📝 Full log: {dumpPath}");
         }
 
         return result;

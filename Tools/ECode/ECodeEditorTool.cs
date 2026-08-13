@@ -26,19 +26,21 @@ public class ECodeEditorTool : EToolBase
     public override string Name => "ECodeEditor";
 
     public override string Description =>
-        "Surgical code editing: multi-line patch, diff preview, cross-file search & replace, " +
-        "line insertion/deletion. Better than PowerShell -replace for code changes.";
+        "Surgical code editing: create files, multi-line patch, diff preview, cross-file search & replace, " +
+        "line insertion/deletion. Better than shell echo for code changes.";
 
     public override string UsageExample =>
-        "ECodeEditor(action=\"patch\", file=\"Program.cs\", old_text=\"old code\", new_text=\"new code\")";
+        "ECodeEditor(action=\"create\", file=\"Program.cs\", content=\"code here\")  or  ECodeEditor(action=\"patch\", file=\"Program.cs\", old_text=\"old\", new_text=\"new\")";
 
     public override string GetToolRules() =>
+        "create: <file>+<content> (creates new file, fails if exists). " +
         "patch: <file>+<old_text>+<new_text> (multi-line, unique match). " +
         "search: <pattern>+<file_filter>. replace-all: <pattern>+<replacement>+<file_filter>. " +
         "insert: <file>+<line>+<text>. delete-lines: <file>+<start_line>+<end_line>.";
 
 
     public override string GetToolExample() =>
+        "<toolcall>ECodeEditor<action>create</action><file>new.txt</file><content>hello</content></toolcall>\n" +
         "<toolcall>ECodeEditor<action>patch</action><file>Program.cs</file><old_text>var x=1;</old_text><new_text>var x=2;</new_text></toolcall>\n" +
         "<toolcall>ECodeEditor<action>search</action><pattern>TODO</pattern></toolcall>";
 
@@ -50,6 +52,7 @@ public class ECodeEditorTool : EToolBase
 
         return action switch
         {
+            "create" => await DoCreate(arguments, cancellationToken),
             "diff" => await DoDiff(arguments, cancellationToken),
             "patch" => await DoPatch(arguments, cancellationToken),
             "search" => await DoSearch(arguments, cancellationToken),
@@ -58,6 +61,36 @@ public class ECodeEditorTool : EToolBase
             "delete-lines" => await DoDeleteLines(arguments, cancellationToken),
             _ => EToolResult.Failure(Name, $"Unknown action: {action}")
         };
+    }
+
+    // ─── Create: create a new file with content ───────────────
+    private async Task<EToolResult> DoCreate(Dictionary<string, string?> args, CancellationToken ct)
+    {
+        var file = args.GetValueOrDefault("file")?.Trim();
+        var content = args.GetValueOrDefault("content") ?? "";
+
+        if (string.IsNullOrEmpty(file))
+            return EToolResult.Failure(Name, "Missing 'file' argument.");
+
+        var fullPath = Path.Combine(_workingDir, file);
+
+        if (File.Exists(fullPath))
+            return EToolResult.Failure(Name, $"File already exists: {file}. Use action=patch to modify existing files.");
+
+        try
+        {
+            var dir = Path.GetDirectoryName(fullPath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+
+            await File.WriteAllTextAsync(fullPath, content, ct);
+            Logger.Info(Name, $"Created: {file} ({content.Length} chars)");
+            return EToolResult.Success(Name, $"✅ Created {file} ({content.Length} chars).\nContent:\n{content}");
+        }
+        catch (Exception ex)
+        {
+            return EToolResult.Failure(Name, $"Failed to create {file}: {ex.Message}");
+        }
     }
 
     // ─── Patch: replace old_text with new_text in a file ─────────

@@ -376,6 +376,71 @@ public static class EcaTests
                 }
             },
         },
+
+        // ── Tier 9: Error Recovery & Resilience (v10.17.2) ────────
+
+        new TestScenario
+        {
+            Name = "error_tool_failure_recovery",
+            Description = "Force a tool failure then verify the agent self-corrects",
+            Prompt = "Run the shell command 'cat nonexistent_file_xyz.txt' and then tell me what happened.",
+            TimeoutSeconds = 120,
+            ExpectedStatus = OrchestratorStatus.GoalAchieved,
+            MinToolCalls = 1,
+            // Should not crash — should report the error gracefully
+            ExpectedOutputContains = new() { "not exist" },
+        },
+
+        new TestScenario
+        {
+            Name = "error_wrong_command_then_fix",
+            Description = "Agent tries a wrong command, should self-correct and succeed",
+            Prompt = "Create a file called fix_test.txt with content 'recovered'. If the first attempt fails, try a different approach.",
+            TimeoutSeconds = 180,
+            ExpectedStatus = OrchestratorStatus.GoalAchieved,
+            ExpectedFiles = new() { "fix_test.txt" },
+            MinToolCalls = 1,
+            Assertions = new()
+            {
+                (result, ctx) =>
+                {
+                    var path = Path.Combine(ctx.WorkingDir, "fix_test.txt");
+                    if (!File.Exists(path)) return false;
+                    return File.ReadAllText(path).Contains("recovered");
+                }
+            },
+        },
+
+        new TestScenario
+        {
+            Name = "error_invalid_tool_args",
+            Description = "Agent uses wrong ECodeEditor args, should self-correct using create action",
+            Prompt = "Use ECodeEditor to create a new file called new_code.txt with the content 'print(hello)'. If the first action fails, try a different action.",
+            TimeoutSeconds = 180,
+            ExpectedStatus = OrchestratorStatus.GoalAchieved,
+            ExpectedFiles = new() { "new_code.txt" },
+            MinToolCalls = 1,
+            Assertions = new()
+            {
+                (result, ctx) =>
+                {
+                    var path = Path.Combine(ctx.WorkingDir, "new_code.txt");
+                    if (!File.Exists(path)) return false;
+                    return File.ReadAllText(path).Contains("print(hello)");
+                }
+            },
+        },
+
+        new TestScenario
+        {
+            Name = "resilience_long_multi_step",
+            Description = "Complex 5-step task requiring several turns — tests orchestrator persistence",
+            Prompt = "Do the following steps in order: 1) Create a file called step1.txt with content 'done1'. 2) Create a file called step2.txt with content 'done2'. 3) Create a directory called step3dir. 4) Create a file inside step3dir called step3.txt with content 'done3'. 5) List all files and directories to verify everything was created.",
+            TimeoutSeconds = 300,
+            ExpectedStatus = OrchestratorStatus.GoalAchieved,
+            ExpectedFiles = new() { "step1.txt", "step2.txt", "step3dir/step3.txt" },
+            MinToolCalls = 1,
+        },
     };
 
     /// <summary>Get a subset of tests by name prefix.</summary>
@@ -413,4 +478,8 @@ public static class EcaTests
     /// <summary>Get only the parallel tests.</summary>
     public static List<TestScenario> ParallelTests
         => ByNamePrefix("parallel_");
+
+    /// <summary>Get only the error recovery tests.</summary>
+    public static List<TestScenario> ErrorRecoveryTests
+        => ByNamePrefix("error_").Concat(ByNamePrefix("resilience_")).ToList();
 }

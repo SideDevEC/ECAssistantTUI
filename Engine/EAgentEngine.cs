@@ -813,7 +813,14 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
     }
 
       /// <summary>Remove the last assistant response from history (for format retries).</summary>
-     public void RemoveLastAssistantResponse()
+     // v10.14: Full cache rebuild on format retry instead of state rewind.
+     // The old LoadState approach corrupted the KV cache because _savedStateBeforeGen
+     // was captured AFTER the incremental input tokens were already fed. Rewinding
+     // to that state left stale input tokens in the cache, and the next GenerateAsync
+     // would feed new tokens on top, causing llama_decode invalidInputBatch errors.
+     // Full rebuild guarantees a clean KV cache. Conversation history is re-fed from
+     // the context window so the LLM retains full context.
+     public async Task RemoveLastAssistantResponseAsync()
      {
          _contextWindow.RemoveLastAssistantMessage();
          // Also remove from transcript
@@ -825,19 +832,62 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                  break;
              }
          }
-         // v10.8: Rewind KV cache to before the bad generation
-         if (_savedStateBeforeGen != null && _executor != null)
+
+         // Full KV cache rebuild — guaranteed clean state
+         await ResetAndRebuildCacheAsync();
+
+         // Re-feed conversation history from context window into the fresh KV cache.
+         // The static prefix (system prompt + tools) is already re-prefilled by
+         // ResetAndRebuildCacheAsync. We need to feed all dynamic conversation messages
+         // so the LLM has context.
+         var messages = _contextWindow.GetWindowMessages();
+         if (messages.Count > 0)
          {
-             try
+             EColor.TagBold(EColor.Info(), "KVCache", $"Re-feeding {messages.Count} conversation messages into rebuilt cache...");
+             var historySb = new StringBuilder();
+             foreach (var msg in messages)
              {
-                 _executor.LoadState(_savedStateBeforeGen);
-                 EColor.TagBold(EColor.Info(), "KVCache", "Rewound to pre-generation state (format retry).");
+                 switch (msg.Role)
+                 {
+                     case "user":
+                         historySb.AppendLine("<user>");
+                         historySb.AppendLine(msg.Content);
+                         historySb.AppendLine("</user>");
+                         break;
+                     case "assistant":
+                         historySb.AppendLine("<assistant><llm>");
+                         historySb.AppendLine(msg.Content);
+                         historySb.AppendLine("</llm></assistant>");
+                         break;
+                     case "tool_output":
+                         historySb.AppendLine($"<tooloutput>{msg.Source}<result>");
+                         historySb.AppendLine(msg.Content);
+                         historySb.AppendLine("</result></tooloutput>");
+                         break;
+                     case "system":
+                         historySb.AppendLine($"<system>{msg.Content}</system>");
+                         break;
+                 }
              }
-             catch (Exception ex)
+
+             // Feed the conversation history into the executor (prefill only)
+             if (historySb.Length > 0 && _executor != null)
              {
-                 Logger.Warn("KVCache", $"Failed to rewind KV cache: {ex.Message}");
+                 try
+                 {
+                     using var feedCts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                     await foreach (var _ in _executor.InferAsync(historySb.ToString(), _inferenceParams, feedCts.Token))
+                         break; // Just prefill, do not generate
+                 }
+                 catch (OperationCanceledException)
+                 {
+                     EColor.TagBold(EColor.Warn(), "KVCache", "History re-feed timed out (60s) — continuing anyway.");
+                 }
+                 EColor.TagBold(EColor.Success(), "KVCache", $"Re-fed {messages.Count} messages ({historySb.Length} chars) into cache.");
              }
          }
+
+         EColor.TagBold(EColor.Success(), "KVCache", "Cache rebuilt for format retry.");
      }
 
       /// <summary>Inject a format retry prompt as a user message.</summary>

@@ -381,7 +381,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                     Logger.Warn("Orchestrator", $"No tags (attempt {_formatRetries}/{MaxFormatRetries}). Removing bad response, retrying.");
                     
                     // Remove the bad assistant response from history so model doesn't learn from it
-                    _engine.RemoveLastAssistantResponse();
+                    await _engine.RemoveLastAssistantResponseAsync();
                     
                     // Inject as a user-level message (not tool result) for stronger signal
                     _engine.InjectFormatRetry(

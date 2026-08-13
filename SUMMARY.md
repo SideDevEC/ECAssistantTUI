@@ -1,6 +1,6 @@
 # ECAssistant — Project Summary (v10.13.0 — 2026-08-13)
 
-**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Loads GGUF models from disk — no API calls, no cloud, fully self-contained. Uses `<llm>` container tag for noise-proof response parsing with XML-style inner tags for tool calling. Multi-step autonomous loops, dual memory (keyword + vector/semantic), sliding context windows, self-correction with failure loop detection, project context awareness, task decomposition, surgical code editing, 7 registered tools. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. Centralized console truncation with `[...]` indicators. v10.13: Parallel multi-tool execution with intelligent dependency analysis.
+**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Loads GGUF models from disk — no API calls, no cloud, fully self-contained. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags for tool calling. Multi-step autonomous loops, dual memory (keyword + vector/semantic), sliding context windows, self-correction with failure loop detection, project context awareness, task decomposition, surgical code editing, 7 registered tools. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. Centralized console truncation with `[...]` indicators. v10.13: Parallel multi-tool execution with intelligent dependency analysis.
 
 ## Key Facts
 - **Language:** C# .NET 8 console app (`net8.0-windows`, Nullable enabled)
@@ -17,13 +17,13 @@
 
 ## What's New (v10.11-v10.12 — Session 2026-08-12)
 
-### `<llm>` Container Tag System (v10.12)
-- All model responses wrapped in `<llm>...</llm>` — noise outside is ignored
-- Only `</llm>` is a streaming stop tag — no fallbacks, clean and predictable
-- `ExtractCleanResponse` extracts content from `<llm>`, then parses inner tags
+### `<lm>` Container Tag System (v10.12)
+- All model responses wrapped in `<lm>...</lm>` — noise outside is ignored
+- Only `</lm>` is a streaming stop tag — no fallbacks, clean and predictable
+- `ExtractCleanResponse` extracts content from `<lm>`, then parses inner tags
 - `TrimToFirstClosingTag` removed — no double-trimming
-- Generation cues use `<assistant><llm>` to force container opening
-- History rendering wraps past responses as `<assistant><llm>...</llm></assistant>`
+- Generation cues use `<assistant><lm>` to force container opening
+- History rendering wraps past responses as `<assistant><lm>...</lm></assistant>`
 - All 7 directives show full structural example
 - Future parallelism ready: `</toolcall>` is NOT a stop tag
 
@@ -52,7 +52,7 @@
 ## Parallel Multi-Tool Execution (v10.13 — 2026-08-13)
 
 ### How It Works
-1. Model emits multiple `<toolcall>` tags in one `<llm>` response
+1. Model emits multiple `<toolcall>` tags in one `<lm>` response
 2. `ExtractCleanResponse` extracts ALL toolcall blocks (not just first)
 3. `ToolDependencyAnalyzer` inspects tool types + args (file targets) to determine dependencies
 4. Independent toolcalls run in parallel via `Task.WhenAll`
@@ -151,20 +151,20 @@ Everything lives in `~/ECAssistant/`:
 }
 ```
 
-## Response Format (v10.12 — `<llm>` Container)
+## Response Format (v10.12 — `<lm>` Container)
 
 ```
 Tool call:
-<llm><thinking>Brief reasoning</thinking><toolcall>ToolName<argname>value</argname></toolcall></llm>
+<lm><thinking>Brief reasoning</thinking><toolcall>ToolName<argname>value</argname></toolcall></lm>
 
 Direct answer:
-<llm><thinking>Brief reasoning</thinking><output>Answer to user</output></llm>
+<lm><thinking>Brief reasoning</thinking><output>Answer to user</output></lm>
 ```
 
 Rules:
-1. FIRST token is always `<llm>`. LAST token is always `</llm>`.
-2. Inside: ONE `<thinking>`, then ONE `<toolcall>` OR ONE `<output>`. Then `</llm>`. Then STOP.
-3. Never write text outside `<llm>...</llm>`.
+1. FIRST token is always `<lm>`. LAST token is always `</lm>`.
+2. Inside: ONE `<thinking>`, then ONE `<toolcall>` OR ONE `<output>`. Then `</lm>`. Then STOP.
+3. Never write text outside `<lm>...</lm>`.
 4. Can batch multiple PowerShell commands with `;` in one toolcall.
 
 ## Orchestration Flow
@@ -172,12 +172,12 @@ Rules:
 ```
 ExecuteMultiStep(goal):
   Loop (max 5 turns):
-    1. GenerateAsync: BuildIncrementalInput → stream tokens → stop at </llm> → ExtractCleanResponse
+    1. GenerateAsync: BuildIncrementalInput → stream tokens → stop at </lm> → ExtractCleanResponse
     2. ESC check → if stopped: clear context, rebuild cache, return
     3. ParseLLMDecision: toolcall | output | invalid
     4a. Tool call → policy check → execute → AddToolResult → step directive → loop
     4b. Direct answer → return to user
-    4c. Invalid → remove bad response → format retry (with <llm> example) → retry max 2
+    4c. Invalid → remove bad response → format retry (with <lm> example) → retry max 2
 ```
 
 ## Project Tree
@@ -185,7 +185,7 @@ ExecuteMultiStep(goal):
 ```
 ECAssistant/
 ├── ECAssistant.csproj               ← .NET 8 project
-├── SystemPrompt.md                  ← v6: <llm> container rules (~1300 tokens)
+├── SystemPrompt.md                  ← v6: <lm> container rules (~1300 tokens)
 ├── appsettings.json                  ← Runtime config (with secondary model params)
 ├── SUMMARY.md / ARCHITECTURE.md
 │
@@ -194,7 +194,7 @@ ECAssistant/
 ├── EColor.cs                         ← ANSI color helpers
 │
 ├── Engine/
-│   ├── EAgentEngine.cs               ← Core LLM engine, <llm> extraction, KV cache
+│   ├── EAgentEngine.cs               ← Core LLM engine, <lm> extraction, KV cache
 │   ├── ContextWindow.cs               ← Sliding window, auto-summarize
 │   ├── ConversationTranscript.cs      ← JSON transcript persistence
 │   ├── TokenCounter.cs                ← LLamaSharp tokenizer counting
@@ -236,7 +236,7 @@ ECAssistant/
 - 10 pre-existing warnings (all non-critical: nullability annotations, unused fields)
 - `appsettings.json` valid JSON ✅
 - SystemPrompt rules 1-14 sequential, no contradictions ✅
-- Stop tags: only `</llm>` ✅
+- Stop tags: only `</lm>` ✅
 - All 9 truncation sites use `EGuiBase.Truncate()` ✅
 - Secondary model: anti-prompts in GenerateAsync, relative limits ✅
 
@@ -246,15 +246,15 @@ ECAssistant/
 v10.11.1-working   — ESC stop fix
 v10.11.2-working   — PowerShell error handling
 v10.12.1-working   — </toolcall> dropped from stop tags
-v10.12.5-working   — Full <llm> structural directives
+v10.12.5-working   — Full <lm> structural directives
 v10.12.6-working   — 3 audit bugs fixed
 v10.12.7-working   — Removed TrimToFirstClosingTag
 v10.12.10-working  — Batching allowed + Continue mode
 v10.12.11-working  — Console display fix
 v10.12.13-working  — Relative secondary model limits
-v10.12.15-working  — Only </llm> stop tag
+v10.12.15-working  — Only </lm> stop tag
 v10.12.17-working  — Restored primary anti-prompts
 v10.12.20-working  — Centralized truncation (current) ←
 ```
 
-**Status:** v10.12.20 — Audited clean. `<llm>` container system, ESC fix, PowerShell error handling, configurable secondary model, centralized truncation. Ready for production testing.
+**Status:** v10.12.20 — Audited clean. `<lm>` container system, ESC fix, PowerShell error handling, configurable secondary model, centralized truncation. Ready for production testing.

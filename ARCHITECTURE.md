@@ -1,6 +1,6 @@
 # ECAssistant Architecture (v10.13.0 — 2026-08-13)
 
-**Summary:** A local, offline AI agent in C# .NET 8 using LLamaSharp. Runs GGUF models locally with no external API calls. Uses `<llm>` container tag for noise-proof response parsing with XML-style inner tags (`<thinking>`, `<toolcall>`, `<output>`). 7 registered tools self-register their rules at runtime. Multi-step autonomous loops with dual memory (keyword + TF-IDF vector), sliding context windows with LLM summarization, self-correction with failure loop detection and file rollback, project context awareness with dependency graph, task decomposition, surgical code editing, background process management, file watching, and structured logging. Token-optimized for 8B models. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution — multiple <toolcall> tags per response, intelligent dependency analysis, Task.WhenAll for independent tools.
+**Summary:** A local, offline AI agent in C# .NET 8 using LLamaSharp. Runs GGUF models locally with no external API calls. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags (`<thinking>`, `<toolcall>`, `<output>`). 7 registered tools self-register their rules at runtime. Multi-step autonomous loops with dual memory (keyword + TF-IDF vector), sliding context windows with LLM summarization, self-correction with failure loop detection and file rollback, project context awareness with dependency graph, task decomposition, surgical code editing, background process management, file watching, and structured logging. Token-optimized for 8B models. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution — multiple <toolcall> tags per response, intelligent dependency analysis, Task.WhenAll for independent tools.
 
 ## Key Facts
 - **Language:** C# .NET 8 console app (`net8.0-windows`, Nullable enabled)
@@ -15,28 +15,28 @@
 - **Context:** 16384 tokens, max_tokens 2048, auto-summarize at 50%
 - **Repo:** `github.com/LLamaDudeX/ECAssistant.git` (branch: `main`)
 
-## 📦 `<llm>` Container Tag System (v10.12)
+## 📦 `<lm>` Container Tag System (v10.12)
 
-**The core parsing boundary.** All model responses are wrapped in `<llm>...</llm>`. Everything inside is parsed, everything outside is ignored as noise.
+**The core parsing boundary.** All model responses are wrapped in `<lm>...</lm>`. Everything inside is parsed, everything outside is ignored as noise.
 
 **Response format:**
 ```
-<llm><thinking>Brief reasoning</thinking><toolcall>ToolName<arg>value</arg></toolcall></llm>
-<llm><thinking>Brief reasoning</thinking><output>Answer to user</output></llm>
+<lm><thinking>Brief reasoning</thinking><toolcall>ToolName<arg>value</arg></toolcall></lm>
+<lm><thinking>Brief reasoning</thinking><output>Answer to user</output></lm>
 ```
 
 **Architecture flow:**
 ```
-Model output → ExtractCleanResponse (<llm> extraction + inner tag parsing) → ParseLLMDecision
+Model output → ExtractCleanResponse (<lm> extraction + inner tag parsing) → ParseLLMDecision
 ```
 
-- **Stop tag:** Only `</llm>` — no fallbacks. Clean and predictable.
-- **ExtractCleanResponse:** Extracts content between `<llm>` and `</llm>`, then parses inner tags (`<thinking>`, `<toolcall>`, `<output>`). Falls back to raw if no `<llm>` found (format retries).
-- **Generation cue:** `<assistant><llm>` — tells model to open `<llm>` as first token.
-- **History rendering:** Past assistant responses wrapped as `<assistant><llm>...</llm></assistant>`.
-- **Directives:** All 7 turn directives show full structural example: `Open <llm><thinking>...</thinking><toolcall>...</toolcall></llm>`.
+- **Stop tag:** Only `</lm>` — no fallbacks. Clean and predictable.
+- **ExtractCleanResponse:** Extracts content between `<lm>` and `</lm>`, then parses inner tags (`<thinking>`, `<toolcall>`, `<output>`). Falls back to raw if no `<lm>` found (format retries).
+- **Generation cue:** `<assistant><lm>` — tells model to open `<lm>` as first token.
+- **History rendering:** Past assistant responses wrapped as `<assistant><lm>...</lm></assistant>`.
+- **Directives:** All 7 turn directives show full structural example: `Open <lm><thinking>...</thinking><toolcall>...</toolcall></lm>`.
 - **No TrimToFirstClosingTag:** Removed. ExtractCleanResponse handles everything. No double-trimming.
-- **Future parallelism ready:** `</toolcall>` is NOT a stop tag. Multiple toolcalls can exist inside one `<llm>` container without early stops.
+- **Future parallelism ready:** `</toolcall>` is NOT a stop tag. Multiple toolcalls can exist inside one `<lm>` container without early stops.
 
 ## 🚨 CRITICAL LESSONS
 
@@ -50,11 +50,11 @@ ECAssistant uses InteractiveExecutor with KV cache prefill (static prefix cached
 Two separate `_turnCount` fields (orchestrator + engine) must both reset between user requests. `ExecuteMultiStep` calls `Reset()` + `_engine.ResetTurnCount()` at start. Without this, the turn-1 guard (`if (_turnCount == 1)`) never fires for new questions.
 
 ### 3. Generation Cue for Completion Models (2026-08-12)
-Append `<assistant><llm>` as generation cue. Without it, the model echoes history instead of generating. Also strip leading `<assistant>` from raw output if model echoes it.
+Append `<assistant><lm>` as generation cue. Without it, the model echoes history instead of generating. Also strip leading `<assistant>` from raw output if model echoes it.
 
 ### 4. Anti-Prompts — Safe vs Dangerous (2026-08-12)
 **Safe:** `User:`, `\n```\n`, `Question:`, `### User`, `<user>` — don't appear in prompt format.
-**Never use:** `---`, `</toolcall>`, `</output>`, `</llm>` — appear in SystemPrompt.md and history. LLamaSharp's built-in anti-prompt system can match them in prompt context and stop generation before it starts. Our manual stop tag check handles `</llm>` in the streaming loop.
+**Never use:** `---`, `</toolcall>`, `</output>`, `</lm>` — appear in SystemPrompt.md and history. LLamaSharp's built-in anti-prompt system can match them in prompt context and stop generation before it starts. Our manual stop tag check handles `</lm>` in the streaming loop.
 
 ### 5. ESC Stop Must Bail Out Immediately (v10.11.1)
 When ESC is pressed during generation, `GenerateAsync` returns `"(Stopped by user)"`. The orchestrator must detect this and return immediately — NOT attempt format retries (which would fail and corrupt state). After ESC: clear context window, rebuild KV cache, reset for next command.
@@ -62,8 +62,8 @@ When ESC is pressed during generation, `GenerateAsync` returns `"(Stopped by use
 ### 6. PowerShell Non-Terminating Errors (v10.11.2)
 `New-Item` with a bad path writes to stderr but may exit with code 0. Fix: `$ErrorActionPreference = 'Continue'` (all commands run, errors collected at end) + check stderr + try/catch wrapper. Never use `'Stop'` — it kills the script at first error, remaining `;`-separated commands never execute.
 
-### 7. `<llm>` Container — No Fallback Stop Tags (v10.12.15)
-Only `</llm>` is a stop tag. `</output>` as a fallback could cause early stops if the model writes `</output>` inside content (code examples, HTML). If model forgets `</llm>`, generation runs to max_tokens then stops — `ExtractCleanResponse` still parses content inside `<llm>`.
+### 7. `<lm>` Container — No Fallback Stop Tags (v10.12.15)
+Only `</lm>` is a stop tag. `</output>` as a fallback could cause early stops if the model writes `</output>` inside content (code examples, HTML). If model forgets `</lm>`, generation runs to max_tokens then stops — `ExtractCleanResponse` still parses content inside `<lm>`.
 
 ## Architecture Overview
 
@@ -99,10 +99,10 @@ Program.cs (entry point, CLI loop, startup, tool registration)
         │   │   │                       (turn 2+: tool output + directive + cue)
         │   │   ├── Inference: LLamaSharp InteractiveExecutor
         │   │   │   ├── Token streaming to console (dim color, real-time)
-        │   │   │   ├── Manual stop tag check: only </llm>
+        │   │   │   ├── Manual stop tag check: only </lm>
         │   │   │   ├── ESC key detection → _escPressed → bail out
         │   │   │   └── 90s timeout, 2048 max tokens
-        │   │   └── ExtractCleanResponse: extract <llm>...</llm> → parse inner tags
+        │   │   └── ExtractCleanResponse: extract <lm>...</lm> → parse inner tags
         │   │
         │   ├── 2. ESC stop check → if stopped: clear context, rebuild cache, return
         │   ├── 3. ParseLLMDecision: toolcall | output | invalid
@@ -121,7 +121,7 @@ Program.cs (entry point, CLI loop, startup, tool registration)
         │   │
         │   └── 4c. Invalid (no tags):
         │       ├── RemoveLastAssistantResponse (from context + transcript)
-        │       ├── InjectFormatRetry (with <llm> wrapper example)
+        │       ├── InjectFormatRetry (with <lm> wrapper example)
         │       ├── Retry up to 2 times
         │       └── After 2 failures → stop with error
 ```
@@ -236,7 +236,7 @@ Centralized truncation in `EGuiBase`:
 1. **PowerShell as primary tool** — no separate file op classes
 2. **Tool self-registration** — SystemPrompt.md is tool-agnostic
 3. **Dual memory** — keyword + TF-IDF vector, no external deps
-4. **`<llm>` container (v10.12)** — noise-proof response parsing, one stop tag, no fallbacks
+4. **`<lm>` container (v10.12)** — noise-proof response parsing, one stop tag, no fallbacks
 5. **ExtractCleanResponse** — single extraction point, no double-trimming
 6. **Format retry with history cleanup** — remove bad response, inject as user msg, retry 2x
 7. **Post-tool directive as user message** — not inside tooloutput tags
@@ -249,7 +249,7 @@ Centralized truncation in `EGuiBase`:
 14. **Secondary model fully configurable (v10.12.12+)** — sampling params + anti-prompts in appsettings.json
 15. **Relative limits (v10.12.13)** — all secondary model limits scale with config values
 16. **Centralized truncation (v10.12.20)** — EGuiBase.Truncate, one place, [...] indicator
-17. **Parallel multi-tool execution (v10.13)** — multiple <toolcall> tags per <llm>, ToolDependencyAnalyzer figures out dependencies, Task.WhenAll for independent tools, combined result in one <tooloutput> block
+17. **Parallel multi-tool execution (v10.13)** — multiple <toolcall> tags per <lm>, ToolDependencyAnalyzer figures out dependencies, Task.WhenAll for independent tools, combined result in one <tooloutput> block
 
 ## Feature Status (40+ features)
 
@@ -263,11 +263,11 @@ Centralized truncation in `EGuiBase`:
 | EDotnetBuild | ✅ |
 | EGitTool | ✅ |
 | ECodeEditor | ✅ |
-| `<llm>` container tag system | ✅ |
+| `<lm>` container tag system | ✅ |
 | Tool self-registration | ✅ |
 | Multi-step orchestration (5 turns) | ✅ |
 | Tool policy + approval gates | ✅ |
-| Format retry (2x, <llm> wrapper example) | ✅ |
+| Format retry (2x, <lm> wrapper example) | ✅ |
 | Post-tool directive with [TASK PROGRESS] check | ✅ |
 | Session management | ✅ |
 | Real tokenizer counting | ✅ |
@@ -299,7 +299,7 @@ Centralized truncation in `EGuiBase`:
 | Clipboard support | ✅ |
 | Working directory isolation | ✅ |
 
-**Status:** v10.12.20 — `<llm>` container system, ESC fix, PowerShell error handling, configurable secondary model, centralized truncation. Codebase audited clean (0 bugs, 10 pre-existing warnings). Ready for production testing.
+**Status:** v10.12.20 — `<lm>` container system, ESC fix, PowerShell error handling, configurable secondary model, centralized truncation. Codebase audited clean (0 bugs, 10 pre-existing warnings). Ready for production testing.
 
 ## 🔖 Known-Good Builds (Git Tags)
 
@@ -307,19 +307,19 @@ Centralized truncation in `EGuiBase`:
 |-----|---------|-------------|
 | `v10.12.20-working` | v10.12.20 | Centralized truncation, audited clean (current) |
 | `v10.12.17-working` | v10.12.17 | Restored primary anti-prompts |
-| `v10.12.15-working` | v10.12.15 | Only </llm> stop tag, no fallbacks |
+| `v10.12.15-working` | v10.12.15 | Only </lm> stop tag, no fallbacks |
 | `v10.12.11-working` | v10.12.11 | Console display fix (500→2000) |
 | `v10.12.7-working` | v10.12.7 | Removed TrimToFirstClosingTag |
 | `v10.12.6-working` | v10.12.6 | 3 audit bugs fixed |
-| `v10.12.5-working` | v10.12.5 | Full <llm> structural directives |
+| `v10.12.5-working` | v10.12.5 | Full <lm> structural directives |
 | `v10.11.2-working` | v10.11.2 | PowerShell error handling |
 | `v10.11.1-working` | v10.11.1 | ESC stop fix |
-| `v10.9.4-working` | v10.9.4 | Pre-<llm> baseline |
+| `v10.9.4-working` | v10.9.4 | Pre-<lm> baseline |
 
 **If any change breaks multi-turn:**
 ```bash
 git checkout v10.12.20-working  # Current (audited clean)
 git checkout v10.11.2-working  # PowerShell error handling
 git checkout v10.11.1-working  # ESC fix
-git checkout v10.9.4-working   # Pre-<llm> baseline
+git checkout v10.9.4-working   # Pre-<lm> baseline
 ```

@@ -481,10 +481,10 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
             sb.AppendLine();
 
             // First-turn directive
-            sb.AppendLine("-- Open <llm><thinking>brief</thinking><toolcall>ToolName<arg>value</arg></toolcall></llm> then STOP. --");
+            sb.AppendLine("-- Open <lm><thinking>brief</thinking><toolcall>ToolName<arg>value</arg></toolcall></lm> then STOP. --");
 
             // Generation cue
-            sb.AppendLine("<assistant><llm>");
+            sb.AppendLine("<assistant><lm>");
         }
         else
         {
@@ -516,15 +516,15 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
             // Context-aware directive
             if (toolResultCount >= 3)
             {
-                sb.AppendLine($"-- Open <llm><thinking>brief</thinking> then <output>answer</output></llm> if done, or <llm><thinking>brief</thinking><toolcall>...</toolcall></llm> if you need more data. You have run {toolResultCount} tool calls. --");
+                sb.AppendLine($"-- Open <lm><thinking>brief</thinking> then <output>answer</output></lm> if done, or <lm><thinking>brief</thinking><toolcall>...</toolcall></lm> if you need more data. You have run {toolResultCount} tool calls. --");
             }
             else
             {
-                sb.AppendLine("-- Open <llm><thinking>brief</thinking> then <output>answer</output></llm> if done, or <llm><thinking>brief</thinking><toolcall>...</toolcall></llm> if you need more data. Tool results above. --");
+                sb.AppendLine("-- Open <lm><thinking>brief</thinking> then <output>answer</output></lm> if done, or <lm><thinking>brief</thinking><toolcall>...</toolcall></lm> if you need more data. Tool results above. --");
             }
 
             // Generation cue
-            sb.AppendLine("<assistant><llm>");
+            sb.AppendLine("<assistant><lm>");
         }
 
         return sb.ToString();
@@ -610,9 +610,9 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                                     prefix = "<user>";
                                     break;
                                 case "assistant":
-                                    // v10.12: Wrap assistant history in <llm> container
+                                    // v10.12: Wrap assistant history in <lm> container
                                     // so the model sees its own past responses in the correct format
-                                    prefix = "<assistant><llm>";
+                                    prefix = "<assistant><lm>";
                                     break;
                                 case "tool_output":
                                     prefix = $"<tooloutput>{msg.Source}<result>";
@@ -630,7 +630,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                                     sb.AppendLine("</user>");
                                     break;
                                 case "assistant":
-                                    sb.AppendLine("</llm></assistant>");
+                                    sb.AppendLine("</lm></assistant>");
                                     break;
                                 case "tool_output":
                                     sb.AppendLine("</result></tooloutput>");
@@ -653,24 +653,24 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                    if (toolResultCount >= 3)
                    {
                        // Multiple tool calls done — push toward final answer
-                       sb.AppendLine("-- Open <llm><thinking>brief</thinking> then <output>answer</output></llm> if done, or <llm><thinking>brief</thinking><toolcall>...</toolcall></llm> if more data needed. You have run " + toolResultCount + " tool calls. --");
+                       sb.AppendLine("-- Open <lm><thinking>brief</thinking> then <output>answer</output></lm> if done, or <lm><thinking>brief</thinking><toolcall>...</toolcall></lm> if more data needed. You have run " + toolResultCount + " tool calls. --");
                    }
                    else
                    {
                        // 1-2 tool calls done — allow continuing if needed
-                       sb.AppendLine("-- Open <llm><thinking>brief</thinking> then <output>answer</output></llm> if done, or <llm><thinking>brief</thinking><toolcall>...</toolcall></llm> if you need more data. Tool results above. --");
+                       sb.AppendLine("-- Open <lm><thinking>brief</thinking> then <output>answer</output></lm> if done, or <lm><thinking>brief</thinking><toolcall>...</toolcall></lm> if you need more data. Tool results above. --");
                    }
                }
               else
                     {
-                       sb.AppendLine("-- Open <llm><thinking>brief</thinking><toolcall>ToolName<arg>value</arg></toolcall></llm> then STOP. --");
+                       sb.AppendLine("-- Open <lm><thinking>brief</thinking><toolcall>ToolName<arg>value</arg></toolcall></lm> then STOP. --");
                           }
 
              // v10.4.3: Open <assistant> tag to cue the model to START generating.
              // Without this, the model sees history ending with <user>...</user> and
              // echoes it instead of producing its own response. The open tag tells
              // the model: "now it's your turn to respond as the assistant."
-             sb.AppendLine("<assistant><llm>");
+             sb.AppendLine("<assistant><lm>");
 
              return sb.ToString();
                   }
@@ -876,9 +876,9 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                              historySb.AppendLine("</user>");
                              break;
                          case "assistant":
-                             historySb.AppendLine("<assistant><llm>");
+                             historySb.AppendLine("<assistant><lm>");
                              historySb.AppendLine(msg.Content);
-                             historySb.AppendLine("</llm></assistant>");
+                             historySb.AppendLine("</lm></assistant>");
                              break;
                          case "tool_output":
                              historySb.AppendLine($"<tooloutput>{msg.Source}<result>");
@@ -1092,10 +1092,10 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
               bool timedOut = false;
                  try
                     {
-                    // v10.12.15: Only </llm> is a stop tag. No fallbacks.
+                    // v10.12.15: Only </lm> is a stop tag. No fallbacks.
                     // </output> removed - if model writes </output> inside content (code, HTML),
-                    // it would stop early. If model forgets </llm>, generation runs to max_tokens.
-                    var stopTags = new[] { "</llm>" };
+                    // it would stop early. If model forgets </lm>, generation runs to max_tokens.
+                    var stopTags = new[] { "</lm>" };
                     EColor.WriteLine(EColor.Yellow + EColor.Bold, $"── Token Stream (Turn {_turnCount}) ── [ESC to stop] ──");
                     Program.Gui.WriteRawDirect(EColor.Dim);
                     var tokenCount = 0;
@@ -1150,7 +1150,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                   rawResult = rawResult.Substring("<assistant>".Length).Trim();
               if (rawResult.EndsWith("</assistant>", StringComparison.OrdinalIgnoreCase))
                   rawResult = rawResult.Substring(0, rawResult.Length - "</assistant>".Length).Trim();
-              // v10.12: Do NOT strip <llm> here — ExtractCleanResponse needs it to
+              // v10.12: Do NOT strip <lm> here — ExtractCleanResponse needs it to
               // detect the container boundary. Stripping here would break noise filtering.
 
               EColor.WriteLine(EColor.Dim, $"[Engine] Raw ({rawResult.Length} chars): {EGuiBase.Truncate(rawResult, 500)}");
@@ -1204,35 +1204,35 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
         {
            if (string.IsNullOrEmpty(raw)) return "";
 
-         // v10.12: Extract content from <llm> container first.
-         // Everything outside <llm>...</llm> is noise and is ignored.
-         // If no <llm> tag found, fall back to raw (for backwards compat / format retries).
-         var llmStart = raw.IndexOf("<llm>", StringComparison.OrdinalIgnoreCase);
-         var llmEnd = raw.IndexOf("</llm>", StringComparison.OrdinalIgnoreCase);
+         // v10.12: Extract content from <lm> container first.
+         // Everything outside <lm>...</lm> is noise and is ignored.
+         // If no <lm> tag found, fall back to raw (for backwards compat / format retries).
+         var llmStart = raw.IndexOf("<lm>", StringComparison.OrdinalIgnoreCase);
+         var llmEnd = raw.IndexOf("</lm>", StringComparison.OrdinalIgnoreCase);
          
          string content;
          if (llmStart >= 0 && llmEnd >= 0 && llmEnd > llmStart)
          {
-             // Extract content between <llm> and </llm>
-             content = raw.Substring(llmStart + 5, llmEnd - llmStart - 5).Trim();
-             Logger.Debug("Extract", $"Extracted from <llm> container: {content.Length} chars (noise stripped: {raw.Length - content.Length - 11} chars)");
+             // Extract content between <lm> and </lm>
+             content = raw.Substring(llmStart + 4, llmEnd - llmStart - 4).Trim();  // <lm> is 4 chars
+             Logger.Debug("Extract", $"Extracted from <lm> container: {content.Length} chars (noise stripped: {raw.Length - content.Length - 9} chars)");  // <lm>+</lm> = 9 chars
          }
          else if (llmStart >= 0 && llmEnd < 0)
          {
-             // <llm> opened but never closed — take everything after <llm>
-             content = raw.Substring(llmStart + 5).Trim();
-             Logger.Debug("Extract", $"<llm> opened but not closed — taking rest: {content.Length} chars");
+             // <lm> opened but never closed — take everything after <lm>
+             content = raw.Substring(llmStart + 4).Trim();  // <lm> is 4 chars
+             Logger.Debug("Extract", $"<lm> opened but not closed — taking rest: {content.Length} chars");
          }
          else
          {
-             // No <llm> container — fall back to raw (format retry / backwards compat)
+             // No <lm> container — fall back to raw (format retry / backwards compat)
              content = raw.Trim();
-             Logger.Debug("Extract", $"No <llm> container found — using raw: {content.Length} chars");
+             Logger.Debug("Extract", $"No <lm> container found — using raw: {content.Length} chars");
          }
 
          // v10.13: Extract ALL <toolcall> blocks + first <thinking> + first <output>.
          // The model can batch multiple toolcalls in one response for parallel execution.
-         // We preserve the <llm> inner content structure for the orchestrator to parse.
+         // We preserve the <lm> inner content structure for the orchestrator to parse.
 
          Logger.Debug("Extract", $"Content length: {content.Length}");
 

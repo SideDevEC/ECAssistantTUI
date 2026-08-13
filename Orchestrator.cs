@@ -413,8 +413,8 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                     _engine.InjectFormatRetry(
                         "Your last response was REJECTED — you did not use the required XML tags.\n" +
                         "You MUST respond using this EXACT format:\n" +
-                        "<llm><thinking>brief reasoning</thinking><output>your answer</output></llm>\n" +
-                        "Do NOT write any text outside the <llm> container. Do NOT skip the tags.\n" +
+                        "<lm><thinking>brief reasoning</thinking><output>your answer</output></lm>\n" +
+                        "Do NOT write any text outside the <lm> container. Do NOT skip the tags.\n" +
                         "Now answer the previous question using the correct format.");
                     _turnCount++;
                     continue;
@@ -613,7 +613,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
         var sb = new StringBuilder();
         
         sb.AppendLine("The tool has returned its result above. Now respond to the user.");
-        sb.AppendLine("Open <llm><thinking>brief reasoning</thinking> then either <output>your answer</output></llm> if done, or <llm><thinking>brief reasoning</thinking><toolcall>...</toolcall></llm> if you need more data.");
+        sb.AppendLine("Open <lm><thinking>brief reasoning</thinking> then either <output>your answer</output></lm> if done, or <lm><thinking>brief reasoning</thinking><toolcall>...</toolcall></lm> if you need more data.");
         sb.AppendLine("Do NOT write plain text. Use the tags.");
         sb.AppendLine("IMPORTANT: Check [TASK PROGRESS] below BEFORE deciding. If any step is still [ ] or [...], you are NOT done — use <toolcall> for the remaining steps. Only use <output> when ALL steps show [OK] or [FAIL].");
         

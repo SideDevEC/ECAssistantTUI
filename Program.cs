@@ -25,6 +25,7 @@ public class Program
 {
     private static EAgentConfig _config = null!;
     public static EGuiBase Gui = null!;   // the UI instance, set once in Main()
+    private static bool _quitRequested;   // set by quit/exit command
 
 [System.STAThread]
     public static async Task<int> Main(string[] args)
@@ -416,6 +417,7 @@ public class Program
                 EColor.TagBold(EColor.Info(), "Bye", "Goodbye.");
                 Gui.BlankLine();
                 await sessionManager.StopAllAsync();
+                _quitRequested = true;
                 return;
             case "help": await PrintHelp(); return;
             case "tools": ListTools(agent); return;
@@ -490,8 +492,8 @@ public class Program
                 activeSession = currentActive;
             }
 
-            // If quit was requested, active session will be stopped
-            if (activeSession.RunState == SessionRunState.Stopping)
+            // If quit was requested, exit the loop (and the application)
+            if (_quitRequested)
                 return;
         }
     }
@@ -522,9 +524,9 @@ public class Program
         EColor.TagBold(Cyan, "Commands", "");
         Gui.BlankLine();
         EColor.WriteLine(Yellow + Bold, "  <type request>       Multi-step agent execution");
-        EColor.WriteLine(Yellow + Bold, "  stop                 Stop execution (type at prompt between tasks)");
+        EColor.WriteLine(Yellow + Bold, "  stop                 Stop the running session (keeps app alive)");
         EColor.WriteLine(Yellow + Bold, "  ESC                  Stop generation mid-stream (during token output)");
-        EColor.WriteLine(Yellow + Bold, "  quit / exit          Stop all sessions, save, exit");
+        EColor.WriteLine(Yellow + Bold, "  quit / exit          Stop all sessions and exit the application");
         EColor.WriteLine(Yellow + Bold, "  help                 Show this help");
         EColor.WriteLine(Yellow + Bold, "  tools                List registered tools");
         Gui.BlankLine();

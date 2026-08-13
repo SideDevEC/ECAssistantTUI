@@ -1150,8 +1150,11 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                   rawResult = rawResult.Substring("<assistant>".Length).Trim();
               if (rawResult.EndsWith("</assistant>", StringComparison.OrdinalIgnoreCase))
                   rawResult = rawResult.Substring(0, rawResult.Length - "</assistant>".Length).Trim();
-              // v10.12: Do NOT strip <lm> here — ExtractCleanResponse needs it to
-              // detect the container boundary. Stripping here would break noise filtering.
+              // v10.15.3: The generation cue provides <assistant><lm> so the model
+              // never outputs the opening <lm> tag. Prepend it so ExtractCleanResponse
+              // can find the <lm>...</lm> container and strip noise outside it.
+              if (!rawResult.Contains("<lm>", StringComparison.OrdinalIgnoreCase))
+                  rawResult = "<lm>" + rawResult;
 
               EColor.WriteLine(EColor.Dim, $"[Engine] Raw ({rawResult.Length} chars): {EGuiBase.Truncate(rawResult, 500)}");
 

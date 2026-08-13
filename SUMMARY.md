@@ -1,6 +1,6 @@
-# ECAssistant — Project Summary (v10.19.3 — 2026-08-13)
+# ECAssistant — Project Summary (v10.19.5 — 2026-08-13)
 
-**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Cross-platform (Windows + macOS). Loads GGUF models from disk — no API calls, no cloud, fully self-contained. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags for tool calling. Multi-step autonomous loops, dual memory (keyword + vector/semantic), sliding context windows, self-correction with failure loop detection, project context awareness, task decomposition, surgical code editing, 8 registered tools, sub-agent system with shared model weights. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.15: KV cache hybrid rewind, off-by-one fixes, `<llm>`→`<lm>` rename, sub-task advancement fixes. v10.16: Cross-platform migration — EShellAgent, dual system prompts, Mac support. v10.17: StepMapper (two-phase planning: decompose → map → execute), automated test framework. v10.18: Sub-agent system — isolated agents with shared model weights. v10.19.2: All artifacts in working directory, BackgroundProcessManager OS-aware. v10.19.3: Removed background agents (messy, dangerous on CPU) — session architecture design drafted (SESSIONS_DESIGN.md) as replacement.
+**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Cross-platform (Windows + macOS). Loads GGUF models from disk — no API calls, no cloud, fully self-contained. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags for tool calling. Multi-step autonomous loops, dual memory (keyword + vector/semantic), sliding context windows, self-correction with failure loop detection, project context awareness, task decomposition, surgical code editing, 8 registered tools, sub-agent system with shared model weights. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.15: KV cache hybrid rewind, off-by-one fixes, `<llm>`→`<lm>` rename, sub-task advancement fixes. v10.16: Cross-platform migration — EShellAgent, dual system prompts, Mac support. v10.17: StepMapper (two-phase planning: decompose → map → execute), automated test framework. v10.18: Sub-agent system — isolated agents with shared model weights. v10.19.2: All artifacts in working directory, BackgroundProcessManager OS-aware. v10.19.3: Removed background agents (messy, dangerous on CPU) — session architecture design drafted (SESSIONS_DESIGN.md) as replacement. v10.19.4: StepMapper file creation guidance + method-call syntax validation, sub-agent parameters inherited from config. v10.19.5: Independent subagent config section with enabled flag — all sub-agent parameters configurable independently from main model.
 
 ## Key Facts
 - **Language:** C# .NET 8 console app (`net8.0`, cross-platform, Nullable enabled)
@@ -12,7 +12,7 @@
 - **Secondary Model:** microsoft_Phi-4-mini-instruct-Q4_K_M (bartowski, 2.3 GiB)
 - **Models location:** `~/Agent/models/` (gitignored, absolute paths in config)
 - **Repo:** `github.com/LLamaDudeX/ECAssistant.git` (branch: `main`)
-- **Latest Tags:** `v10.19.3-safe` (v10.19.3), `v10.19.2-safe` (v10.19.2), `v10.18-subagent` (v10.18), `mac-safe` (v10.16.0), `pre-mac` (v10.15.8)
+- **Latest Tags:** `v10.19.5-safe` (v10.19.5), `v10.19.4-safe` (v10.19.4), `v10.19.3-safe` (v10.19.3), `v10.18-subagent` (v10.18), `mac-safe` (v10.16.0), `pre-mac` (v10.15.8)
 - **Executor:** InteractiveExecutor with KV cache (static prefix prefilled once, incremental feed per turn)
 - **Secondary Executor:** StatelessExecutor (fresh context per call, no cache)
 - **Source files:** 41 .cs files, dual system prompts
@@ -278,7 +278,7 @@ v10.9.4-working    — Pre-<lm> baseline
 
 ### Sub-Agent System (v10.18)
 - `SubAgentManager` — spawns isolated child agents sharing the same GGUF model on disk
-- Each sub-agent gets its own `EAgentEngine` with 4096 context, 7 tools, own KV cache
+- Each sub-agent gets its own `EAgentEngine` with configurable context (default 16384), 7 tools, own KV cache
 - `ESubAgentTool` — LLM calls via `<toolcall>ESubAgent<task>...</task></toolcall>`
 - Sub-agents run autonomously (up to 5 turns), return result to main agent
 - Parallel sub-agent spawning supported (multiple ESubAgent toolcalls in one `<lm>`)
@@ -327,4 +327,71 @@ Everything now goes inside `~/ECAssistant/`:
 
 Existing files moved from old locations into `~/ECAssistant/`.
 
-**Status:** v10.19.3 — Background agents removed (session architecture drafted as replacement). 8 tools, sub-agents retained, 28/28 tests passing. All artifacts in working directory. Cross-platform (Windows + macOS). Next: implement session architecture (v10.20, see SESSIONS_DESIGN.md).
+**Status:** v10.19.5 — Independent subagent config section with enabled flag. 8 tools, sub-agents configurable and disableable, 28/28 tests passing. All artifacts in working directory. Cross-platform (Windows + macOS). Next: implement session architecture (v10.20, see SESSIONS_DESIGN.md).
+
+## What's New (v10.19.4 — StepMapper Fixes + Sub-Agent Config Inheritance)
+
+### StepMapper File Creation Guidance
+- Added rule 4 to StepMapper prompt: "For file creation with specific content, prefer ECodeEditor(action=create) over shell echo/redirect — cross-platform safe and avoids quoting issues."
+- Added plan validation: detects method-call syntax (e.g. `CreateFile("readme.md", "# Test Project")`) in EShellAgent commands and invalidates the plan so LLM falls back to ad-hoc tool selection
+- Heuristic: if EShellAgent command has `(` and `)`, contains `"`, the char before `(` is a letter/digit, and no `$(` — it's method-call notation
+
+### System Prompt Tool Selection Guidance
+- Added "When to use ECodeEditor vs EShellAgent for file creation" section to both SystemPrompt.Mac.md and SystemPrompt.Windows.md
+- ECodeEditor(action=create) for creating files with content (cross-platform safe, no quoting issues)
+- EShellAgent for file ops without content (list, copy, move, delete)
+
+### Sub-Agent Config Inheritance Fix
+- Sub-agents were using hardcoded context_size=4096, gpu_layers=15, threadCount=-1
+- Now reads from main model config: _config.Llm.ContextSize (16384), _config.Llm.GpuLayers, _config.Llm.Threads
+- Fixed `parallel_create_and_git` test (was using invalid shell syntax `CreateFile(...)` instead of `echo`)
+- Fixed `subagent_parallel_spawn` test (4096 context was too tight for 8B model, 16384 gives room to self-correct)
+
+## What's New (v10.19.5 — Independent Subagent Config Section)
+
+### New SubAgentConfig Class
+- Added `SubAgentConfig` class in `EAgentConfig.cs` with fields:
+  - `enabled` (bool, default true)
+  - `context_size` (uint, default 16384)
+  - `gpu_layers` (int, default 15)
+  - `threads` (int, default -1)
+  - `max_concurrent` (int, default 3)
+  - `max_turns` (int, default 5)
+  - `timeout_seconds` (int, default 120)
+  - `max_tool_calls` (int, default 20)
+  - `max_retries` (int, default 1)
+
+### New `subagent` Section in appsettings.json
+```json
+"subagent": {
+    "enabled": true,
+    "context_size": 16384,
+    "gpu_layers": 15,
+    "threads": -1,
+    "max_concurrent": 3,
+    "max_turns": 5,
+    "timeout_seconds": 120,
+    "max_tool_calls": 20,
+    "max_retries": 1
+}
+```
+
+### SubAgentManager Changes
+- Reads ALL parameters from `_config.SubAgent` (not `_config.Llm` or hardcoded)
+- Exposes `DefaultContextSize`, `DefaultMaxTurns`, `DefaultTimeoutSeconds`, `DefaultMaxRetries`, `DefaultMaxToolCalls` properties
+- `SubAgentTask.ContextSize` default updated from 4096 to 16384
+
+### ESubAgentTool Changes
+- Uses `_manager.Default*` for max_turns, timeout, max_retries (not hardcoded 5/120/1)
+- Tool rules updated: "defaults to subagent config" instead of hardcoded values
+
+### Gating on `enabled` Flag
+- `Program.cs`: Only calls `InitializeSubAgentsAsync` if `_config.SubAgent.Enabled`
+- `TestRunner.cs`: Same gating
+- When disabled: no KV cache rebuild, no ESubAgent tool registered, no sub-agent system initialized
+
+### Impact
+- Sub-agents are now fully configurable independently from the main model
+- Can be completely disabled with `"enabled": false`
+- All operational parameters (context, GPU, threads, turns, timeout, retries) are in config
+- No more hardcoded values anywhere in the sub-agent code path

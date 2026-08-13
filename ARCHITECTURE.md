@@ -1,6 +1,6 @@
-# ECAssistant Architecture (v10.19.3 — 2026-08-13)
+# ECAssistant Architecture (v10.19.5 — 2026-08-13)
 
-**Summary:** A local, offline AI agent in C# .NET 8 using LLamaSharp. Runs GGUF models locally with no external API calls. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags (`<thinking>`, `<toolcall>`, `<output>`). 8 registered tools self-register their rules at runtime. Multi-step autonomous loops with dual memory (keyword + TF-IDF vector), sliding context windows with LLM summarization, self-correction with failure loop detection and file rollback, project context awareness with dependency graph, two-phase task planning (decompose → map → execute), surgical code editing, background process management, file watching, structured logging, and sub-agent system with shared model weights. Token-optimized for 8B models. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.16: Cross-platform (Windows + macOS). v10.17: StepMapper (two-phase planning), automated test framework. v10.18: Sub-agent system. v10.19.2: All artifacts in working directory. v10.19.3: Removed background agents (replaced by session architecture design — see SESSIONS_DESIGN.md).
+**Summary:** A local, offline AI agent in C# .NET 8 using LLamaSharp. Runs GGUF models locally with no external API calls. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags (`<thinking>`, `<toolcall>`, `<output>`). 8 registered tools self-register their rules at runtime. Multi-step autonomous loops with dual memory (keyword + TF-IDF vector), sliding context windows with LLM summarization, self-correction with failure loop detection and file rollback, project context awareness with dependency graph, two-phase task planning (decompose → map → execute), surgical code editing, background process management, file watching, structured logging, and sub-agent system with shared model weights. Token-optimized for 8B models. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.16: Cross-platform (Windows + macOS). v10.17: StepMapper (two-phase planning), automated test framework. v10.18: Sub-agent system. v10.19.2: All artifacts in working directory. v10.19.3: Removed background agents (replaced by session architecture design — see SESSIONS_DESIGN.md). v10.19.4: StepMapper file creation guidance + method-call syntax validation, sub-agent config inheritance fix. v10.19.5: Independent subagent config section with enabled flag.
 
 ## Key Facts
 - **Language:** C# .NET 8 console app (`net8.0`, cross-platform, Nullable enabled)
@@ -327,14 +327,18 @@ Centralized truncation in `EGuiBase`:
 14. **Parallel multi-tool execution (v10.13)** — multiple toolcalls per `<lm>`, dependency analysis, Task.WhenAll
 15. **Models outside repo** — `~/Agent/models/`, gitignored, absolute paths in config
 16. **All artifacts in working dir (v10.19.2)** — no leaks to `/tmp/` or `~/ECAssistant-Tests/`
-17. **Sub-agents share model weights (v10.18)** — isolated engines, same GGUF on disk, 4096 context
+17. **Sub-agents share model weights (v10.18)** — isolated engines, same GGUF on disk, configurable context size
 18. **Background agents removed (v10.19.3)** — replaced by session architecture design (see SESSIONS_DESIGN.md)
+19. **StepMapper file creation guidance (v10.19.4)** — prefer ECodeEditor for file creation (cross-platform safe), validate method-call syntax in shell commands
+20. **Independent subagent config (v10.19.5)** — sub-agents have their own config section with enabled flag, context_size, gpu_layers, threads, and all operational parameters
 
 ## 🔖 Known-Good Builds (Git Tags)
 
 | Tag | Version | Description |
 |-----|---------|-------------|
-| `v10.19.3-safe` | v10.19.3 | Removed background agents, kept sub-agents, session design ← CURRENT |
+| `v10.19.5-safe` | v10.19.5 | Independent subagent config section with enabled flag ← CURRENT |
+| `v10.19.4-safe` | v10.19.4 | StepMapper file creation guidance, sub-agent config inheritance fix |
+| `v10.19.3-safe` | v10.19.3 | Removed background agents, kept sub-agents, session design |
 | `v10.19.2-safe` | v10.19.2 | All artifacts in working dir, BackgroundProcessManager OS-aware |
 | `mac-safe` | v10.16.0 | Cross-platform, EShellAgent, dual prompts, Mac-tested |
 | `pre-mac` | v10.15.8 | Pre-migration checkpoint (Windows-only, EPowerShellAgent) |
@@ -342,9 +346,11 @@ Centralized truncation in `EGuiBase`:
 
 **If any change breaks multi-turn:**
 ```bash
-git checkout v10.19.3-safe  # Current (background agents removed, sub-agents kept)
+git checkout v10.19.5-safe  # Current (independent subagent config)
+git checkout v10.19.4-safe  # StepMapper fixes
+git checkout v10.19.3-safe  # Background agents removed
 git checkout pre-mac        # Pre-migration (Windows-only)
 git checkout v10.12.20-working  # Pre-<lm> audit baseline
 ```
 
-**Status:** v10.19.3 — Background agents removed (replaced by session architecture design). 8 tools, sub-agents retained, 28/28 tests passing. All artifacts in working directory. Cross-platform (Windows + macOS). Ready for session architecture implementation (v10.20).
+**Status:** v10.19.5 — Independent subagent config section with enabled flag. 8 tools, sub-agents configurable and disableable, 28/28 tests passing. All artifacts in working directory. Cross-platform (Windows + macOS). Ready for session architecture implementation (v10.20, see SESSIONS_DESIGN.md).

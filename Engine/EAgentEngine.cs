@@ -30,12 +30,14 @@ public sealed class ToolCallResult
 }
 
 
-public sealed class EAgentEngine : IAsyncDisposable
+public class EAgentEngine : IAsyncDisposable
 {
     private LLamaWeights? _weights;
     private LLamaContext? _context;
     private ModelParams? _modelParams;
     private bool _sharesWeights = false; // v10.20: if true, don't dispose _weights in DisposeAsync
+    // v10.22: Mock mode flag — when true, skip all LLama native initialization
+    internal static bool MockMode = false;
     // v10.5: Switched to InteractiveExecutor for KV cache reuse.
     // Static prefix (system prompt + tools) is prefilled once at session start.
     // Only new tokens (user msg, tool output, directives) are fed per turn.
@@ -81,6 +83,76 @@ public sealed class EAgentEngine : IAsyncDisposable
     public int TurnCount => _turnCount;
     public ConversationTranscript Transcript => _transcript;
     public ContextWindow ContextWindow => _contextWindow;
+
+    // ── v10.22: Context & KV Cache Status ──
+    /// <summary>Current token usage in the context window.</summary>
+    public int UsedTokens => _contextWindow.GetTotalTokens();
+    /// <summary>Max token budget for the context window.</summary>
+    public uint MaxContextTokens => _contextWindow.MaxTokens;
+    /// <summary>Percentage of context used (0-100).</summary>
+    public int ContextUsagePercent
+    {
+        get
+        {
+            var max = (int)_contextWindow.MaxTokens;
+            if (max <= 0) return 0;
+            return Math.Min(100, _contextWindow.GetTotalTokens() * 100 / max);
+        }
+    }
+    /// <summary>Distance to auto-summarize threshold (tokens). Negative if already past.</summary>
+    public int TokensUntilSummarize
+    {
+        get
+        {
+            var max = (int)_contextWindow.MaxTokens;
+            if (max <= 0) return 0;
+            var threshold = max / 2; // auto-summarize at 50%
+            return threshold - _contextWindow.GetTotalTokens();
+        }
+    }
+    /// <summary>Whether context is getting close to overflow (>80%).</summary>
+    public bool IsContextNearOverflow => ContextUsagePercent >= 80;
+    /// <summary>Context status summary for display.</summary>
+    public string ContextStatusSummary
+    {
+        get
+        {
+            var used = UsedTokens;
+            var max = MaxContextTokens;
+            var pct = ContextUsagePercent;
+            var untilSum = TokensUntilSummarize;
+            var warn = pct >= 80 ? " ⚠️" : (pct >= 50 ? " (summarize zone)" : "");
+            return $"ctx: {used}/{max} ({pct}%){warn} — {untilSum} tokens until summarize";
+        }
+    }
+
+    // ── v10.22: KV Cache Info ──
+    /// <summary>Context size (KV cache capacity in tokens).</summary>
+    public uint KVCacheContextSize => _contextSize;
+    /// <summary>Whether the static prefix has been prefilled into KV cache.</summary>
+    public bool IsKVCachePrefilled => _isPrefilled;
+    /// <summary>Approximate KV cache usage — ratio of used context tokens to context size.</summary>
+    public double KVCacheUsageRatio
+    {
+        get
+        {
+            if (_contextSize == 0) return 0;
+            return Math.Min(1.0, _contextWindow.GetTotalTokens() / (double)_contextSize);
+        }
+    }
+    /// <summary>Approximate KV cache memory estimate in MB (rough: 2 bytes per token per layer × gpu_layers).</summary>
+    public double KVCacheEstimatedMB
+    {
+        get
+        {
+            // Rough estimate: KV cache = 2 * n_layers * n_ctx * n_embd * sizeof(half)
+            // For Qwen3-8B: ~28 layers, 4096 dim → ~2 bytes * 28 * ctxSize * 4096 * 2 / 1M
+            // This is very approximate — actual depends on model architecture
+            var approxLayers = 28; // reasonable default for 8B models
+            var approxDim = 4096;
+            return Math.Round(2.0 * approxLayers * _contextSize * approxDim * 2 / (1024 * 1024), 1);
+        }
+    }
     
     // v10.9: Cancellation token for stopping execution mid-stream
     // v10.9.1: Fixed race condition — don't null _cts in StopExecution
@@ -109,7 +181,7 @@ public sealed class EAgentEngine : IAsyncDisposable
     // v10.11.1: Rebuild KV cache after an ESC stop or cancellation.
     // The static prefix is re-prefilled, but all conversation tokens are cleared.
     // This prevents stale user messages from the stopped attempt leaking into the next command.
-    public async Task RebuildCacheAfterStopAsync()
+    public virtual async Task RebuildCacheAfterStopAsync()
     {
         if (!_isPrefilled) return;  // nothing to rebuild if never prefilled
         _out?.WriteWarning("[KVCache] Rebuilding after ESC stop...");
@@ -328,6 +400,23 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                         });
                    } catch { /* may already be loaded */ }
                }
+
+           // v10.22: Mock mode — skip all LLama native initialization, just set basic fields
+           if (MockMode)
+           {
+               _contextSize = contextSize;
+               _gpuLayers = gpuLayers;
+               _threads = threadCount;
+               _inferenceParams = inferenceParams;
+               _workingDir = string.IsNullOrEmpty(workingDir) ? AppContext.BaseDirectory : workingDir;
+               _memoryManager = new EMemoryManager();
+               var mockSummarySvc = new SummaryService(null);
+               _contextWindow = new ContextWindow(contextSize, mockSummarySvc);
+               _transcript = new ConversationTranscript();
+               _memoryManager.Load();
+               return; // Skip all LLama weight loading, context creation, system prompt loading
+           }
+
            var sysInfo = SystemInfo.Get();
           if (sysInfo.OSPlatform != null)
                 {
@@ -504,7 +593,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
 
     // v10.5: Prefill the KV cache with the static prefix (system prompt + tools).
     // Called once at session start. After this, only new tokens are fed per turn.
-    public async Task PrefillStaticPrefix()
+    public virtual async Task PrefillStaticPrefix()
     {
         if (_isPrefilled || _executor == null) return;
 
@@ -818,7 +907,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                 }
 
       /// <summary>Add tool result to both transcript and context window.</summary>
-      public void AddToolResult(string toolName, string output)
+      public virtual void AddToolResult(string toolName, string output)
         {
            // v10.5.1: Escape angle brackets in tool output to prevent fake XML tags
            // in conversation history that would break ExtractCleanResponse and ParseLLMDecision.
@@ -925,7 +1014,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
      private int _consecutiveRewindFailures = 0;
      private const int MaxRewindFailures = 2;  // After this, force full rebuild
 
-     public async Task RemoveLastAssistantResponseAsync()
+     public virtual async Task RemoveLastAssistantResponseAsync()
      {
          _contextWindow.RemoveLastAssistantMessage();
          // Also remove from transcript
@@ -1018,7 +1107,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
      }
 
       /// <summary>Inject a format retry prompt as a user message.</summary>
-     public void InjectFormatRetry(string errorMessage)
+     public virtual void InjectFormatRetry(string errorMessage)
      {
          _contextWindow.AddUserMessage(errorMessage);
          _transcript.AddUser(errorMessage);
@@ -1034,7 +1123,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
      }
 
       /// <summary>Clear context window and transcript.</summary>
-    public void ClearHistory()
+    public virtual void ClearHistory()
            {
                _contextWindow.Clear();
               _transcript.Messages.Clear();
@@ -1054,7 +1143,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
       /// <summary>Reset the turn counter for a new user request (v10.4.4).
       /// Called by the orchestrator at the start of each ExecuteMultiStep.
       /// This ensures the first GenerateAsync call adds the user message to context.</summary>
-    public void ResetTurnCount()
+    public virtual void ResetTurnCount()
     {
         _turnCount = 0;
     }
@@ -1064,7 +1153,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
     // The KV cache keeps the static prefix (system prompt + tools) but
     // the dynamic conversation context is reset.
     // If the cache is getting full, we re-prefill from scratch.
-    public void ResetForNewRequest()
+    public virtual void ResetForNewRequest()
     {
         _turnCount = 0;
         _escPressed = false;
@@ -1076,7 +1165,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
     // v10.5: Full KV cache reset + re-prefill.
     // Called when context overflows or when we need a clean slate.
     // v10.8.3: Made async — PrefillStaticPrefix is async and must be awaited.
-    public async Task ResetAndRebuildCacheAsync()
+    public virtual async Task ResetAndRebuildCacheAsync()
     {
         if (_executor == null || _context == null) return;
         
@@ -1103,7 +1192,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
        /// <summary>Generate text from the LLM using incremental KV cache feed (v10.5).</summary>
     /// <param name="userPrompt">The user's original goal/request. Only added to context on turn 1.
     /// On subsequent turns, the context is already populated by AddToolResult + InjectFormatRetry.</param>
-    public async Task<string> GenerateAsync(string userPrompt)
+    public virtual async Task<string> GenerateAsync(string userPrompt)
            {
                _turnCount++;
             _escPressed = false;  // v10.9.2: Reset ESC flag for this turn
@@ -1316,6 +1405,8 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
          // v10.12: Extract content from <lm> container first.
          // Everything outside <lm>...</lm> is noise and is ignored.
          // If no <lm> tag found, fall back to raw (for backwards compat / format retries).
+         // v10.22: Fallback regex parser — if tags are malformed (missing >, extra chars),
+         // try regex extraction before giving up and returning raw.
          var llmStart = raw.IndexOf("<lm>", StringComparison.OrdinalIgnoreCase);
          var llmEnd = raw.IndexOf("</lm>", StringComparison.OrdinalIgnoreCase);
          
@@ -1334,9 +1425,24 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
          }
          else
          {
-             // No <lm> container — fall back to raw (format retry / backwards compat)
-             content = raw.Trim();
-             Logger.Debug("Extract", $"No <lm> container found — using raw: {content.Length} chars");
+             // v10.22: Fallback regex parser — try to find <lm>-like patterns with malformed tags.
+             // Matches: <lm (with missing >), <llm>, <l m>, etc.
+             var lmRegex = new System.Text.RegularExpressions.Regex(@"<l?m[^>]*>?", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+             var lmMatch = lmRegex.Match(raw);
+             if (lmMatch.Success)
+             {
+                 content = raw.Substring(lmMatch.Index + lmMatch.Length).Trim();
+                 // Also try to strip a malformed closing tag
+                 var closeRegex = new System.Text.RegularExpressions.Regex(@"</?l?m[^>]*>?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                 content = closeRegex.Replace(content, "").Trim();
+                 Logger.Debug("Extract", $"Fallback regex found malformed <lm> tag at {lmMatch.Index}: extracted {content.Length} chars");
+             }
+             else
+             {
+                 // No <lm> container — fall back to raw (format retry / backwards compat)
+                 content = raw.Trim();
+                 Logger.Debug("Extract", $"No <lm> container found — using raw: {content.Length} chars");
+             }
          }
 
          // v10.13: Extract ALL <toolcall> blocks + first <thinking> + first <output>.

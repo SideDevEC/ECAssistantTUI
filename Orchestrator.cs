@@ -761,6 +761,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
      }
 
      // v10.6: Advance sub-task tracking based on tool result
+    // v10.22: Post-hoc effect matching — check actual tool effects against remaining sub-tasks
     private void AdvanceSubTask(bool success, string toolName, string description)
      {
         if (_subTasks == null || _subTasks.Count <= 1) return;
@@ -773,6 +774,10 @@ public sealed class AgentOrchestrator : IAsyncDisposable
             current.CompletedAt = DateTime.UtcNow;
             _out?.WriteSuccess($"Step {_currentSubTask + 1}/{_subTasks.Count} completed: {current.Description}");
              _currentSubTask++;
+
+             // v10.22: Post-hoc effect matching — check if subsequent sub-tasks were also completed
+             // by this single tool call (e.g., one shell command created 3 files covering 3 steps)
+             MatchEffectsToSubTasks(toolName, description);
 
              // Mark next sub-task as in-progress
             if (_currentSubTask < _subTasks.Count)
@@ -795,6 +800,61 @@ public sealed class AgentOrchestrator : IAsyncDisposable
              }
          }
      }
+
+    /// <summary>
+    /// v10.22: Post-hoc effect matching — check if a completed tool call's actual effects
+    /// also satisfy subsequent pending sub-tasks. For example, if one shell command creates
+    /// 3 files and the plan had 3 steps for creating each file, this detects that all 3 are done.
+    /// 
+    /// Uses keyword matching between the tool description/output and sub-task descriptions.
+    /// Conservative: only advances if there's a clear match (keyword overlap > 60%).
+    /// </summary>
+    private void MatchEffectsToSubTasks(string toolName, string toolDescription)
+    {
+        if (_subTasks == null || _currentSubTask >= _subTasks.Count) return;
+
+        var descWords = toolDescription.ToLower().Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(w => w.Length > 2)
+            .ToHashSet();
+
+        // Also get the last tool output from context for richer matching
+        var windowMsgs = _engine.ContextWindow.GetWindowMessages();
+        var lastTool = windowMsgs.LastOrDefault(m => m.Role == "tool_output");
+        if (lastTool != null)
+        {
+            var outputWords = lastTool.Content.ToLower().Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Where(w => w.Length > 2);
+            foreach (var w in outputWords) descWords.Add(w);
+        }
+
+        int matched = 0;
+        while (_currentSubTask < _subTasks.Count)
+        {
+            var task = _subTasks[_currentSubTask];
+            if (task.Status != SubTaskStatus.Pending && task.Status != SubTaskStatus.InProgress) break;
+
+            var taskWords = task.Description.ToLower().Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .Where(w => w.Length > 2)
+                .ToList();
+            if (taskWords.Count == 0) break;
+
+            var overlap = taskWords.Count(w => descWords.Contains(w));
+            var matchRatio = (double)overlap / taskWords.Count;
+
+            if (matchRatio >= 0.6)
+            {
+                task.Status = SubTaskStatus.Completed;
+                task.CompletedAt = DateTime.UtcNow;
+                _out?.WriteSuccess($"Step {_currentSubTask + 1}/{_subTasks.Count} auto-detected as done: {task.Description} (effect match {matchRatio:P0})");
+                _currentSubTask++;
+                matched++;
+            }
+            else break;
+        }
+
+        if (matched > 0)
+            _out?.WriteInfo($"Post-hoc matching: {matched} additional sub-task(s) completed by effect overlap.");
+    }
 
     public async ValueTask DisposeAsync()
      {

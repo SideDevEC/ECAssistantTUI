@@ -11,6 +11,7 @@ using ECAssistant.Tools.Web;
 using ECAssistant.Tools.Build;
 using ECAssistant.Tools.Git;
 using ECAssistant.Tools.Code;
+using ECAssistant.Tools.Reader;
 using ECAssistant.Analysis;
 using ECAssistant.Services;
 using ECAssistant.UI;
@@ -110,6 +111,9 @@ public sealed class TestRunner : IAsyncDisposable
     /// <summary>v10.17.2: Verbose mode — dump full captured log for each test (including token stream).</summary>
     public bool Verbose { get; set; } = false;
 
+    /// <summary>v10.22: Use MockEngine instead of real LLM (model-independent tests).</summary>
+    public bool UseMockEngine { get; set; } = false;
+
     /// <summary>Create a test runner with the given model path.</summary>
     /// <param name="modelPath">Absolute path to the GGUF model file.</param>
     /// <param name="testRootDir">Root directory for test sandboxes (default: ~/ECAssistant/tests/).</param>
@@ -162,6 +166,12 @@ public sealed class TestRunner : IAsyncDisposable
             var (engine, orchestrator) = await SetupEngineAndToolsAsync(sandboxDir);
             _engine = engine;
             _orchestrator = orchestrator;
+
+            // v10.22: If using mock engine, inject scripted responses based on test name
+            if (UseMockEngine && engine is MockEngine mock)
+            {
+                InjectMockResponses(mock, scenario);
+            }
 
             // Run the test with a timeout
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(scenario.TimeoutSeconds));
@@ -379,17 +389,30 @@ public sealed class TestRunner : IAsyncDisposable
         };
 
         // Create the engine
-        var engine = new EAgentEngine(
-            modelPath: _modelPath,
-            workingDir: workingDir,
-            contextSize: config.Llm.ContextSize,
-            gpuLayers: config.Llm.GpuLayers,
-            threadCount: config.Llm.Threads,
-            inferenceParams: inferenceParams
-        );
+        EAgentEngine engine;
+        if (UseMockEngine)
+        {
+            // v10.22: Mock engine — no GGUF needed, returns predefined responses
+            EAgentEngine.MockMode = true; // Skip LLama native init
+            engine = new MockEngine(workingDir);
+            engine.LoadContext();
+            engine.WireSummaryService();
+            EAgentEngine.MockMode = false; // Reset for safety
+        }
+        else
+        {
+            engine = new EAgentEngine(
+                modelPath: _modelPath,
+                workingDir: workingDir,
+                contextSize: config.Llm.ContextSize,
+                gpuLayers: config.Llm.GpuLayers,
+                threadCount: config.Llm.Threads,
+                inferenceParams: inferenceParams
+            );
 
-        engine.LoadContext();
-        engine.WireSummaryService();
+            engine.LoadContext();
+            engine.WireSummaryService();
+        }
 
         // Vector memory
         if (config.VectorMemory.Enabled)
@@ -446,6 +469,10 @@ public sealed class TestRunner : IAsyncDisposable
         engine.RegisterTool(new EGitTool(workingDir));
         engine.RegisterTool(new ECodeEditorTool(workingDir));
 
+        // v10.22: EFileReader + EWebFetch
+        engine.RegisterTool(new EFileReaderTool(workingDir));
+        engine.RegisterTool(new EWebFetchTool());
+
         // File research tool
         var researchExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             { ".cs", ".md", ".json", ".txt", ".xml", ".sql", ".html", ".css", ".js", ".sh" };
@@ -455,8 +482,9 @@ public sealed class TestRunner : IAsyncDisposable
             workingDir, defaultExtensions: researchExtensions,
             maxCharsPerFile: config.Tools.EFileResearchTool.MaxCharsPerFile));
 
-        // Prefill KV cache
-        await engine.PrefillStaticPrefix();
+        // Prefill KV cache (no-op for mock engine)
+        if (!UseMockEngine)
+            await engine.PrefillStaticPrefix();
 
         // Create orchestrator with tool policy (all allowed for tests)
         var policy = new ToolPolicy();
@@ -483,6 +511,45 @@ public sealed class TestRunner : IAsyncDisposable
         if (_engine != null)
         {
             try { await _engine.DisposeAsync(); } catch { }
+        }
+    }
+
+    /// <summary>
+    /// v10.22: Inject scripted mock responses based on the test scenario name.
+    /// Each mock test gets deterministic responses that exercise specific orchestrator paths.
+    /// </summary>
+    private static void InjectMockResponses(MockEngine mock, TestScenario scenario)
+    {
+        switch (scenario.Name)
+        {
+            case "mock_direct_answer":
+                mock.AddResponse("<lm><thinking>2+2=4</thinking><output>4</output></lm>");
+                break;
+
+            case "mock_toolcall_then_answer":
+                mock.AddResponse("<lm><thinking>Need to create a file</thinking><toolcall>EShellAgent<command>echo hello > test.txt</command></toolcall></lm>");
+                mock.AddResponse("<lm><thinking>File created successfully</thinking><output>Done. Created test.txt.</output></lm>");
+                break;
+
+            case "mock_format_retry":
+                mock.AddResponse("<lm><thinking>let me help</thinking><toolcall>EShellAgent<command>echo test</command></toolcall>");
+                mock.AddResponse("<lm><thinking>trying again</thinking><output>Format retry worked.</output></lm>");
+                break;
+
+            case "mock_multistep":
+                mock.AddResponse("<lm><thinking>step 1</thinking><toolcall>EShellAgent<command>echo step1 > step1.txt</command></toolcall></lm>");
+                mock.AddResponse("<lm><thinking>step 2</thinking><toolcall>EShellAgent<command>echo step2 > step2.txt</command></toolcall></lm>");
+                mock.AddResponse("<lm><thinking>all done</thinking><output>Completed 2 steps successfully.</output></lm>");
+                break;
+
+            case "mock_subtask_advancement":
+                mock.AddResponse("<lm><thinking>create 3 files</thinking><toolcall>EShellAgent<command>echo f1 > f1.txt && echo f2 > f2.txt && echo f3 > f3.txt</command></toolcall></lm>");
+                mock.AddResponse("<lm><thinking>all 3 files created</thinking><output>Created 3 files: f1.txt, f2.txt, f3.txt</output></lm>");
+                break;
+
+            default:
+                mock.AddResponse("<lm><thinking>default mock</thinking><output>Mock response for: " + scenario.Name + "</output></lm>");
+                break;
         }
     }
 }

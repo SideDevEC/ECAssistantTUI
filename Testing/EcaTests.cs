@@ -743,4 +743,70 @@ public static class EcaTests
     /// <summary>Get only the dotnet build tests.</summary>
     public static List<TestScenario> DotnetTests
         => ByNamePrefix("dotnet_");
-}
+
+    // ── v10.22: Mock Engine Tests (model-independent, deterministic) ──────────
+
+    /// <summary>Get only the mock engine tests.</summary>
+    public static List<TestScenario> MockTests => ByNamePrefix("mock_");
+
+    /// <summary>All mock engine test scenarios (model-independent).</summary>
+    public static List<TestScenario> MockScenarios => new()
+    {
+        // ── Mock: Direct answer ──
+        new TestScenario
+        {
+            Name = "mock_direct_answer",
+            Description = "Mock engine returns a direct answer via <output>",
+            Prompt = "What is 2+2?",
+            TimeoutSeconds = 30,
+            ExpectedStatus = OrchestratorStatus.GoalAchieved,
+            ExpectedOutputContains = new() { "4" },
+            MaxToolCalls = 0,
+        },
+
+        // ── Mock: Tool call then answer ──
+        new TestScenario
+        {
+            Name = "mock_toolcall_then_answer",
+            Description = "Mock engine calls a tool, then gives final answer",
+            Prompt = "Create a test file.",
+            TimeoutSeconds = 30,
+            ExpectedStatus = OrchestratorStatus.GoalAchieved,
+            MinToolCalls = 1,
+            MaxToolCalls = 2,
+        },
+
+        // ── Mock: Format retry ──
+        new TestScenario
+        {
+            Name = "mock_format_retry",
+            Description = "Mock engine sends malformed response, then corrects on retry",
+            Prompt = "Test format retry.",
+            TimeoutSeconds = 30,
+            ExpectedStatus = OrchestratorStatus.GoalAchieved,
+        },
+
+        // ── Mock: Multi-step plan ──
+        new TestScenario
+        {
+            Name = "mock_multistep",
+            Description = "Mock engine executes multi-step plan with multiple tool calls",
+            Prompt = "Multi-step task.",
+            TimeoutSeconds = 30,
+            ExpectedStatus = OrchestratorStatus.GoalAchieved,
+            MinToolCalls = 2,
+            MaxToolCalls = 4,
+        },
+
+        // ── Mock: Sub-task advancement ──
+        new TestScenario
+        {
+            Name = "mock_subtask_advancement",
+            Description = "Mock engine tests post-hoc sub-task matching",
+            Prompt = "Create 3 files.",
+            TimeoutSeconds = 30,
+            ExpectedStatus = OrchestratorStatus.GoalAchieved,
+            MinToolCalls = 1,
+            MaxToolCalls = 3,
+        },
+    };}

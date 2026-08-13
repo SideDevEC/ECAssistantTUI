@@ -98,6 +98,52 @@ Now: everything inside `~/ECAssistant/`:
 - Background agent working dirs → `~/ECAssistant/.bgagents/`
 `BackgroundProcessManager` also made OS-aware (was Windows-only `powershell.exe`, now uses `/bin/zsh` on Mac).
 
+### 15. Terminal.Gui TUI Does Not Work for ECAssistant (v10.21 to v10.21.1)
+Terminal.Gui v1.9.0 replaced raw console I/O. It caused **distortion and freezing** on macOS Terminal.app. Root causes:
+- `TextView.Text = TextView.Text + text` is O(n^2) — full string copy + reassign on every token
+- `CursorPosition = new Point(0, len)` used character offset as row — wrong, distorted the view
+- `Application.MainLoop.Invoke` per-token flooded the event loop
+- `ESC 7`/`ESC 8` (DECSC/DECRC) rendered as literal `3` characters on macOS Terminal.app
+**Fix:** Reverted to EGuiConsole with ANSI scroll region. No Terminal.Gui dependency.
+
+### 16. ANSI Scroll Region — Use Session Buffer, Not Per-Token UI Writes (v10.21.2)
+The ANSI scroll region (`ESC[top;bottomr`) confines scrolling to rows 1..(H-1), keeping input at row H. But per-token `Console.Write` with cursor repositioning caused:
+- **Gaps**: Column tracking broke because ANSI color codes are invisible but counted as visible chars
+- **Overwrites**: Repositioning cursor to row start on every WriteRaw overwrote previous tokens
+- **Prompt disappears**: `ESC[s`/`ESC[u` single-slot save/restore unreliable — saved position lost
+**Fix:** Stop pushing `raw_token` entries to UI. Let `AgentSession._streamBuffer` accumulate tokens. Flush as batch `stream` entries on `WriteLine()` or state change. One `Console.Write` per flush — no cursor repositioning needed.
+
+### 17. EColor Must Route Through Gui (v10.21.2)
+`EColor.TagBold()`, `EColor.WriteLine()`, `EColor.Write()` called `Console.WriteLine` directly, bypassing EGuiConsole scroll region cursor management. All startup messages and tool output went to the wrong cursor position.
+**Fix:** Added `WriteHandler`/`WriteLineHandler` static delegates to EColor. Set at startup to route through Gui. All EColor output now goes through scroll region.
+
+### 18. ConsoleUiRenderer Must Route Through Gui (v10.21.2)
+`ConsoleUiRenderer.OnOutput()` called `Console.Write`/`Console.WriteLine` directly, bypassing EGuiConsole. Session output went to wrong cursor position, garbling the input line.
+**Fix:** `ConsoleUiRenderer` now takes `EGuiBase` constructor param. All output calls go through Gui methods.
+
+### 15. Terminal.Gui TUI Doesn't Work for ECAssistant (v10.21→v10.21.1)
+Terminal.Gui v1.9.0 was added to replace raw console I/O. It caused **distortion and freezing** on macOS Terminal.app. Root causes:
+-  is O(n²) — full string copy + reassign on every token
+-  used character offset as row — wrong, distorted the view
+-  per-token flooded the event loop
+- / (DECSC/DECRC) rendered as literal `3` characters on macOS Terminal.app
+**Fix:** Reverted to EGuiConsole with ANSI scroll region. No Terminal.Gui dependency.
+
+### 16. ANSI Scroll Region — Use Session Buffer, Not Per-Token UI Writes (v10.21.2)
+The ANSI scroll region () confines scrolling to rows 1..(H-1), keeping the input line at row H. But per-token  with cursor repositioning caused:
+- **Gaps**: Column tracking broke because ANSI color codes (`[36m`) are invisible but counted as visible characters
+- **Overwrites**: Repositioning cursor to row start on every `WriteRaw` overwrote previous tokens
+- **Prompt disappears**: `ESC[s`/`ESC[u` single-slot save/restore unreliable — saved position lost
+**Fix:** Stop pushing `raw_token` entries to UI. Let `AgentSession._streamBuffer` accumulate tokens. Flush as batch `stream` entries on `WriteLine()` or state change. One `Console.Write` per flush — no cursor repositioning needed.
+
+### 17. EColor Must Route Through Gui (v10.21.2)
+`EColor.TagBold()`, `EColor.WriteLine()`, `EColor.Write()` called `Console.WriteLine` directly, bypassing EGuiConsole scroll region cursor management. All startup messages and tool output went to the wrong cursor position.
+**Fix:** Added `WriteHandler`/`WriteLineHandler` static delegates to EColor. Set at startup: `EColor.WriteLineHandler = (s) => Gui.WriteLineColored(s)`. All EColor output now routes through Gui → scroll region.
+
+### 18. ConsoleUiRenderer Must Route Through Gui (v10.21.2)
+`ConsoleUiRenderer.OnOutput()` called `Console.Write`/`Console.WriteLine` directly, bypassing EGuiConsole. Session output went to wrong cursor position, garbling the input line.
+**Fix:** `ConsoleUiRenderer` now takes `EGuiBase` constructor param. All output calls go through `_gui.WriteRaw()`/`_gui.WriteLineColored()`/`_gui.BlankLine()`.
+
 ## Session Architecture (v10.20 + v10.21)
 
 **Fully isolated multi-session system with shared model weights.** Each session is an independent agent with its own engine, context, tools, memory, and output buffer. Sessions share one `LLamaWeights` instance in RAM (one GGUF load) but each gets its own `LLamaContext` (own KV cache).
@@ -392,12 +438,17 @@ All components (orchestrator, engine, tools) receive an `ISessionOutput` referen
 22. **Terminal.Gui TUI (v10.21)** — replaces raw Console.Write/ReadLine with Terminal.Gui event loop. Scrollable output view (TextView) + always-free input field (TextField) + status bar. Thread-safe output via `Application.MainLoop.Invoke`. No console sync deadlocks
 23. **Session discovery from disk (v10.21)** — SessionDiscovery scans `.sessions/` dir, finds most recently modified session, auto-activates. Animated loading indicator (500ms dots) during init. Legacy transcript.json migrated to `.sessions/main/`
 24. **Native log redirect (v10.21)** — `NativeLogConfig.llama_log_set` redirects all C++ llama.cpp output (load_tensors, repack, ggml_metal) to log file, keeping console clean. LLAMA-tagged Logger entries skip console output
+25. **ANSI scroll region for free input (v10.21.2)** — `ESC[top;bottomr` sets scroll region rows 1..(H-1), input line at row H. User can type while LLM streams. No Terminal.Gui — raw ANSI only. Windows ANSI enabled via `ENABLE_VIRTUAL_TERMINAL_PROCESSING`.
+26. **Session buffer for token batching (v10.21.2)** — `AgentSession.WriteRaw()` appends to `_streamBuffer` without pushing to UI. `FlushBuffer()` on `WriteLine()`/state change delivers batch `stream` entries. One `Console.Write` per batch. Tradeoff: no real-time per-token streaming (can add timer flush later).
+27. **EColor routing through Gui (v10.21.2)** — `EColor.WriteHandler`/`WriteLineHandler` delegates route all EColor output through EGuiConsole. Prevents startup messages from bypassing scroll region.
+28. **ConsoleUiRenderer through Gui (v10.21.2)** — ConsoleUiRenderer takes `EGuiBase` constructor param, routes all output through Gui methods. Prevents session output from bypassing scroll region.
 
 ## 🔖 Known-Good Builds (Git Tags)
 
 | Tag | Version | Description |
 |-----|---------|-------------|
-| _(uncommitted)_ | v10.21 | Shared weights, Terminal.Gui TUI, session discovery, native log redirect ← CURRENT |
+|  | v10.21.2 | ANSI scroll region + session buffer batching — clean UI, free input line ← CURRENT |
+| _(uncommitted)_ | v10.21 | Shared weights, Terminal.Gui TUI, session discovery, native log redirect |
 | `v10.19.5-safe` | v10.19.5 | Independent subagent config section with enabled flag |
 | `v10.19.4-safe` | v10.19.4 | StepMapper file creation guidance, sub-agent config inheritance fix |
 | `v10.19.3-safe` | v10.19.3 | Removed background agents, kept sub-agents, session design |

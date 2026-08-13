@@ -468,6 +468,44 @@ Existing files moved from old locations into `~/ECAssistant/`.
 
 **Status:** v10.20 — Build: 0 errors, 12 warnings (pre-existing). Session architecture implemented, all output routed through ISessionOutput, session commands working. Tests require model loading (couldn't complete — logic unchanged, only output routing refactored).
 
+## What's New (v10.21.2 — ANSI Scroll Region + Session Buffer Batching — 2026-08-13)
+
+### Terminal.Gui TUI Reverted (v10.21.1)
+- **Problem:** Terminal.Gui v1.9.0 caused distortion and freezing on macOS Terminal.app
+- `TextView.Text = TextView.Text + text` is O(n^2) — full string copy per token
+- `CursorPosition = new Point(0, len)` used char offset as row — distorted view
+- `ESC 7`/`ESC 8` (DECSC/DECRC) rendered as literal `3` characters
+- **Fix:** Reverted to EGuiConsole with ReadKey-based non-blocking input
+
+### ANSI Scroll Region (v10.21.2)
+- **Problem:** User cannot type while LLM generates — Console.Write moves cursor, garbles input
+- **Fix:** ANSI scroll region (`ESC[top;bottomr`) confines scrolling to rows 1..(H-1)
+- Input line fixed at row H (outside scroll region) — never scrolled away
+- User can type freely while LLM streams tokens above
+- Windows ANSI support via `ENABLE_VIRTUAL_TERMINAL_PROCESSING`
+- Fallback to plain console mode if ANSI not supported (dumb terminal, pipe)
+
+### Session Buffer Batching (v10.21.2)
+- **Problem:** Per-token `Console.Write` with cursor repositioning caused gaps and overwrites
+- ANSI color codes break column tracking (invisible chars counted as visible)
+- `ESC[s`/`ESC[u` single-slot save/restore unreliable
+- **Fix:** `AgentSession.WriteRaw()` no longer pushes `raw_token` entries to UI
+- Tokens accumulate in `_streamBuffer`, flushed as batch `stream` entries on `WriteLine()`
+- One `Console.Write` per flush — no cursor repositioning needed
+- Tradeoff: no per-token real-time streaming (can add timer flush later)
+
+### Output Routing Through Gui (v10.21.2)
+- **Problem:** `EColor.TagBold()` and `ConsoleUiRenderer.OnOutput()` called `Console.Write` directly, bypassing scroll region cursor management
+- **Fix:** EColor gets `WriteHandler`/`WriteLineHandler` delegates, set at startup to route through Gui
+- `ConsoleUiRenderer` takes `EGuiBase` constructor param, routes all output through Gui methods
+
+### Files Changed
+- `UI/EGuiConsole.cs` — ANSI scroll region, row tracking, RedrawInputLine
+- `Session/AgentSession.cs` — WriteRaw no longer pushes raw_token to UI
+- `Session/ConsoleUiRenderer.cs` — routes through EGuiBase, raw_token case disabled
+- `EColor.cs` — WriteHandler/WriteLineHandler delegates
+- `Program.cs` — EGuiConsole.InitConsole(), EColor delegates, RunAgentLoop, ShutdownConsole
+
 ## What's New (v10.21 — Shared Weights + Terminal.Gui TUI + Session Discovery — 2026-08-13)
 
 ### Shared Model Weights (One GGUF Load in RAM)

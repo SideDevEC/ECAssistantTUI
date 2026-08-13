@@ -216,17 +216,33 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                         _completedSteps.Add(stepDesc);
                     }
 
-                    // v10.13.2: Advance sub-task ONCE per batch, not per tool.
-                    // - All succeeded → mark step completed
-                    // - All failed → mark step failed
-                    // - Mixed → leave step in progress (LLM should retry failed parts)
+                    // v10.15.1: Advance sub-tasks to match batch results.
+                    // When the LLM batches N tool calls that cover N sub-tasks, advance
+                    // all of them — not just one. Otherwise the LLM sees pending steps
+                    // and retries work that's already done.
                     if (_subTasks != null && _subTasks.Count > 1)
                     {
-                        if (okCount > 0 && failCount == 0)
-                            AdvanceSubTask(true, "Batch", $"{okCount} tools succeeded");
+                        if (failCount == 0 && okCount > 0)
+                        {
+                            // All succeeded — advance through ALL remaining pending/in-progress sub-tasks
+                            // that were covered by this batch (up to okCount steps)
+                            var toAdvance = Math.Min(okCount, _subTasks.Count - _currentSubTask);
+                            for (int i = 0; i < toAdvance; i++)
+                                AdvanceSubTask(true, "Batch", $"Batch tool {i + 1}/{toAdvance} succeeded");
+                        }
                         else if (okCount == 0 && failCount > 0)
+                        {
                             AdvanceSubTask(false, "Batch", $"{failCount} tools failed");
-                        // Mixed: don't advance — let LLM retry the failed parts
+                        }
+                        // Mixed: advance succeeded ones, mark one as failed for the failed tool
+                        else if (okCount > 0 && failCount > 0)
+                        {
+                            var toAdvance = Math.Min(okCount, _subTasks.Count - _currentSubTask);
+                            for (int i = 0; i < toAdvance; i++)
+                                AdvanceSubTask(true, "Batch", $"Batch tool {i + 1}/{toAdvance} succeeded");
+                            // Don't advance past the failed one — leave it in progress
+                            // so the LLM can retry just the failed part
+                        }
                     }
 
                     // Add combined result to conversation history (one block)
@@ -339,6 +355,12 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                                 // v10.6: Advance sub-task tracking on failure
                                 AdvanceSubTask(false, decision.ToolName!, $"Tool failed: {result.Error}");
 
+                                // v10.15.1: Log the failure for streak detection
+                                _toolCallLog.Add($"Tool:{decision.ToolName} \u2192 FAIL: {result.Error}");
+
+                                // v10.15.1: Feed the error back to the LLM so it knows the tool failed
+                                _engine.AddToolResult(decision.ToolName!, $"[ERROR] Tool failed: {result.Error}");
+
                                 if (IsFailureStreak(_maxFailuresBeforeStop))
                                          {
                                         Program.Gui.WriteLineColored($"[Orchestrator] Too many failures ({_maxFailuresBeforeStop} in a row). Stopping.\n");
@@ -349,6 +371,10 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                                                     Status = OrchestratorStatus.TurnsExhausted
                                                     };
                                          }
+
+                                // v10.15.1: Inject directive so LLM knows to retry or report
+                                var failDirective = BuildStepDirective();
+                                _engine.InjectFormatRetry(failDirective);
                                 }
                          }
                      catch (Exception ex)

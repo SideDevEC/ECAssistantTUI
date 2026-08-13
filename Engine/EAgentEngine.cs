@@ -1245,15 +1245,8 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
          int? outputEnd = null;
          if (outputStart >= 0)
          {
-             // v10.14.1: Tolerant closing tag — model sometimes drops the > or adds extra space
-             var closeMatch = System.Text.RegularExpressions.Regex.Match(
-                 content.Substring(outputStart + 8),
-                 @"</output\s*>?",
-                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-             if (closeMatch.Success)
-                 outputEnd = outputStart + 8 + closeMatch.Index + closeMatch.Length;
-             else
-                 outputEnd = content.Length;  // No close found — take rest (existing behavior)
+             var oc = content.IndexOf("</output>", outputStart + 8, StringComparison.OrdinalIgnoreCase);
+             outputEnd = oc >= 0 ? oc + 8 : content.Length;
          }
 
          // Check if we found an <output> before any <toolcall> (takes priority)

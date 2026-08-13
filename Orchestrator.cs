@@ -468,18 +468,14 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                 return new LLMDecision(toolCalls);
             }
 
-             // v10.14.1: Tolerant <output> closing tag matching — model sometimes
-             // generates </output (missing >) or </output > (extra space).
-             // Use regex to accept these variants.
              // Check for <output>...</output> block
             var outputOpenIdx = trimmed.IndexOf("<output>", StringComparison.OrdinalIgnoreCase);
             int? outputCloseIdx = null;
             if (outputOpenIdx >= 0)
               {
-                // v10.14.1: Regex tolerant match for closing tag
-                var closeMatch = Regex.Match(trimmed.Substring(outputOpenIdx + 8), @"</output\s*>?", RegexOptions.IgnoreCase);
-                if (closeMatch.Success && closeMatch.Index > 0)
-                    outputCloseIdx = outputOpenIdx + 8 + closeMatch.Index;
+                var closePos = trimmed.IndexOf("</output>", outputOpenIdx + "<output>".Length, StringComparison.OrdinalIgnoreCase);
+                if (closePos > outputOpenIdx + "<output>".Length)
+                    outputCloseIdx = closePos;
               }
 
             if (outputOpenIdx >= 0 && outputCloseIdx.HasValue)

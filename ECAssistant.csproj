@@ -14,11 +14,11 @@
           <ItemGroup>
               <PackageReference Include="LLamaSharp" Version="0.27.0" />
               <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.27.0" />
-              <!-- v10.16: GPU backends are OS-specific — include both via conditionals -->
-              <!-- Windows/Linux: CUDA 12 for NVIDIA GPU -->
+              <!-- v10.16: GPU backends — all included, runtime auto-selects best available -->
+              <!-- Windows/Linux: CUDA 12 for NVIDIA GPU, Vulkan as fallback -->
               <PackageReference Include="LLamaSharp.Backend.Cuda12" Version="0.27.0" Condition="'$(OS)' == 'WINDOWS'" />
-              <!-- macOS: Vulkan for Metal (MoltenVK) -->
-              <PackageReference Include="LLamaSharp.Backend.Vulkan" Version="0.27.0" Condition="'$(OS)' != 'WINDOWS'" />
+              <!-- All platforms: Vulkan (Metal/MoltenVK on Mac, Vulkan drivers on Windows/Linux) -->
+              <PackageReference Include="LLamaSharp.Backend.Vulkan" Version="0.27.0" />
               <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.5" />
           </ItemGroup>
 

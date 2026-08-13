@@ -50,10 +50,19 @@ public sealed class EGuiConsole : EGuiBase
 
     private static bool DetectAnsiSupport()
     {
+        // Windows: enable ANSI via SetConsoleMode, then check if not redirected.
+        // Windows doesn't use TERM, so check it first.
+        if (OperatingSystem.IsWindows())
+        {
+            try { EnableWindowsAnsi(); } catch { }
+            try { if (Console.IsOutputRedirected) return false; } catch { return false; }
+            return true;
+        }
+
+        // macOS/Linux: check TERM environment variable
         var term = Environment.GetEnvironmentVariable("TERM");
         if (string.IsNullOrEmpty(term) || term == "dumb") return false;
         try { if (Console.IsOutputRedirected) return false; } catch { return false; }
-        if (OperatingSystem.IsWindows()) { try { EnableWindowsAnsi(); } catch { } }
         return true;
     }
 

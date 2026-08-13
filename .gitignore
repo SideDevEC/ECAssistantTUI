@@ -33,3 +33,4 @@ transcript.json
 
 # Memory files (personal data)
 Memory/*.json*.secrets
+models/

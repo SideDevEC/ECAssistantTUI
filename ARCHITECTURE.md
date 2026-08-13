@@ -1,6 +1,6 @@
-# ECAssistant Architecture (v10.19.5 — 2026-08-13)
+# ECAssistant Architecture (v10.20 — 2026-08-13)
 
-**Summary:** A local, offline AI agent in C# .NET 8 using LLamaSharp. Runs GGUF models locally with no external API calls. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags (`<thinking>`, `<toolcall>`, `<output>`). 8 registered tools self-register their rules at runtime. Multi-step autonomous loops with dual memory (keyword + TF-IDF vector), sliding context windows with LLM summarization, self-correction with failure loop detection and file rollback, project context awareness with dependency graph, two-phase task planning (decompose → map → execute), surgical code editing, background process management, file watching, structured logging, and sub-agent system with shared model weights. Token-optimized for 8B models. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.16: Cross-platform (Windows + macOS). v10.17: StepMapper (two-phase planning), automated test framework. v10.18: Sub-agent system. v10.19.2: All artifacts in working directory. v10.19.3: Removed background agents (replaced by session architecture design — see SESSIONS_DESIGN.md). v10.19.4: StepMapper file creation guidance + method-call syntax validation, sub-agent config inheritance fix. v10.19.5: Independent subagent config section with enabled flag.
+**Summary:** A local, offline AI agent in C# .NET 8 using LLamaSharp. Runs GGUF models locally with no external API calls. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags (`<thinking>`, `<toolcall>`, `<output>`). 8 registered tools self-register their rules at runtime. Multi-step autonomous loops with dual memory (keyword + TF-IDF vector), sliding context windows with LLM summarization, self-correction with failure loop detection and file rollback, project context awareness with dependency graph, two-phase task planning (decompose → map → execute), surgical code editing, background process management, file watching, structured logging, and sub-agent system with shared model weights. Token-optimized for 8B models. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.16: Cross-platform (Windows + macOS). v10.17: StepMapper (two-phase planning), automated test framework. v10.18: Sub-agent system. v10.19.2: All artifacts in working directory. v10.20: Fully isolated multi-session architecture — each session has own engine, KV cache, tools, memory, output buffer, and prompt queue. Sessions share one model in RAM with serialized inference. File-based JSONL output buffer with output states (not colors). Session is the UI gateway — all components route output through ISessionOutput. No inter-session communication (tool-level concern for later).
 
 ## Key Facts
 - **Language:** C# .NET 8 console app (`net8.0`, cross-platform, Nullable enabled)
@@ -96,6 +96,48 @@ Now: everything inside `~/ECAssistant/`:
 - Sub-agent working dirs → `~/ECAssistant/.subagents/`
 - Background agent working dirs → `~/ECAssistant/.bgagents/`
 `BackgroundProcessManager` also made OS-aware (was Windows-only `powershell.exe`, now uses `/bin/zsh` on Mac).
+
+## Session Architecture (v10.20)
+
+**Fully isolated multi-session system.** Each session is an independent agent with its own engine, context, tools, memory, and output buffer. Sessions share one model in RAM but are otherwise completely independent.
+
+**Key design principles:**
+1. **Session = fully independent agent** — own EAgentEngine (own KV cache), own orchestrator, own tools, own memory
+2. **No inter-session communication** — sessions don't know about each other. If needed, it's a tool-level concern (future `ESessionMessage` tool)
+3. **Shared model weights, separate KV caches** — one GGUF in RAM, each session has own EAgentEngine with own KV cache. Inference serialized via `SemaphoreSlim(1,1)`
+4. **Session is the UI gateway** — all components (orchestrator, engine, tools) get `ISessionOutput` reference and call `session.Write/WriteLine/WriteRaw` for output
+5. **Output states, not colors** — session emits semantic states (Info/Success/Warning/Error/Dim/Bold/Raw/System). UI maps states to colors
+6. **File-based output buffer** — JSONL file per session (`~/.sessions/<key>/ui_output.jsonl`), append-only, persistent, scrollable
+7. **Auto-flushing StringBuilder** — token streaming accumulates in memory, state change or WriteLine triggers flush to file
+8. **Prompt queue** — if session is running, prompts queue; after execution, next queued prompt starts automatically
+9. **Per-session stop** — `session.Stop()` cancels only that session. Other sessions keep running
+10. **UI attach/detach** — UI registers as `IUiRenderer` on the active session, gets live notifications. Switching = detach + render full history + attach
+
+**Session files:**
+```
+~/ECAssistant/.sessions/
+├── main/
+│   ├── ui_output.jsonl      ← output buffer (JSONL, append-only)
+│   └── transcript.json      ← conversation transcript
+├── watcher/
+│   ├── ui_output.jsonl
+│   └── transcript.json
+```
+
+**UI commands:**
+- `sessions` — list all sessions with status + queue count
+- `session <n>` — switch to session n (render full history + live output)
+- `session-new <name>` — create a new session
+- `session-stop <n>` — stop session n's execution (queue preserved)
+- `session-close <n>` — close and delete session n
+- `session-peek <n>` — quick glance at last 5 output lines
+- `session-queue` — show active session's prompt queue
+- `session-queue-remove <i>` — remove prompt i from queue
+- `session-queue-clear` — clear active session's queue
+- `stop` — stop active session's execution
+- `quit`/`exit` — stop all sessions gracefully, save, exit
+
+**See `SESSIONS_DESIGN.md` for the full design document.**
 
 ## Architecture Overview
 
@@ -303,11 +345,21 @@ Fully configurable via `appsettings.json`:
 }
 ```
 
-## Console Output (v10.12.20)
+## Console Output (v10.20 — Session-based)
 
-Centralized truncation in `EGuiBase`:
-- `EGuiBase.Truncate(text, maxChars)` — static, returns truncated + `[...]` string
-- All call sites use `EGuiBase.Truncate()` — one place to change behavior
+**v10.20: Output routed through ISessionOutput.**
+
+All components (orchestrator, engine, tools) receive an `ISessionOutput` reference and call `Write/WriteLine/WriteRaw/BlankLine/WriteInfo/WriteSuccess/WriteWarning/WriteError/WriteDim` on it. The session implements `ISessionOutput` and:
+1. Writes to a JSONL file (append-only, persistent)
+2. Notifies attached `IUiRenderer` (console/canvas) with live updates
+
+**Output states (not colors):** Info, Success, Warning, Error, Dim, Bold, Raw, System. The UI maps states to ANSI colors (console) or CSS (canvas).
+
+**Auto-flushing StringBuilder:** Token streaming (`WriteRaw`) accumulates in memory. State change or `WriteLine` triggers flush to JSONL file as a single `stream` entry.
+
+**ConsoleUiRenderer:** Console `IUiRenderer` implementation with state→ANSI color mapping. `RenderHistory()` reads JSONL file and renders full scrollable history when switching sessions.
+
+**Legacy:** `EGuiBase.Truncate(text, maxChars)` — static, still used for truncation. `Program.Gui` still used for `PromptRaw` (user input) and `LogInternal` (diagnostics).
 
 ## Design Decisions
 

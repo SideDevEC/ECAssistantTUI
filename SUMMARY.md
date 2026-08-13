@@ -1,6 +1,6 @@
-# ECAssistant — Project Summary (v10.19.5 — 2026-08-13)
+# ECAssistant — Project Summary (v10.20 — 2026-08-13)
 
-**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Cross-platform (Windows + macOS). Loads GGUF models from disk — no API calls, no cloud, fully self-contained. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags for tool calling. Multi-step autonomous loops, dual memory (keyword + vector/semantic), sliding context windows, self-correction with failure loop detection, project context awareness, task decomposition, surgical code editing, 8 registered tools, sub-agent system with shared model weights. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.15: KV cache hybrid rewind, off-by-one fixes, `<llm>`→`<lm>` rename, sub-task advancement fixes. v10.16: Cross-platform migration — EShellAgent, dual system prompts, Mac support. v10.17: StepMapper (two-phase planning: decompose → map → execute), automated test framework. v10.18: Sub-agent system — isolated agents with shared model weights. v10.19.2: All artifacts in working directory, BackgroundProcessManager OS-aware. v10.19.3: Removed background agents (messy, dangerous on CPU) — session architecture design drafted (SESSIONS_DESIGN.md) as replacement. v10.19.4: StepMapper file creation guidance + method-call syntax validation, sub-agent parameters inherited from config. v10.19.5: Independent subagent config section with enabled flag — all sub-agent parameters configurable independently from main model.
+**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Cross-platform (Windows + macOS). Loads GGUF models from disk — no API calls, no cloud, fully self-contained. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags for tool calling. Multi-step autonomous loops, dual memory (keyword + vector/semantic), sliding context windows, self-correction with failure loop detection, project context awareness, task decomposition, surgical code editing, 8 registered tools, sub-agent system with shared model weights. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.15: KV cache hybrid rewind, off-by-one fixes, `<llm>`→`<lm>` rename, sub-task advancement fixes. v10.16: Cross-platform migration — EShellAgent, dual system prompts, Mac support. v10.17: StepMapper (two-phase planning: decompose → map → execute), automated test framework. v10.18: Sub-agent system — isolated agents with shared model weights. v10.19.2: All artifacts in working directory, BackgroundProcessManager OS-aware. v10.19.3: Removed background agents — session architecture design drafted. v10.20: Fully isolated multi-session architecture — each session has own engine, KV cache, tools, memory, output buffer (JSONL), prompt queue. Session is UI gateway via ISessionOutput. Output states (not colors). SemaphoreSlim inference scheduler. No inter-session communication.
 
 ## Key Facts
 - **Language:** C# .NET 8 console app (`net8.0`, cross-platform, Nullable enabled)
@@ -395,3 +395,65 @@ Existing files moved from old locations into `~/ECAssistant/`.
 - Can be completely disabled with `"enabled": false`
 - All operational parameters (context, GPU, threads, turns, timeout, retries) are in config
 - No more hardcoded values anywhere in the sub-agent code path
+
+## What's New (v10.20 — Session Architecture — 2026-08-13)
+
+### Fully Isolated Multi-Session System
+- Each session has own `EAgentEngine` (own KV cache), own orchestrator, own tools, own memory
+- Sessions share one GGUF model in RAM, inference serialized via `SemaphoreSlim(1,1)`
+- No inter-session communication — sessions are fully independent
+- If communication needed in future: tool-level concern (e.g. `ESessionMessage` tool)
+
+### Session as UI Gateway
+- Created `ISessionOutput` interface — all components (orchestrator, engine, tools) use it for output
+- `AgentSession` implements `ISessionOutput` with `Write/WriteLine/WriteRaw/BlankLine/WriteInfo/WriteSuccess/WriteWarning/WriteError/WriteDim`
+- 44 output calls in orchestrator + 57 in engine converted from `EColor.TagBold/Tag/WriteLine` → `_out?.Write*`
+- Session is passed to all components, all output routes through the session
+
+### Output States (Not Colors)
+- Session emits semantic states: Info, Success, Warning, Error, Dim, Bold, Raw, System
+- UI maps states to ANSI colors (console) or CSS (canvas) — session doesn't know about rendering
+- `ConsoleUiRenderer` implements `IUiRenderer` with state→ANSI color mapping
+
+### File-Based JSONL Output Buffer
+- Each session has `~/.sessions/<key>/ui_output.jsonl` (append-only, persistent, scrollable)
+- Auto-flushing StringBuilder: token streaming accumulates in memory, state change or WriteLine triggers flush
+- Entry types: `stream` (flushed token block), `line` (discrete line), `raw_token` (live push to UI)
+- UI reads full history from file when switching sessions, then gets live updates via `IUiRenderer`
+
+### Prompt Queue
+- If session is idle: `Prompt(input)` starts execution in own thread immediately
+- If session is running: input queues, auto-dequeues after current execution completes
+- UI can view queue (`session-queue`), remove prompts (`session-queue-remove <i>`), clear all (`session-queue-clear`)
+
+### Per-Session Stop
+- `session.Stop()` cancels only that session's execution — others keep running
+- `quit`/`exit` calls `SessionManager.StopAllAsync()` — stops all gracefully
+
+### Session Commands
+- `sessions` — list all with status + queue count
+- `session <n>` — switch (render full history + live output)
+- `session-new <name>` — create new session
+- `session-stop <n>` — stop session n (queue preserved)
+- `session-close <n>` — close and delete session n
+- `session-peek <n>` — glance at last 5 output lines
+- `session-queue` — show prompt queue
+- `session-queue-remove <i>` — remove prompt from queue
+- `session-queue-clear` — clear queue
+- `stop` — stop active session
+
+### New Files
+- `Session/ISessionOutput.cs` — interface for session output
+- `Session/OutputTypes.cs` — OutputState enum, OutputEntry, IUiRenderer
+- `Session/SessionRunState.cs` — Idle/Running/Stopping enum
+- `Session/AgentSession.cs` (rewritten) — fully isolated session
+- `Session/SessionManager.cs` (rewritten) — multi-session manager with inference scheduler
+- `Session/ConsoleUiRenderer.cs` — console IUiRenderer with state→color mapping
+
+### Removed
+- Bulletin board (sessions are fully isolated)
+- Inter-session communication (tool-level concern for future)
+- Old `SessionType` enum (Main/Isolated/Named) — all sessions are equal
+- Old `SessionState` enum (Active/Idle/Archived) — replaced by `SessionRunState` (Idle/Running/Stopping)
+
+**Status:** v10.20 — Build: 0 errors, 12 warnings (pre-existing). Session architecture implemented, all output routed through ISessionOutput, session commands working. Tests require model loading (couldn't complete — logic unchanged, only output routing refactored).

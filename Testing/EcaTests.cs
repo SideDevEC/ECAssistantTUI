@@ -287,6 +287,95 @@ public static class EcaTests
                 }
             },
         },
+
+        // ── Tier 8: Parallel Multi-Tool Execution (v10.13) ───
+
+        new TestScenario
+        {
+            Name = "parallel_create_three_files",
+            Description = "Ask the LLM to create 3 files using SEPARATE toolcalls in one response — tests ParallelToolExecutor",
+            Prompt = "Create three files simultaneously: alpha.txt with content 'A', beta.txt with content 'B', and gamma.txt with content 'G'. Use three separate EShellAgent toolcalls in a single response — do NOT chain them with semicolons. Each file must be its own toolcall.",
+            TimeoutSeconds = 180,
+            ExpectedStatus = OrchestratorStatus.GoalAchieved,
+            ExpectedFiles = new() { "alpha.txt", "beta.txt", "gamma.txt" },
+            MinToolCalls = 1, // 1 turn, but should be 3 toolcalls in that turn
+            Assertions = new()
+            {
+                (result, ctx) =>
+                {
+                    // All 3 files must exist with correct content
+                    var checks = new[] { ("alpha.txt", "A"), ("beta.txt", "B"), ("gamma.txt", "G") };
+                    foreach (var (file, content) in checks)
+                    {
+                        var path = Path.Combine(ctx.WorkingDir, file);
+                        if (!File.Exists(path)) return false;
+                        var actual = File.ReadAllText(path).Trim();
+                        if (!actual.Contains(content)) return false;
+                    }
+                    return true;
+                }
+            },
+        },
+
+        new TestScenario
+        {
+            Name = "parallel_mixed_tools",
+            Description = "Use different tools in parallel — EShellAgent + EFileResearchTool in one response",
+            Prompt = "Do two things at once in a single response with two separate toolcalls: (1) Use EShellAgent to create a file called marker.txt with content 'done', and (2) Use EFileResearchTool to scan the current directory for files. Use two separate toolcall blocks in one response.",
+            TimeoutSeconds = 180,
+            ExpectedStatus = OrchestratorStatus.GoalAchieved,
+            ExpectedFiles = new() { "marker.txt" },
+            MinToolCalls = 1,
+        },
+
+        new TestScenario
+        {
+            Name = "parallel_five_files",
+            Description = "Create 5 files in parallel — stress test ParallelToolExecutor with 5 concurrent toolcalls",
+            Prompt = "Create 5 files at the same time using 5 separate EShellAgent toolcalls in one response. Do NOT use semicolons. Each toolcall creates one file:\n1. p1.txt with content 'one'\n2. p2.txt with content 'two'\n3. p3.txt with content 'three'\n4. p4.txt with content 'four'\n5. p5.txt with content 'five'\nEach file must be its own <toolcall> block.",
+            TimeoutSeconds = 240,
+            ExpectedStatus = OrchestratorStatus.GoalAchieved,
+            ExpectedFiles = new() { "p1.txt", "p2.txt", "p3.txt", "p4.txt", "p5.txt" },
+            MinToolCalls = 1,
+            Assertions = new()
+            {
+                (result, ctx) =>
+                {
+                    var checks = new[] { ("p1.txt", "one"), ("p2.txt", "two"), ("p3.txt", "three"), ("p4.txt", "four"), ("p5.txt", "five") };
+                    foreach (var (file, content) in checks)
+                    {
+                        var path = Path.Combine(ctx.WorkingDir, file);
+                        if (!File.Exists(path)) return false;
+                        var actual = File.ReadAllText(path).Trim();
+                        if (!actual.Contains(content)) return false;
+                    }
+                    return true;
+                }
+            },
+        },
+
+        new TestScenario
+        {
+            Name = "parallel_create_and_git",
+            Description = "Parallel: create a file via EShellAgent and create another via ECodeEditor in one response",
+            Prompt = "Do two things at once with two separate toolcalls in one response: (1) Use EShellAgent to create a file called readme.md with content '# Test Project', and (2) Use ECodeEditor to create a file called notes.txt with content 'Parallel test notes'. Use two separate toolcall blocks.",
+            TimeoutSeconds = 180,
+            ExpectedStatus = OrchestratorStatus.GoalAchieved,
+            ExpectedFiles = new() { "readme.md", "notes.txt" },
+            MinToolCalls = 1,
+            Assertions = new()
+            {
+                (result, ctx) =>
+                {
+                    var readme = Path.Combine(ctx.WorkingDir, "readme.md");
+                    var notes = Path.Combine(ctx.WorkingDir, "notes.txt");
+                    if (!File.Exists(readme) || !File.Exists(notes)) return false;
+                    var readmeContent = File.ReadAllText(readme);
+                    var notesContent = File.ReadAllText(notes);
+                    return readmeContent.Contains("# Test Project") && notesContent.Contains("Parallel test notes");
+                }
+            },
+        },
     };
 
     /// <summary>Get a subset of tests by name prefix.</summary>
@@ -320,4 +409,8 @@ public static class EcaTests
     /// <summary>Get only the shell tests.</summary>
     public static List<TestScenario> ShellTests
         => ByNamePrefix("shell_");
+
+    /// <summary>Get only the parallel tests.</summary>
+    public static List<TestScenario> ParallelTests
+        => ByNamePrefix("parallel_");
 }

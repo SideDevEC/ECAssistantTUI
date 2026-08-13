@@ -14,21 +14,22 @@ namespace ECAssistant.Tools.Shell;
 /// Shell Agent Tool — the primary tool for all file and system operations.
 /// Gives the LLM full control over filesystem, commands, code execution.
 /// 
+/// On Windows: uses powershell.exe with .ps1 temp scripts.
+/// On macOS: uses /bin/zsh with .sh temp scripts.
+/// 
 /// Every LLM knows shell commands, so this one tool handles:
-/// - Read files: Get-Content
-/// - Write files: Set-Content, Out-File
-/// - Copy files: Copy-Item
-/// - Move/rename: Move-Item
-/// - Delete files: Remove-Item
-/// - List files: Get-ChildItem
-/// - Search files: Get-ChildItem -Recurse -Filter
-/// - Search content: Select-String
-/// - Compile code: dotnet build
-/// - Run scripts: any PowerShell command
+/// - Read/write/copy/move/delete files
+/// - List and search files
+/// - Search content
+/// - Compile code, run scripts
 /// </summary>
 public class EShellAgent : EToolBase
 {
     private readonly string _workingDirectory;
+
+    // v10.16: OS detection — determined once at construction
+    private static readonly bool IsWindows = OperatingSystem.IsWindows();
+    private static readonly bool IsMacOS = OperatingSystem.IsMacOS();
 
     public EShellAgent(string workingDirectory)
     {
@@ -43,32 +44,41 @@ public class EShellAgent : EToolBase
         "compile code, search files, manage projects. " +
         "Working directory is set automatically — use relative paths.";
 
-    public override string UsageExample =>
-        "EShellAgent(command=\"Get-Content Program.cs\")";
+    public override string UsageExample => IsWindows
+        ? "EShellAgent(command=\"Get-Content Program.cs\")"
+        : "EShellAgent(command=\"cat Program.cs\")";
 
-    public override string GetToolRules() =>
-        "RULE: Put the ENTIRE shell command in one <command> tag. No other tags allowed.\n" +
-        "Use relative paths — the working directory is already set.\n" +
-        "You can chain commands with semicolons: Get-ChildItem; Write-Host 'done'";
+    public override string GetToolRules() => IsWindows
+        ? "RULE: Put the ENTIRE PowerShell command in one <command> tag. No other tags allowed.\n" +
+          "Use relative paths — the working directory is already set.\n" +
+          "You can chain commands with semicolons: Get-ChildItem; Write-Host 'done'"
+        : "RULE: Put the ENTIRE zsh command in one <command> tag. No other tags allowed.\n" +
+          "Use relative paths — the working directory is already set.\n" +
+          "You can chain commands with semicolons: ls; echo 'done'";
 
-    public override string GetToolExample() =>
-        "<toolcall>EShellAgent<command>Get-Content Program.cs</command></toolcall>\n" +
-        "<toolcall>EShellAgent<command>Copy-Item Program.cs Program_backup.cs</command></toolcall>\n" +
-        "<toolcall>EShellAgent<command>Get-ChildItem -Filter *.cs</command></toolcall>\n" +
-        "<toolcall>EShellAgent<command>Select-String -Pattern \"TODO\" -Path *.cs</command></toolcall>\n" +
-        "<toolcall>EShellAgent<command>Set-Content -Path notes.txt -Value 'Hello World'</command></toolcall>";
+    public override string GetToolExample() => IsWindows
+        ? "<toolcall>EShellAgent<command>Get-Content Program.cs</command></toolcall>\n" +
+          "<toolcall>EShellAgent<command>Copy-Item Program.cs Program_backup.cs</command></toolcall>\n" +
+          "<toolcall>EShellAgent<command>Get-ChildItem -Filter *.cs</command></toolcall>\n" +
+          "<toolcall>EShellAgent<command>Select-String -Pattern \"TODO\" -Path *.cs</command></toolcall>\n" +
+          "<toolcall>EShellAgent<command>Set-Content -Path notes.txt -Value 'Hello World'</command></toolcall>"
+        : "<toolcall>EShellAgent<command>cat Program.cs</command></toolcall>\n" +
+          "<toolcall>EShellAgent<command>cp Program.cs Program_backup.cs</command></toolcall>\n" +
+          "<toolcall>EShellAgent<command>ls *.cs</command></toolcall>\n" +
+          "<toolcall>EShellAgent<command>grep \"TODO\" *.cs</command></toolcall>\n" +
+          "<toolcall>EShellAgent<command>echo 'Hello World' > notes.txt</command></toolcall>";
 
     public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments, CancellationToken cancellationToken = default)
     {
-        var psCommand = arguments.GetValueOrDefault("command");
-        if (string.IsNullOrWhiteSpace(psCommand))
+        var command = arguments.GetValueOrDefault("command");
+        if (string.IsNullOrWhiteSpace(command))
             return EToolResult.Failure(Name, "Missing 'command' argument.");
 
         var description = arguments.GetValueOrDefault("description") ?? "";
 
         try
         {
-            var result = await RunShellAsync(psCommand!, _workingDirectory, cancellationToken);
+            var result = await RunShellAsync(command!, _workingDirectory, cancellationToken);
 
             var metadata = new Dictionary<string, string>
             {
@@ -76,14 +86,10 @@ public class EShellAgent : EToolBase
                 ["chars_output"] = result.StandardOutput.Length.ToString()
             };
 
-            // v10.11.2: PowerShell non-terminating errors (like New-Item with bad path)
-            // write to stderr but may still exit with code 0 when run with -File.
-            // Check both exit code AND stderr to detect failures.
             var hasStderrOutput = !string.IsNullOrWhiteSpace(result.StandardError);
             
             if (result.ExitCode == 0 && !hasStderrOutput)
             {
-                // True success — no errors
                 var safeOutput = EscapeXml(result.StandardOutput);
                 var output = string.IsNullOrEmpty(result.StandardOutput)
                     ? $"[Shell Success] Command completed (no output)."
@@ -96,8 +102,6 @@ public class EShellAgent : EToolBase
             }
             else if (result.ExitCode == 0 && hasStderrOutput)
             {
-                // v10.11.2: Exit code 0 but stderr has content — partial success or non-terminating error.
-                // Report as success but include the error text so the LLM can self-correct.
                 var safeOutput = EscapeXml(result.StandardOutput);
                 var safeErr = EscapeXml(result.StandardError);
                 Logger.Warn("Shell", $"Command had stderr output (exit=0): {result.StandardError.Substring(0, Math.Min(result.StandardError.Length, 200))}");
@@ -114,8 +118,8 @@ public class EShellAgent : EToolBase
             else
             {
                 var safeErr = EscapeXml(result.StandardError);
-                var safeCmd = EscapeXml(psCommand!);
-                Logger.Error("Shell", $"Command failed (exit={result.ExitCode}): {psCommand?.Substring(0, Math.Min(psCommand.Length, 100))}");
+                var safeCmd = EscapeXml(command!);
+                Logger.Error("Shell", $"Command failed (exit={result.ExitCode}): {command?.Substring(0, Math.Min(command.Length, 100))}");
                 return EToolResult.Failure(Name,
                     $"[Shell Error (Exit {result.ExitCode})]\nSTDERR: {safeErr}\nCommand: {safeCmd}",
                     metadata);
@@ -129,28 +133,47 @@ public class EShellAgent : EToolBase
 
     /// <summary>
     /// Run a shell command with proper working directory.
+    /// v10.16: OS-aware — Windows uses powershell.exe, macOS uses /bin/zsh.
     /// Uses a temp script file to avoid quoting issues.
     /// </summary>
     private static async Task<ShellProcessResult> RunShellAsync(string command, string workingDir, CancellationToken cancellationToken = default)
     {
-        // Write command to a temp .ps1 file to avoid all quoting issues
-        // v10.11.2: Prepend $ErrorActionPreference = "Stop" so non-terminating errors
-        // (like New-Item with a non-existent path) become terminating errors that
-        // set a non-zero exit code. Without this, PowerShell writes to stderr but
-        // exits with code 0, causing the tool to report success.
-        var tempScript = Path.Combine(Path.GetTempPath(), $"ecagent_{Guid.NewGuid():N}.ps1");
-        // v10.12.10: Don't use $ErrorActionPreference = 'Stop' — it kills the script on the
-        // first error, so remaining commands in a ; chain never execute. Instead, use 'Continue'
-        // so all commands run, collect errors, and report them at the end.
-        var scriptContent = "$ErrorActionPreference = 'Continue'\n" + command + "\n\nif ($error.Count -gt 0) {\n  Write-Error ($error -join '`n')\n  exit 1\n}";
+        var tempScript = Path.Combine(Path.GetTempPath(),
+            $"ecagent_{Guid.NewGuid():N}{(IsWindows ? ".ps1" : ".sh")}");
+
+        string scriptContent;
+        string fileName;
+        string arguments;
+
+        if (IsWindows)
+        {
+            // Windows: PowerShell with error collection (existing behavior)
+            // v10.12.10: Use 'Continue' so all commands in a ; chain execute,
+            // then check $error at the end.
+            scriptContent = "$ErrorActionPreference = 'Continue'\n" + command +
+                "\n\nif ($error.Count -gt 0) {\n  Write-Error ($error -join '`n')\n  exit 1\n}";
+            fileName = "powershell.exe";
+            arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{tempScript}\"";
+        }
+        else
+        {
+            // macOS/Linux: zsh with set -e for error detection
+            // set -e makes the script exit on first error (equivalent to $ErrorActionPreference='Stop')
+            // But we want all commands to run like PowerShell 'Continue', so we use:
+            // - Run all commands, capture exit codes, fail if any non-zero
+            scriptContent = "#!/bin/zsh\n" + command + "\n";
+            fileName = "/bin/zsh";
+            arguments = $"\"{tempScript}\"";
+        }
+
         await File.WriteAllTextAsync(tempScript, scriptContent);
 
         try
         {
             var psi = new ProcessStartInfo()
             {
-                FileName = "powershell.exe",
-                Arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"{tempScript}\"",
+                FileName = fileName,
+                Arguments = arguments,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -159,7 +182,7 @@ public class EShellAgent : EToolBase
             };
 
             using var proc = Process.Start(psi)
-                ?? throw new InvalidOperationException("Failed to start PowerShell process.");
+                ?? throw new InvalidOperationException($"Failed to start {fileName} process.");
 
             // v9.9: Tool timeout — 60s default, prevent hanging commands
             // v10.9.3: Also linked to external cancellation token (ESC/stop)
@@ -179,11 +202,12 @@ public class EShellAgent : EToolBase
             var stdout = await proc.StandardOutput.ReadToEndAsync();
             var stderr = await proc.StandardError.ReadToEndAsync();
 
+            // v10.16: On macOS, make the temp script executable (needed for .sh)
+            // (Process.Start with /bin/zsh script.sh works without +x, but just in case)
             return new ShellProcessResult(stdout, stderr, proc.ExitCode);
         }
         finally
         {
-            // Clean up temp script
             try { File.Delete(tempScript); } catch { }
         }
     }
@@ -215,5 +239,5 @@ public class EShellAgent : EToolBase
     }
 }
 
-/// <summary>Lightweight result structure from PowerShell execution.</summary>
+/// <summary>Lightweight result structure from shell execution.</summary>
 internal record ShellProcessResult(string StandardOutput, string StandardError, int ExitCode);

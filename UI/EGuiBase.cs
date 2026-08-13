@@ -56,33 +56,6 @@ public abstract class EGuiBase
     /// <summary>Prompt with raw text and read a line of input (label is plain).</summary>
     public abstract string? PromptRaw(string label);
 
-    // v10.19.1: Notification-aware prompt — displays notifications while waiting for input
-
-    /// <summary>Background notification queue (set by orchestrator).</summary>
-    public Engine.NotificationQueue? NotificationQueue { get; set; }
-
-    /// <summary>
-    /// v10.19.1: Prompt the user while simultaneously monitoring for background agent notifications.
-    /// Notifications are displayed as they arrive, without blocking the input wait.
-    /// Falls back to plain PromptRaw if no notification queue is set.
-    /// </summary>
-    public virtual string? PromptWithNotifications(string label)
-    {
-        if (NotificationQueue == null || !NotificationQueue.HasPending)
-            return PromptRaw(label);
-
-        // Drain any pending notifications first
-        foreach (var n in NotificationQueue.DrainAll())
-        {
-            var color = n.Priority == Engine.NotificationPriority.Critical ? "\x1b[31m\x1b[1m"
-                       : n.Priority == Engine.NotificationPriority.Warning ? "\x1b[33m\x1b[1m"
-                       : "\x1b[36m";
-            Console.WriteLine($"{color}{n.ToDisplayString()}\x1b[0m");
-        }
-
-        return PromptRaw(label);
-    }
-
     // ─── Status / Info Methods ───────────────────────
 
     /// <summary>Write an error/notice-line (caller assembles the ANSI text, caller keeps control over color).</summary>

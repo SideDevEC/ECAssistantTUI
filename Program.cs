@@ -229,10 +229,6 @@ public class Program
 
                     // v10.18: Initialize sub-agent system
                     await orchestrator.InitializeSubAgentsAsync(effectiveDir);
-                    // v10.19: Initialize background agent system
-                    await orchestrator.InitializeBackgroundAgentsAsync(effectiveDir);
-                    // v10.19.1: Wire notification queue to GUI for async display
-                    Gui.NotificationQueue = orchestrator.NotificationQueue;
 
                     // ── Session Manager (P0: session abstraction) ──
                     var sessionManager = new SessionManager(agent, orchestrator.Policy);
@@ -412,7 +408,7 @@ public class Program
 
             while (true)
                         {
-                  var input = Gui.PromptWithNotifications(Cyan + "> " + Reset)?.Trim();
+                  var input = Gui.PromptRaw(Cyan + "> " + Reset)?.Trim();
 
                    if (string.IsNullOrEmpty(input)) continue;
 

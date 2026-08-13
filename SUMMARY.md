@@ -1,6 +1,6 @@
-# ECAssistant — Project Summary (v10.19.2 — 2026-08-13)
+# ECAssistant — Project Summary (v10.19.3 — 2026-08-13)
 
-**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Cross-platform (Windows + macOS). Loads GGUF models from disk — no API calls, no cloud, fully self-contained. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags for tool calling. Multi-step autonomous loops, dual memory (keyword + vector/semantic), sliding context windows, self-correction with failure loop detection, project context awareness, task decomposition, surgical code editing, 10 registered tools, sub-agent system with shared model weights, background agents with notification system. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.15: KV cache hybrid rewind, off-by-one fixes, `<llm>`→`<lm>` rename, sub-task advancement fixes. v10.16: Cross-platform migration — EShellAgent, dual system prompts, Mac support. v10.17: StepMapper (two-phase planning: decompose → map → execute), automated test framework. v10.18: Sub-agent system — isolated agents with shared model weights. v10.19: Background agents + notification system. v10.19.2: All artifacts in working directory, BackgroundProcessManager OS-aware.
+**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Cross-platform (Windows + macOS). Loads GGUF models from disk — no API calls, no cloud, fully self-contained. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags for tool calling. Multi-step autonomous loops, dual memory (keyword + vector/semantic), sliding context windows, self-correction with failure loop detection, project context awareness, task decomposition, surgical code editing, 8 registered tools, sub-agent system with shared model weights. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.15: KV cache hybrid rewind, off-by-one fixes, `<llm>`→`<lm>` rename, sub-task advancement fixes. v10.16: Cross-platform migration — EShellAgent, dual system prompts, Mac support. v10.17: StepMapper (two-phase planning: decompose → map → execute), automated test framework. v10.18: Sub-agent system — isolated agents with shared model weights. v10.19.2: All artifacts in working directory, BackgroundProcessManager OS-aware. v10.19.3: Removed background agents (messy, dangerous on CPU) — session architecture design drafted (SESSIONS_DESIGN.md) as replacement.
 
 ## Key Facts
 - **Language:** C# .NET 8 console app (`net8.0`, cross-platform, Nullable enabled)
@@ -12,7 +12,7 @@
 - **Secondary Model:** microsoft_Phi-4-mini-instruct-Q4_K_M (bartowski, 2.3 GiB)
 - **Models location:** `~/Agent/models/` (gitignored, absolute paths in config)
 - **Repo:** `github.com/LLamaDudeX/ECAssistant.git` (branch: `main`)
-- **Latest Tags:** `v10.19.2-safe` (v10.19.2), `v10.19-background-agents` (v10.19), `v10.18-subagent` (v10.18), `mac-safe` (v10.16.0), `pre-mac` (v10.15.8)
+- **Latest Tags:** `v10.19.3-safe` (v10.19.3), `v10.19.2-safe` (v10.19.2), `v10.18-subagent` (v10.18), `mac-safe` (v10.16.0), `pre-mac` (v10.15.8)
 - **Executor:** InteractiveExecutor with KV cache (static prefix prefilled once, incremental feed per turn)
 - **Secondary Executor:** StatelessExecutor (fresh context per call, no cache)
 - **Source files:** 41 .cs files, dual system prompts
@@ -84,7 +84,7 @@
 - Build/git → always after code-modifying tools
 - Different tools, different targets → independent
 
-## Registered Tools (10)
+## Registered Tools (8)
 
 | Tool | Purpose | Key Feature |
 |------|---------|-------------|
@@ -96,8 +96,6 @@
 | **EGitTool** | Git operations | status/diff/commit/push/pull/log |
 | **ECodeEditor** | Surgical code editing | patch/diff/search/replace/insert/delete |
 | **ESubAgent** | Spawn child agents | Isolated engines, shared model weights (v10.18) |
-| **EDispatch** | Manage background agents | spawn/stop/status/notify (v10.19) |
-| **ENotify** | Push notifications | Background → main agent communication (v10.19) |
 
 ## Response Format (v10.15 — `<lm>` Container)
 
@@ -247,7 +245,7 @@ dotnet run -- --test --filter tool_     # Run specific tier
 dotnet run -- --test --model /path.gguf # Override model
 ```
 
-**Test results (v10.19.2):** 30/30 passing
+**Test results (v10.19.3):** 28/28 passing (bgagent tests removed, sub-agent tests retained)
 
 ### Bug Fixes (v10.16.1-v10.16.2)
 - `Console.KeyAvailable` guard — throws `InvalidOperationException` when no real console (test mode, redirected input). Wrapped in try/catch.
@@ -329,4 +327,4 @@ Everything now goes inside `~/ECAssistant/`:
 
 Existing files moved from old locations into `~/ECAssistant/`.
 
-**Status:** v10.19.2 — All artifacts in working directory, 10 tools, sub-agents, background agents with notifications, 30/30 tests passing. Cross-platform (Windows + macOS). Ready for production testing on both platforms.
+**Status:** v10.19.3 — Background agents removed (session architecture drafted as replacement). 8 tools, sub-agents retained, 28/28 tests passing. All artifacts in working directory. Cross-platform (Windows + macOS). Next: implement session architecture (v10.20, see SESSIONS_DESIGN.md).

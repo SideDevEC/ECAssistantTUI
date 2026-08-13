@@ -49,12 +49,6 @@ public sealed class AgentOrchestrator : IAsyncDisposable
     private SubAgentManager? _subAgentManager;
     public SubAgentManager? SubAgentManager => _subAgentManager;
 
-    // v10.19: Background agent manager + notification queue
-    private BackgroundAgentManager? _bgAgentManager;
-    private NotificationQueue? _notificationQueue;
-    public NotificationQueue? NotificationQueue => _notificationQueue;
-    public BackgroundAgentManager? BackgroundAgentManager => _bgAgentManager;
-
      /// <summary>Create orchestrator with config.</summary>
     public AgentOrchestrator(
         EAgentEngine engine,
@@ -81,46 +75,13 @@ public sealed class AgentOrchestrator : IAsyncDisposable
          EColor.TagBold(EColor.Success(), "SubAgent", "Sub-agent system initialized and ESubAgent tool registered.");
      }
 
-     /// <summary>v10.19: Initialize background agent support.</summary>
-     public void InitializeBackgroundAgents(string defaultWorkingDir)
-     {
-         _notificationQueue = new NotificationQueue();
-         _bgAgentManager = new BackgroundAgentManager(_engine, _notificationQueue, defaultWorkingDir);
-         _engine.RegisterTool(new Tools.Dispatch.EDispatchTool(_bgAgentManager));
-         _toolWhitelist.Add("EDispatch");
-         _toolPolicy.SetPermission("EDispatch", ToolPermissionLevel.Allowed, "Background agent dispatch");
-         EColor.TagBold(EColor.Success(), "BgAgent", "Background agent system initialized and EDispatch tool registered.");
-     }
-
-     /// <summary>v10.18: Initialize sub-agents AND rebuild KV cache to include ESubAgent in system prompt.</summary>
+          /// <summary>v10.18: Initialize sub-agents AND rebuild KV cache to include ESubAgent in system prompt.</summary>
      public async Task InitializeSubAgentsAsync(string defaultWorkingDir)
      {
          InitializeSubAgents(defaultWorkingDir);
          // Rebuild KV cache so ESubAgent appears in the tool list the LLM sees
          EColor.TagBold(EColor.Warn(), "SubAgent", "Rebuilding KV cache to include ESubAgent...");
          await _engine.ResetAndRebuildCacheAsync();
-     }
-
-     /// <summary>v10.19: Initialize background agents AND rebuild KV cache.</summary>
-     public async Task InitializeBackgroundAgentsAsync(string defaultWorkingDir)
-     {
-         InitializeBackgroundAgents(defaultWorkingDir);
-         EColor.TagBold(EColor.Warn(), "BgAgent", "Rebuilding KV cache to include EDispatch...");
-         await _engine.ResetAndRebuildCacheAsync();
-     }
-
-     /// <summary>v10.19: Drain pending notifications and display them.</summary>
-     private void DrainNotifications()
-     {
-         if (_notificationQueue == null || !_notificationQueue.HasPending) return;
-
-         var notifications = _notificationQueue.DrainAll();
-         foreach (var n in notifications)
-         {
-             EColor.TagBold(n.Priority == NotificationPriority.Critical ? EColor.Error() :
-                            n.Priority == NotificationPriority.Warning ? EColor.Warn() : EColor.Info(),
-                            "Notify", n.ToDisplayString());
-         }
      }
 
      /// <summary>Get the tool policy instance (for runtime modification).</summary>
@@ -222,9 +183,6 @@ public sealed class AgentOrchestrator : IAsyncDisposable
 
             while (_turnCount < _maxTurns)
                   {
-                // v10.19: Drain background agent notifications at the start of each turn
-                DrainNotifications();
-
                 // v10.9: Check for user cancellation before each turn
                 if (_engine.ExecutionToken.IsCancellationRequested)
                 {
@@ -250,13 +208,6 @@ public sealed class AgentOrchestrator : IAsyncDisposable
 
                 // v10.18.1: Cancel all active sub-agents when main agent is stopped
                 _subAgentManager?.CancelAll();
-
-                // v10.19: Stop all background agents and drain final notifications
-                if (_bgAgentManager != null)
-                {
-                    _ = _bgAgentManager.StopAllAsync();
-                    DrainNotifications();
-                }
 
                 // v10.11.1: Clean up stale context from the stopped attempt so the next
                 // command starts fresh. The KV cache static prefix is preserved.
@@ -839,7 +790,6 @@ public sealed class AgentOrchestrator : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         try { _subAgentManager?.Dispose(); } catch { }
-        try { await (_bgAgentManager?.DisposeAsync() ?? ValueTask.CompletedTask); } catch { }
         await Task.CompletedTask;
     }
 }

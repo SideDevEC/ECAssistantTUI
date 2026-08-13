@@ -485,30 +485,6 @@ public static class EcaTests
             MinToolCalls = 1,
             // Should complete — sub-agent handles the error and returns a result
         },
-
-        // ── Tier 11: Background Agents (v10.19) ──────────────────
-
-        new TestScenario
-        {
-            Name = "bgagent_spawn_and_notify",
-            Description = "Spawn a background agent that polls and sends a notification",
-            Prompt = "Use EDispatch to spawn a background agent named 'Test Monitor' with the mission 'Run a shell command and notify the user of the result'. Use poll_command='echo hello from background' and poll_interval=3000. After spawning, tell me the agent was started.",
-            TimeoutSeconds = 300,
-            ExpectedStatus = OrchestratorStatus.GoalAchieved,
-            MinToolCalls = 1,
-            ExpectedOutputContains = new() { "background", "agent" },
-        },
-
-        new TestScenario
-        {
-            Name = "bgagent_status_check",
-            Description = "Spawn a background agent then check its status",
-            Prompt = "First use EDispatch to spawn a background agent named 'Status Test' with mission 'Test agent for status checking' and poll_command='echo status test' with poll_interval=10000. Then use EDispatch with action=status to check the status of all background agents. Tell me what you find.",
-            TimeoutSeconds = 300,
-            ExpectedStatus = OrchestratorStatus.GoalAchieved,
-            MinToolCalls = 2,
-            ExpectedOutputContains = new() { "Status Test" },
-        },
     };
 
     /// <summary>Get a subset of tests by name prefix.</summary>
@@ -554,8 +530,4 @@ public static class EcaTests
     /// <summary>Get only the sub-agent tests.</summary>
     public static List<TestScenario> SubAgentTests
         => ByNamePrefix("subagent_");
-
-    /// <summary>Get only the background agent tests.</summary>
-    public static List<TestScenario> BackgroundAgentTests
-        => ByNamePrefix("bgagent_");
 }

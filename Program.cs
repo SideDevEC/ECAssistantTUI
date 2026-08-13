@@ -194,12 +194,6 @@ public class Program
             return 0;
              }
 
-    private static void ShowConfigSummary()
-            {
-            var model = Path.GetFileName(_config.Llm.ModelPath);
-            EColor.WriteLine(EColor.Dim, $"  Model: {model} | Ctx: {_config.Llm.ContextSize} | GPU: {_config.Llm.GpuLayers} | Tokens: {_config.Inference.MaxTokens} | Temp: {_config.Sampling.Temperature}");
-           }
-
     private static void ApplyCommandLineArgs(ref EAgentConfig config, string[] args)
              {
             for (int i = 0; i < args.Length; i++)

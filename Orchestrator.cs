@@ -26,7 +26,6 @@ public sealed class AgentOrchestrator : IAsyncDisposable
     private readonly ISessionOutput? _out;
     private int _turnCount = 0;
     private readonly List<string> _toolCallLog = new();
-    private string? _originalGoal = null;
     private readonly List<string> _completedSteps = new();
     private int _formatRetries = 0;
     private const int MaxFormatRetries = 2;

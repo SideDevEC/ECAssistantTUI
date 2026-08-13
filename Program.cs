@@ -237,8 +237,8 @@ public class Program
                         EColor.Tag(EColor.Info(), "SubAgent", "Sub-agents disabled in config — skipping initialization.");
                     }
 
-                    // ── Session Manager (P0: session abstraction) ──
-                    var sessionManager = new SessionManager(agent, orchestrator.Policy);
+                    // ── Session Manager (v10.20: fully isolated sessions) ──
+                    var sessionManager = new SessionManager(_config, effectiveModelPath, effectiveDir);
                     EColor.TagBold(EColor.Info(), "Session", $"Main session created. Sessions: {sessionManager.List().Count}");
 
 
@@ -424,9 +424,8 @@ public class Program
                            case "quit":   case "exit":
                               EColor.TagBold(EColor.Info(), "Bye", "Goodbye.");
                                Gui.BlankLine();
-                            // Save transcript before exit
-                             var path = Path.Combine(workingDir, "transcript.json");
-                             agent.SaveTranscript(path);
+                            // v10.20: Stop all sessions gracefully
+                             await sessionManager.StopAllAsync();
                                  return;
                            case "help":    await PrintHelp(); continue;
                               case "tools":    ListTools(agent); continue;
@@ -434,8 +433,12 @@ public class Program
                             case "save-context":  { var p = Path.Combine(workingDir, "transcript.json"); agent.SaveTranscript(p); Gui.BlankLine(); } continue;
 
                          case "single":    EColor.Tag(Info(), "Mode", "Single-turn mode reset."); orchestrator.Reset(); continue;
-                            case "stop":     // v10.9: Stop execution mid-stream
-                              if (agent.IsExecuting) { agent.StopExecution(); EColor.TagBold(EColor.Error(), "Stop", "Cancelling execution..."); }
+                            case "stop":     // v10.20: Stop active session's execution
+                              var activeSession = sessionManager.ActiveSession;
+                              if (activeSession != null && activeSession.RunState == SessionRunState.Running) {
+                                  activeSession.Stop();
+                                  EColor.TagBold(EColor.Error(), "Stop", "Cancelling active session...");
+                              }
                               else { EColor.Tag(Info(), "Stop", "Nothing is running."); }
                               continue;
 
@@ -536,20 +539,158 @@ public class Program
                             }
                             case "session-status": {
                                 Gui.BlankLine();
-                                EColor.TagBold(Cyan, "Main Session", sessionManager.Main.GetStatusSummary());
+                                var activeS = sessionManager.ActiveSession;
+                                if (activeS != null)
+                                    EColor.TagBold(Cyan, "Active Session", activeS.GetStatusSummary());
                                 continue;
                             }
-                            case "session-create": {
+                            case "session-create": case "session-new": {
                                 var name = Gui.PromptRaw("Session name: ")?.Trim() ?? "";
                                 if (!string.IsNullOrEmpty(name)) {
-                                    var s = sessionManager.CreateNamed(name);
-                                    EColor.TagBold(EColor.Success(), "Session", $"Created named session: {s.Key}");
+                                    var s = sessionManager.CreateSession(name, label: name);
+                                    EColor.TagBold(EColor.Success(), "Session", $"Created session: {s.Key}");
                                 }
                                 continue;
                             }
                             case "session-cleanup": {
-                                await sessionManager.CleanupAsync();
-                                EColor.TagBold(EColor.Info(), "Session", "Cleaned up idle/isolated sessions.");
+                                EColor.TagBold(EColor.Info(), "Session", "No cleanup needed — sessions are persistent.");
+                                continue;
+                            }
+                            // session <n> — switch to session by number or name
+                            case var sCmd when sCmd.StartsWith("session ") && !sCmd.StartsWith("session-stop") && !sCmd.StartsWith("session-close") && !sCmd.StartsWith("session-peek") && !sCmd.StartsWith("session-queue") && !sCmd.StartsWith("session-new") && !sCmd.StartsWith("session-create") && !sCmd.StartsWith("session-status") && !sCmd.StartsWith("session-list"):
+                            {
+                                var arg = sCmd.Substring("session ".Length).Trim();
+                                if (int.TryParse(arg, out int idx))
+                                {
+                                    if (sessionManager.SwitchTo(idx))
+                                    {
+                                        var s = sessionManager.ActiveSession!;
+                                        var history = s.ReadOutputHistory();
+                                        ConsoleUiRenderer.RenderHistory(history);
+                                        EColor.TagBold(Cyan, "Session", $"Switched to: {s.Key}");
+                                    }
+                                    else { EColor.TagBold(Error(), "Session", $"No session at index {idx}"); }
+                                }
+                                else
+                                {
+                                    if (sessionManager.SwitchTo(arg))
+                                    {
+                                        var s = sessionManager.ActiveSession!;
+                                        var history = s.ReadOutputHistory();
+                                        ConsoleUiRenderer.RenderHistory(history);
+                                        EColor.TagBold(Cyan, "Session", $"Switched to: {s.Key}");
+                                    }
+                                    else { EColor.TagBold(Error(), "Session", $"No session: {arg}"); }
+                                }
+                                continue;
+                            }
+                            // session-stop <n> — stop a session's execution
+                            case var ssCmd when ssCmd.StartsWith("session-stop"):
+                            {
+                                var arg = ssCmd.Substring("session-stop".Length).Trim();
+                                if (int.TryParse(arg, out int idx))
+                                {
+                                    var s = sessionManager.GetByIndex(idx);
+                                    if (s != null) { s.Stop(); EColor.TagBold(Warn(), "Session", $"Stopped: {s.Key}"); }
+                                    else { EColor.TagBold(Error(), "Session", $"No session at index {idx}"); }
+                                }
+                                else if (!string.IsNullOrEmpty(arg))
+                                {
+                                    var s = sessionManager.Get(arg);
+                                    if (s != null) { s.Stop(); EColor.TagBold(Warn(), "Session", $"Stopped: {s.Key}"); }
+                                    else { EColor.TagBold(Error(), "Session", $"No session: {arg}"); }
+                                }
+                                else
+                                {
+                                    sessionManager.ActiveSession?.Stop();
+                                }
+                                continue;
+                            }
+                            // session-close <n> — close and delete a session
+                            case var scCmd when scCmd.StartsWith("session-close"):
+                            {
+                                var arg = scCmd.Substring("session-close".Length).Trim();
+                                var key = arg;
+                                if (int.TryParse(arg, out int idx))
+                                {
+                                    var s = sessionManager.GetByIndex(idx);
+                                    key = s?.Key ?? "";
+                                }
+                                if (!string.IsNullOrEmpty(key) && key != sessionManager.Main.Key)
+                                {
+                                    await sessionManager.CloseSessionAsync(key);
+                                    EColor.TagBold(EColor.Info(), "Session", $"Closed: {key}");
+                                }
+                                else if (key == sessionManager.Main.Key)
+                                {
+                                    EColor.TagBold(Error(), "Session", "Cannot close the main session.");
+                                }
+                                else { EColor.TagBold(Error(), "Session", $"No session: {arg}"); }
+                                continue;
+                            }
+                            // session-peek <n> — quick glance at last few output lines
+                            case var spCmd when spCmd.StartsWith("session-peek"):
+                            {
+                                var arg = spCmd.Substring("session-peek".Length).Trim();
+                                AgentSession? peekSession = null;
+                                if (int.TryParse(arg, out int idx))
+                                    peekSession = sessionManager.GetByIndex(idx);
+                                else if (!string.IsNullOrEmpty(arg))
+                                    peekSession = sessionManager.Get(arg);
+                                else
+                                    peekSession = sessionManager.ActiveSession;
+
+                                if (peekSession != null)
+                                {
+                                    var last5 = peekSession.ReadOutputHistory(5);
+                                    Gui.BlankLine();
+                                    EColor.TagBold(Cyan, "Peek", $"[{peekSession.Key}] last {last5.Count} lines:");
+                                    foreach (var e in last5)
+                                        ConsoleUiRenderer.RenderHistory(new List<OutputEntry> { e });
+                                    Gui.BlankLine();
+                                }
+                                else { EColor.TagBold(Error(), "Session", $"No session: {arg}"); }
+                                continue;
+                            }
+                            // session-queue — show active session's prompt queue
+                            case "session-queue": case "queue":
+                            {
+                                var s = sessionManager.ActiveSession;
+                                if (s != null)
+                                {
+                                    var q = s.GetQueue();
+                                    Gui.BlankLine();
+                                    if (q.Count == 0)
+                                        EColor.TagBold(EColor.Info(), "Queue", "(empty)");
+                                    else
+                                    {
+                                        EColor.TagBold(Cyan, "Queue", $"{q.Count} prompt(s) pending for [{s.Key}]:");
+                                        for (int qi = 0; qi < q.Count; qi++)
+                                            EColor.WriteLine(Yellow + Bold, $"  {qi + 1}. {TruncatePrompt(q[qi])}");
+                                    }
+                                    Gui.BlankLine();
+                                }
+                                continue;
+                            }
+                            // session-queue-remove <i> — remove a prompt from the queue
+                            case var sqrCmd when sqrCmd.StartsWith("session-queue-remove") || sqrCmd.StartsWith("queue-remove"):
+                            {
+                                var arg = sqrCmd.Contains(" ") ? sqrCmd.Substring(sqrCmd.IndexOf(' ')).Trim() : "";
+                                if (int.TryParse(arg, out int qi) && qi > 0)
+                                {
+                                    var s = sessionManager.ActiveSession;
+                                    if (s != null && s.RemoveFromQueue(qi - 1))
+                                        EColor.TagBold(EColor.Success(), "Queue", $"Removed prompt {qi}");
+                                    else
+                                        EColor.TagBold(Error(), "Queue", $"No prompt at index {qi}");
+                                }
+                                continue;
+                            }
+                            // session-queue-clear — clear all queued prompts
+                            case "session-queue-clear": case "queue-clear":
+                            {
+                                sessionManager.ActiveSession?.ClearQueue();
+                                EColor.TagBold(EColor.Info(), "Queue", "Queue cleared.");
                                 continue;
                             }
 
@@ -770,36 +911,20 @@ public class Program
                          default: break;
                         }
 
-                var ticMain = DateTime.Now;
-
-                 try
-                                 {
-                              agent.StartExecution();
-                              var orchestratorResult = await orchestrator.ExecuteMultiStep(input);
-                                Gui.BlankLine();
-                             var maxTurnsDisplayB = 5;
-                               EColor.TagBold(Success(), "Agent", $"Turns: {orchestratorResult.ToolCallsMade}/{maxTurnsDisplayB} | Status: {orchestratorResult.Status}");
-                             if (!string.IsNullOrEmpty(orchestratorResult.FinalOutput))
-                                EColor.WriteLine(Bold, orchestratorResult.FinalOutput);
-                              }
-                    catch (Exception ex)
-                                 {
-                            EColor.TagBold(Error(), "Error", ex.Message);
-                               if (ex.InnerException != null) EColor.Tag(Info(), "Detail", ex.InnerException.Message);
-                             }
-                    finally
-                    {
-                            // v10.9.1: Always clean up execution state — prevents stuck IsExecuting
-                            agent.EndExecution();
-                    }
-
-                    if (_config.Interface.ShowElapsedTime)
-                                  {
-                           var elapsed = DateTime.Now - ticMain;
-                              EColor.WriteLine(Dim, $"[<took {elapsed.TotalMilliseconds:N0}ms>]");
-                            }
+                // v10.20: Route prompts to the active session
+                var activeSessionForPrompt = sessionManager.ActiveSession;
+                if (activeSessionForPrompt != null)
+                {
+                    activeSessionForPrompt.Prompt(input);
+                }
                    }
              }
+
+    private static string TruncatePrompt(string prompt, int maxLen = 60)
+    {
+        if (string.IsNullOrEmpty(prompt)) return "";
+        return prompt.Length <= maxLen ? prompt : prompt.Substring(0, maxLen) + "...";
+    }
 
     private static void ListTools(EAgentEngine agent)
     {
@@ -823,7 +948,7 @@ public class Program
         EColor.WriteLine(Yellow + Bold, "  <type request>       Multi-step agent execution");
         EColor.WriteLine(Yellow + Bold, "  stop                 Stop execution (type at prompt between tasks)");
         EColor.WriteLine(Yellow + Bold, "  ESC                  Stop generation mid-stream (during token output)");
-        EColor.WriteLine(Yellow + Bold, "  quit / exit          Exit (saves transcript)");
+        EColor.WriteLine(Yellow + Bold, "  quit / exit          Stop all sessions, save, exit");
         EColor.WriteLine(Yellow + Bold, "  help                 Show this help");
         EColor.WriteLine(Yellow + Bold, "  tools                List registered tools");
         Gui.BlankLine();
@@ -840,11 +965,16 @@ public class Program
         EColor.WriteLine(Yellow + Bold, "  vecmem-search        Semantic memory search");
         EColor.WriteLine(Yellow + Bold, "  vecmem-add           Add vector memory entry");
         Gui.BlankLine();
-        EColor.WriteLine(EColor.Dim, "  Sessions:");
-        EColor.WriteLine(Yellow + Bold, "  sessions             List all sessions");
-        EColor.WriteLine(Yellow + Bold, "  session-status       Main session status");
-        EColor.WriteLine(Yellow + Bold, "  session-create       Create a named session");
-        EColor.WriteLine(Yellow + Bold, "  session-cleanup      Clean up idle sessions");
+        EColor.WriteLine(EColor.Dim, "  Sessions (v10.20):");
+        EColor.WriteLine(Yellow + Bold, "  sessions             List all sessions with status");
+        EColor.WriteLine(Yellow + Bold, "  session <n>          Switch to session n (render history + live)");
+        EColor.WriteLine(Yellow + Bold, "  session-new <name>   Create a new session");
+        EColor.WriteLine(Yellow + Bold, "  session-stop <n>     Stop session n's execution");
+        EColor.WriteLine(Yellow + Bold, "  session-close <n>    Close and delete session n");
+        EColor.WriteLine(Yellow + Bold, "  session-peek <n>     Quick glance at session n's output");
+        EColor.WriteLine(Yellow + Bold, "  session-queue         Show active session's prompt queue");
+        EColor.WriteLine(Yellow + Bold, "  session-queue-remove <i>  Remove prompt i from queue");
+        EColor.WriteLine(Yellow + Bold, "  session-queue-clear  Clear active session's queue");
         Gui.BlankLine();
         EColor.WriteLine(EColor.Dim, "  Background:");
         EColor.WriteLine(Yellow + Bold, "  bg-run <cmd>         Start a background process");

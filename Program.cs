@@ -15,6 +15,7 @@ using ECAssistant.Analysis;
 using ECAssistant.UI;
 using ECAssistant.Session;
 using ECAssistant.Services;
+using ECAssistant.Testing;
 using LLama.Common;
 using LLama.Sampling;
 
@@ -28,6 +29,12 @@ public class Program
 [System.STAThread]
     public static async Task<int> Main(string[] args)
             {
+                 // ── Test mode: run automated tests ──
+                 if (args.Length > 0 && args[0].Equals("--test", StringComparison.OrdinalIgnoreCase))
+                 {
+                     return await RunTestsAsync(args.Skip(1).ToArray());
+                 }
+
                  // ── UI initialisation — single line, swap anywhere ──
              Gui = new EGuiConsole();
 
@@ -280,6 +287,90 @@ public class Program
                                    }
                            }
                   }
+
+    // ── Test Mode: Automated testing without console interaction ──
+
+    private static async Task<int> RunTestsAsync(string[] testArgs)
+    {
+        // Resolve model path from ~/ECAssistant/appsettings.json
+        var userConfigDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant");
+        var configPath = Path.Combine(userConfigDir, "appsettings.json");
+        var modelPath = "";
+        if (File.Exists(configPath))
+        {
+            var config = EAgentConfig.Load(configPath);
+            modelPath = config.Llm.ModelPath;
+        }
+
+        // Allow override via --model arg
+        for (int i = 0; i < testArgs.Length; i++)
+        {
+            if (testArgs[i].Equals("--model", StringComparison.OrdinalIgnoreCase) && i + 1 < testArgs.Length)
+                modelPath = testArgs[++i];
+        }
+
+        if (string.IsNullOrEmpty(modelPath) || !File.Exists(modelPath))
+        {
+            Console.WriteLine($"❌ Model not found: {modelPath}");
+            Console.WriteLine("   Set model path in ~/ECAssistant/appsettings.json or pass --model /path/to/model.gguf");
+            return 1;
+        }
+
+        // Parse test filter
+        string? filter = null;
+        for (int i = 0; i < testArgs.Length; i++)
+        {
+            if (testArgs[i].Equals("--filter", StringComparison.OrdinalIgnoreCase) && i + 1 < testArgs.Length)
+                filter = testArgs[++i];
+        }
+
+        // Select tests
+        var allTests = EcaTests.All;
+        List<TestScenario> tests;
+        if (!string.IsNullOrEmpty(filter))
+        {
+            tests = allTests.Where(t => t.Name.StartsWith(filter, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (tests.Count == 0)
+            {
+                Console.WriteLine($"No tests match filter '{filter}'. Available:");
+                foreach (var t in allTests)
+                    Console.WriteLine($"  {t.Name}");
+                return 1;
+            }
+        }
+        else
+        {
+            tests = allTests;
+        }
+
+        Console.WriteLine($"\n🧪 Running {tests.Count} test(s) with model: {Path.GetFileName(modelPath)}");
+        Console.WriteLine($"   Filter: {filter ?? "(all)"}\n");
+
+        // Run the test suite
+        await using var runner = new TestRunner(modelPath);
+        var results = await runner.RunAllAsync(tests);
+
+        // Write detailed results to a log file
+        var logPath = Path.Combine(runner._testRootDir, "test_results.log");
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"ECAssistant Test Results — {DateTime.UtcNow:O}");
+        sb.AppendLine($"Model: {modelPath}");
+        sb.AppendLine();
+        foreach (var r in results)
+        {
+            sb.AppendLine($"{(r.Passed ? "PASS" : "FAIL")} | {r.Name} | {r.Duration.TotalSeconds:F1}s | {r.FailureReason}");
+            if (!r.Passed)
+            {
+                sb.AppendLine($"  Output: {r.FinalOutput}");
+                sb.AppendLine();
+            }
+        }
+        File.WriteAllText(logPath, sb.ToString());
+        Console.WriteLine($"\n📝 Detailed log: {logPath}");
+
+        // Exit code: 0 if all passed, 1 if any failed
+        return results.Any(r => !r.Passed) ? 1 : 0;
+    }
 
     private static async Task RunAgentLoop(
         EAgentEngine agent,

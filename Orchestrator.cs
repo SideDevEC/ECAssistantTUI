@@ -32,6 +32,8 @@ public sealed class AgentOrchestrator : IAsyncDisposable
     // v10.6: TaskPlanner for chained multi-step tasks
     private List<SubTask>? _subTasks = null;
     private int _currentSubTask = 0;
+    // v10.17: Execution plan from StepMapper
+    private ExecutionPlan? _executionPlan = null;
 
      // ─── Hard Limits ──────────────────────
     private int _maxTurns;  // v10.6: changed from readonly to allow dynamic adjustment
@@ -120,6 +122,36 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                 for (int i = 0; i < _subTasks.Count; i++)
                     EColor.WriteLine(EColor.Dim, $"  Step {i+1}: {_subTasks[i].Description}");
                 EColor.WriteLine(EColor.Reset, "");
+            }
+
+            // v10.17: Step Mapping — map sub-tasks to concrete tool calls
+            ExecutionPlan? executionPlan = null;
+            if (_subTasks != null && _subTasks.Count > 1)
+            {
+                var mapper = new StepMapper(_engine);
+                EColor.TagBold(EColor.Info(), "StepMapper", "Mapping steps to tool calls...");
+                executionPlan = await mapper.MapAsync(_subTasks, goal);
+                _executionPlan = executionPlan; // Store for advancement logic
+                if (executionPlan.IsValid)
+                {
+                    EColor.TagBold(EColor.Success(), "StepMapper", $"Plan: {executionPlan.Calls.Count} call(s):");
+                    for (int i = 0; i < executionPlan.Calls.Count; i++)
+                    {
+                        var c = executionPlan.Calls[i];
+                        EColor.WriteLine(EColor.Dim, $"  Call {i+1}: {c.ToolName} — covers steps {string.Join(",", c.CoversSubTasks.Select(s => s+1))} — {c.Description}");
+                    }
+                    EColor.WriteLine(EColor.Reset, "");
+                }
+                else
+                {
+                    EColor.TagBold(EColor.Warn(), "StepMapper", $"Mapping failed: {executionPlan.Error} — LLM will plan ad-hoc.");
+                }
+
+                // Inject the execution plan into context so the LLM follows it
+                if (executionPlan != null && executionPlan.IsValid)
+                {
+                    _engine.InjectExecutionPlan(executionPlan.ToPromptString());
+                }
             }
         }
         
@@ -216,17 +248,17 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                         _completedSteps.Add(stepDesc);
                     }
 
-                    // v10.15.6: When all tools in a batch succeed, advance ALL remaining
-                    // sub-tasks to completed. A single PowerShell command with semicolons
-                    // can cover all planned steps — the LLM did everything in one call.
-                    // Only keep sub-tasks pending when there are actual failures.
+                    // v10.16.2: Conservative batch sub-task advancement.
+                    // Advance one sub-task per successful tool in the batch.
+                    // The LLM decides when ALL steps are done via <output>.
                     if (_subTasks != null && _subTasks.Count > 1)
                     {
                         if (failCount == 0 && okCount > 0)
                         {
-                            // All succeeded — mark ALL remaining sub-tasks as completed
-                            while (_currentSubTask < _subTasks.Count)
-                                AdvanceSubTask(true, "Batch", "Batch succeeded — all steps covered");
+                            // All tools succeeded — advance one sub-task per successful tool
+                            var toAdvance = Math.Min(okCount, _subTasks.Count - _currentSubTask);
+                            for (int i = 0; i < toAdvance; i++)
+                                AdvanceSubTask(true, "Batch", $"Batch tool {i + 1}/{toAdvance} succeeded");
                         }
                         else if (okCount == 0 && failCount > 0)
                         {
@@ -335,17 +367,26 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                                     var stepDesc = $"{decision.ToolName}: {EGuiBase.Truncate(stepCmd, 80)}";
                                     _completedSteps.Add(stepDesc);
 
-                                    // v10.15.8: Advance ALL remaining sub-tasks on success.
-                                    // The LLM can complete multiple planned steps in a single
-                                    // shell command (semicolons). Since we can't know which
-                                    // steps were covered, mark all remaining as completed.
-                                    // If the LLM needs more work, it will make another toolcall.
-                                    // Guard: AdvanceSubTask is a no-op when Count <= 1, so
-                                    // the while loop would infinite-loop on single-step tasks.
+                                    // v10.17: Sub-task advancement based on execution plan.
+                                    // If the plan says this call covers multiple steps, advance all of them.
+                                    // If no plan or call not in plan, advance one (conservative default).
                                     if (_subTasks != null && _subTasks.Count > 1)
                                     {
-                                        while (_currentSubTask < _subTasks.Count)
+                                        var plannedCall = _executionPlan?.Calls.FirstOrDefault(c => c.ToolName.Equals(decision.ToolName!, StringComparison.OrdinalIgnoreCase));
+                                        if (plannedCall != null && plannedCall.CoversSubTasks.Count > 1)
+                                        {
+                                            // Advance all steps the plan says this call covers
+                                            foreach (var stepIdx in plannedCall.CoversSubTasks)
+                                            {
+                                                if (_currentSubTask < _subTasks.Count)
+                                                    AdvanceSubTask(true, decision.ToolName!, stepDesc);
+                                            }
+                                        }
+                                        else
+                                        {
+                                            // No plan mapping — advance one conservatively
                                             AdvanceSubTask(true, decision.ToolName!, stepDesc);
+                                        }
                                     }
 
                                     _engine.AddToolResult(decision.ToolName!, toolOutput);
@@ -610,6 +651,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                   // v10.6: Reset sub-task state
                   _subTasks = null;
                   _currentSubTask = 0;
+                  _executionPlan = null; // v10.17: Reset execution plan
               }
 
     // v10.6: Build step-aware directive that tells the LLM which sub-task to focus on.
@@ -621,7 +663,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
         sb.AppendLine("The tool has returned its result above. Now respond to the user.");
         sb.AppendLine("Open <lm><thinking>brief reasoning</thinking> then either <output>your answer</output></lm> if done, or <lm><thinking>brief reasoning</thinking><toolcall>...</toolcall></lm> if you need more data.");
         sb.AppendLine("Do NOT write plain text. Use the tags.");
-        sb.AppendLine("IMPORTANT: Check [TASK PROGRESS] below. If a step was already completed by a previous tool call (e.g. a batch command created multiple files), mark it as done in your thinking and move on. Only use <toolcall> for steps that genuinely still need work. Use <output> when ALL steps are done or if remaining steps failed and cannot be retried.");
+        sb.AppendLine("IMPORTANT: Check [TASK PROGRESS] below. If you completed multiple steps in a single tool call (e.g. batch shell command), the progress tracker may only show one as completed. Check the tool output above — if you covered all remaining steps, use <output> to finish. If steps genuinely remain, use <toolcall>.");
         sb.AppendLine("Do NOT retry steps that already succeeded — check the tool output above to see what was already done.");
         
         // v10.6: If we have sub-tasks, inject step context

@@ -1,6 +1,6 @@
-# ECAssistant Architecture (v10.16.0 — 2026-08-13)
+# ECAssistant Architecture (v10.17.0 — 2026-08-13)
 
-**Summary:** A local, offline AI agent in C# .NET 8 using LLamaSharp. Runs GGUF models locally with no external API calls. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags (`<thinking>`, `<toolcall>`, `<output>`). 7 registered tools self-register their rules at runtime. Multi-step autonomous loops with dual memory (keyword + TF-IDF vector), sliding context windows with LLM summarization, self-correction with failure loop detection and file rollback, project context awareness with dependency graph, task decomposition, surgical code editing, background process management, file watching, and structured logging. Token-optimized for 8B models. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.16: Cross-platform (Windows + macOS), EShellAgent replaces EPowerShellAgent, dual system prompts, `<lm>` tag renamed from `<llm>` to eliminate double-l hallucination.
+**Summary:** A local, offline AI agent in C# .NET 8 using LLamaSharp. Runs GGUF models locally with no external API calls. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags (`<thinking>`, `<toolcall>`, `<output>`). 7 registered tools self-register their rules at runtime. Multi-step autonomous loops with dual memory (keyword + TF-IDF vector), sliding context windows with LLM summarization, self-correction with failure loop detection and file rollback, project context awareness with dependency graph, two-phase task planning (decompose → map → execute), surgical code editing, background process management, file watching, and structured logging. Token-optimized for 8B models. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.16: Cross-platform (Windows + macOS). v10.17: StepMapper (two-phase planning), automated test framework (17 tests).
 
 ## Key Facts
 - **Language:** C# .NET 8 console app (`net8.0`, cross-platform, Nullable enabled)
@@ -217,8 +217,41 @@ ToolPolicy: 3 levels (Allowed / ApprovalRequired / Blocked) checked before every
 - LLM-based decomposition (secondary model) with keyword fallback
 - Progress tracking: checklist with status markers
 - Step-aware directives with [TASK PROGRESS] and completion check
-- Sub-task advancement: single toolcall advances ALL remaining steps on success (v10.15.7)
-- Guard: `Count > 1` check prevents infinite loop on single-step tasks (v10.15.8)
+- Sub-task advancement: based on ExecutionPlan's CoversSubTasks (v10.17)
+- Guard: `Count > 1` check prevents infinite loop on single-step tasks
+
+### Two-Phase Planning (v10.17 — StepMapper)
+
+**Pipeline:**
+```
+1. Secondary model (Phi-4-mini) → decompose goal into text steps ("what to do")
+2. Main LLM (Qwen3-8B, stateless) → map steps to concrete tool calls ("how to do it")
+3. Execution plan injected into context as system message
+4. LLM executes following the plan
+5. Sub-task advancement uses plan's CoversSubTasks (no heuristics)
+```
+
+**Why main LLM for mapping?**
+- Already has tool definitions in KV cache — no duplicate injection
+- Better reasoning for tool selection and batching (8B vs 3.8B)
+- Plan in context helps LLM stay on track (feature, not noise)
+- Secondary model reserved for quick isolated tasks (decomposition, summarization)
+
+**Plan format:**
+```xml
+<plan>
+  <call>
+    <tool>EShellAgent</tool>
+    <command>echo 1 > file1.txt; echo 2 > file2.txt</command>
+    <covers>1,2</covers>
+    <desc>Create files 1 and 2</desc>
+  </call>
+</plan>
+```
+
+**Sub-task advancement:** Each `PlannedToolCall` has a `CoversSubTasks` list (0-based indices). When a tool succeeds, the orchestrator advances exactly the sub-tasks the plan says that call covers. Tool-agnostic, no string heuristics.
+
+**Fallback:** If mapping fails, LLM plans ad-hoc (conservative one-step advancement).
 
 ### Surgical Code Editing (ECodeEditor)
 - patch: replace old_text → new_text (multi-line, uniqueness check, diff preview)

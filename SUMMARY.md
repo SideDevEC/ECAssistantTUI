@@ -1,6 +1,6 @@
-# ECAssistant — Project Summary (v10.16.0 — 2026-08-13)
+# ECAssistant — Project Summary (v10.17.0 — 2026-08-13)
 
-**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Cross-platform (Windows + macOS). Loads GGUF models from disk — no API calls, no cloud, fully self-contained. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags for tool calling. Multi-step autonomous loops, dual memory (keyword + vector/semantic), sliding context windows, self-correction with failure loop detection, project context awareness, task decomposition, surgical code editing, 7 registered tools. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.15: KV cache hybrid rewind, off-by-one fixes, `<llm>`→`<lm>` rename, sub-task advancement fixes. v10.16: Cross-platform migration — EShellAgent, dual system prompts, Mac support.
+**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Cross-platform (Windows + macOS). Loads GGUF models from disk — no API calls, no cloud, fully self-contained. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags for tool calling. Multi-step autonomous loops, dual memory (keyword + vector/semantic), sliding context windows, self-correction with failure loop detection, project context awareness, task decomposition, surgical code editing, 7 registered tools. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.15: KV cache hybrid rewind, off-by-one fixes, `<llm>`→`<lm>` rename, sub-task advancement fixes. v10.16: Cross-platform migration — EShellAgent, dual system prompts, Mac support. v10.17: StepMapper (two-phase planning: decompose → map → execute), automated test framework (17 tests, non-interactive UI harness).
 
 ## Key Facts
 - **Language:** C# .NET 8 console app (`net8.0`, cross-platform, Nullable enabled)
@@ -143,11 +143,12 @@ ECAssistant/
 ├── EColor.cs                         ← ANSI color helpers
 │
 ├── Engine/
-│   ├── EAgentEngine.cs               ← Core LLM engine, <lm> extraction, KV cache, hybrid rewind
+│   ├── EAgentEngine.cs               ← Core LLM engine, <lm> extraction, KV cache, hybrid rewind, GeneratePlanAsync
 │   ├── ContextWindow.cs               ← Sliding window, auto-summarize
 │   ├── ConversationTranscript.cs      ← JSON transcript persistence
 │   ├── TokenCounter.cs                ← LLamaSharp tokenizer counting
 │   ├── SecondaryModelLoader.cs        ← Configurable secondary model
+│   ├── StepMapper.cs                  ← v10.17: Maps sub-tasks to concrete tool calls (ExecutionPlan)
 │   ├── SummaryService.cs              ← LLM-based context summarization
 │   ├── SelfCorrectionManager.cs       ← Failure loop detection, snapshots, rollback
 │   ├── ProjectContextManager.cs       ← Project scan, dependency graph
@@ -179,13 +180,83 @@ ECAssistant/
 └── UI/
     ├── EGuiBase.cs                     ← Abstract UI + Truncate() centralized
     └── EGuiConsole.cs                  ← Console implementation
+│
+├── Testing/                            ← v10.17: Automated test framework
+│   ├── EGuiTestHarness.cs              ← Non-interactive UI (captures output, scripts input)
+│   ├── TestRunner.cs                   ← Orchestrates test scenarios, sandboxed dirs, assertions
+│   └── EcaTests.cs                     ← 17 predefined test scenarios (7 tiers)
 ```
+
+## What's New (v10.17 — Two-Phase Planning + Test Framework)
+
+### StepMapper — Two-Phase Planning Pipeline
+
+**Problem:** TaskPlanner decomposed requests into text steps ("what to do") but the LLM had to figure out on its own which tools to use and how to batch them. This led to:
+- LLM making one tool call per step instead of batching
+- Sub-task advancement heuristics (string matching on `;` and `&&`) — fragile, shell-only
+- No tool mapping — LLM interpreted vague text steps with no execution blueprint
+
+**Solution:** Added an intermediate mapping phase between decomposition and execution:
+
+```
+1. Secondary model (Phi-4-mini) → decompose goal into text steps ("what to do")
+2. Main LLM (Qwen3-8B, stateless) → map steps to concrete tool calls ("how to do it")
+3. Execution plan injected into context as system message
+4. LLM executes following the plan
+5. Sub-task advancement uses plan's CoversSubTasks (no heuristics)
+```
+
+**Why main LLM for mapping?**
+- Already has all tool definitions in KV cache — no duplicate injection
+- Bigger model = better reasoning for tool selection and batching
+- Plan in context helps LLM stay on track (feature, not noise)
+- Secondary model better for quick isolated tasks (decomposition, summarization)
+
+**Plan format (LLM outputs):**
+```xml
+<plan>
+<call>
+<tool>EShellAgent</tool>
+<command>echo 1 > file1.txt; echo 2 > file2.txt</command>
+<covers>1,2</covers>
+<desc>Create files 1 and 2</desc>
+</call>
+</plan>
+```
+
+**Sub-task advancement:** Each `PlannedToolCall` has a `CoversSubTasks` list. When a tool succeeds, the orchestrator advances exactly the sub-tasks the plan says that call covers. No string heuristics, tool-agnostic.
+
+### Automated Test Framework
+
+**Problem:** ECAssistant requires console interaction — can't be tested automatically.
+
+**Solution:** Non-interactive test harness that pretends to be the user:
+
+- `EGuiTestHarness` — implements `EGuiBase` without console. Captures all output to `StringBuilder`, provides scripted input via queue. Auto-approves tool calls.
+- `TestRunner` — creates sandboxed dirs per test, sets up engine + tools + orchestrator, runs scenarios, evaluates assertions, reports pass/fail.
+- `EcaTests` — 17 predefined test scenarios across 7 tiers (smoke, tool, multi-step, code, complex, edge, shell).
+
+**Usage:**
+```bash
+dotnet run -- --test                    # Run all 17 tests
+dotnet run -- --test --filter smoke_    # Run only smoke tests
+dotnet run -- --test --filter tool_     # Run specific tier
+dotnet run -- --test --model /path.gguf # Override model
+```
+
+**Test results (v10.17):** 17/17 passing (509s total, ~30s per test)
+
+### Bug Fixes (v10.16.1-v10.16.2)
+- `Console.KeyAvailable` guard — throws `InvalidOperationException` when no real console (test mode, redirected input). Wrapped in try/catch.
+- `NativeLibraryConfig` static guard — LLamaSharp throws on second config attempt. Added `_nativeLibConfigured` static flag, one-time init.
+- Sub-task advancement redesign — v10.15.8 advanced ALL sub-tasks on any success (too aggressive). v10.16.2: advance one per call (conservative). v10.17: advance based on plan's `CoversSubTasks` (precise).
 
 ## Git Tags (Session 2026-08-13)
 
 ```
 pre-mac            — Pre-migration checkpoint (v10.15.8, Windows-only)
-mac-safe           — Cross-platform, Mac-tested (v10.16.0) ← CURRENT
+mac-safe           — Cross-platform, Mac-tested (v10.16.0)
+v10.17-safe        — Two-phase planning + test framework (v10.17.0) ← CURRENT
 
 Previous session tags:
 v10.12.20-working  — Centralized truncation
@@ -195,4 +266,4 @@ v10.11.1-working   — ESC stop fix
 v10.9.4-working    — Pre-<lm> baseline
 ```
 
-**Status:** v10.16.0 — Cross-platform (Windows + macOS), EShellAgent, dual system prompts, all v10.15.x fixes (KV cache hybrid rewind, off-by-one tag lengths, `<lm>` rename, generation cue, sub-task advancement, infinite loop fix). Tested end-to-end on Mac with Qwen3-8B. Ready for production testing on both platforms.
+**Status:** v10.17.0 — Two-phase planning (decompose → map → execute), automated test framework (17/17 tests passing), cross-platform (Windows + macOS). StepMapper eliminates sub-task advancement heuristics. EGuiTestHarness enables non-interactive testing. Ready for production testing on both platforms.

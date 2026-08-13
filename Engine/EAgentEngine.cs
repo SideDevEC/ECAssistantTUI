@@ -51,6 +51,7 @@ public sealed class EAgentEngine : IAsyncDisposable
     private readonly ContextWindow _contextWindow;
     private readonly ConversationTranscript _transcript;
     private readonly InferenceParams _inferenceParams;
+    private static bool _nativeLibConfigured = false;  // v10.16.1: Guard NativeLibraryConfig — one-time init
     private int _turnCount = 0;
     private string? _systemPromptText;
 
@@ -250,18 +251,57 @@ public sealed class EAgentEngine : IAsyncDisposable
         Program.Gui.WriteLineColored($"[Context] SummaryService wired to {mode}.");
     }
 
+    /// <summary>
+    /// v10.17: Generate a plan using the main LLM (stateless — does not pollute KV cache).
+    /// Used by StepMapper to map sub-tasks to concrete tool calls.
+    /// Uses a StatelessExecutor with the same weights + params so the KV cache is untouched.
+    /// </summary>
+    public async Task<string> GeneratePlanAsync(string prompt)
+    {
+        if (_weights == null || _modelParams == null)
+            return "";
+
+        var executor = new StatelessExecutor(_weights, _modelParams, new NullLogger());
+        var sb = new StringBuilder();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        try
+        {
+            var planInference = new InferenceParams
+            {
+                MaxTokens = Math.Min(1024, (int)_contextSize / 4),
+                AntiPrompts = new[] { "</plan>", "User:", "Question:" },
+                OverflowStrategy = LLama.Common.ContextOverflowStrategy.TruncateAndReprefill,
+                SamplingPipeline = _inferenceParams.SamplingPipeline,
+            };
+            await foreach (var token in executor.InferAsync(prompt, planInference, cts.Token))
+                sb.Append(token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Timeout — return what we have
+        }
+
+        var result = sb.ToString().Trim();
+        EColor.TagBold(EColor.Info(), "StepMapper", $"Plan generated ({result.Length} chars)");
+        return result;
+    }
+
        /// <summary>Create engine with context window support and auto-injected memory.</summary>
      private string _workingDir = "";
 
 public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threadCount, InferenceParams inferenceParams, string workingDir = "")
           {
-               // Enable native library logging to verify which backend was loaded (CUDA vs CPU)
-           NativeLibraryConfig.All.WithLogCallback(delegate (LLamaLogLevel level, string message)
-                {
-                 // v9.4: Only log LLAMA errors to console, skip debug/info spam
-                if (level == LLamaLogLevel.Error)
-                    Program.Gui.LogInternal($"[LLAMA ERROR] {message}");
-                });
+               // Enable native library logging — only once (LLamaSharp throws on second config)
+               if (!_nativeLibConfigured)
+               {
+                   _nativeLibConfigured = true;
+                   NativeLibraryConfig.All.WithLogCallback(delegate (LLamaLogLevel level, string message)
+                        {
+                         // v9.4: Only log LLAMA errors to console, skip debug/info spam
+                        if (level == LLamaLogLevel.Error)
+                            Program.Gui.LogInternal($"[LLAMA ERROR] {message}");
+                        });
+               }
 
               // Check CUDA availability at startup for logging
            var sysInfo = SystemInfo.Get();
@@ -464,11 +504,19 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
         if (_turnCount == 1)
         {
             // First turn: static prefix already in KV cache.
-            // Feed memory injection (if any) + user message + assistant cue.
+            // Feed memory injection (if any) + execution plan + user message + assistant cue.
             var memoryInject = GetMemoryInjection(userRequest);
             var projectCtx = GetProjectContextInjection(userRequest);
             var taskProgress = GetTaskProgressInjection();
             var failureCtx = GetFailureInjection();
+
+            // v10.17: Inject execution plan (if any) — mapped tool calls from StepMapper
+            var systemMessages = _contextWindow.GetWindowMessages().Where(m => m.Role == "system");
+            foreach (var sysMsg in systemMessages)
+            {
+                if (!string.IsNullOrEmpty(sysMsg.Content))
+                    sb.AppendLine(sysMsg.Content);
+            }
 
             if (!string.IsNullOrEmpty(memoryInject))
             {
@@ -931,6 +979,15 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
          _transcript.AddUser(errorMessage);
      }
 
+     /// <summary>v10.17: Inject an execution plan as a system message.
+     /// The LLM sees this before its first turn and follows the planned tool calls.</summary>
+     public void InjectExecutionPlan(string planText)
+     {
+         _contextWindow.AddSystemMessage(planText);
+         _transcript.AddSystem(planText);
+         EColor.TagBold(EColor.Success(), "Plan", "Execution plan injected into context.");
+     }
+
       /// <summary>Clear context window and transcript.</summary>
     public void ClearHistory()
            {
@@ -1114,13 +1171,18 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                     await foreach (var token in _executor.InferAsync(incrementalInput, _inferenceParams, cts.Token))
                          {
                           // v10.9: Check for ESC key press to stop generation
-                          if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape)
+                          // v10.16.1: Guard Console.KeyAvailable — throws when no real console (test mode, redirected input)
+                          try
                           {
-                              _escPressed = true;
-                              Program.Gui.BlankLine();
-                              EColor.TagBold(EColor.Error(), "Stop", "Generation stopped by user (ESC).");
-                              goto inferenceDone;
+                              if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape)
+                              {
+                                  _escPressed = true;
+                                  Program.Gui.BlankLine();
+                                  EColor.TagBold(EColor.Error(), "Stop", "Generation stopped by user (ESC).");
+                                  goto inferenceDone;
+                              }
                           }
+                          catch (InvalidOperationException) { /* No console available — skip ESC detection */ }
                           // v10.9: Check cancellation token from orchestrator
                           if (ExecutionToken.IsCancellationRequested)
                           {

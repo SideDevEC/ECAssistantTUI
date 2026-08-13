@@ -88,6 +88,19 @@ public sealed class EGuiTestHarness : EGuiBase
         lock (_lock) _log.Append(text);
     }
 
+    // v10.19.1: Notification-aware prompt (test harness — just drains + logs)
+    public override string? PromptWithNotifications(string label)
+    {
+        if (NotificationQueue != null)
+        {
+            foreach (var n in NotificationQueue.DrainAll())
+            {
+                lock (_lock) { _log.AppendLine(n.ToDisplayString()); }
+            }
+        }
+        return base.PromptWithNotifications(label);
+    }
+
     // ── Helpers ──────────────────────────────────
 
     /// <summary>Check if captured output contains a string (case-insensitive).</summary>

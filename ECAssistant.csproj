@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
           <PropertyGroup>
-              <TargetFramework>net8.0-windows</TargetFramework>
+              <!-- v10.16: Cross-platform — net8.0 instead of net8.0-windows -->
+              <TargetFramework>net8.0</TargetFramework>
               <ImplicitUsings>enable</ImplicitUsings>
               <Nullable>enable</Nullable>
               <OutputType>Exe</OutputType>
@@ -12,9 +13,12 @@
 
           <ItemGroup>
               <PackageReference Include="LLamaSharp" Version="0.27.0" />
-              <PackageReference Include="LLamaSharp.Backend.Vulkan" Version="0.27.0" />
-              <PackageReference Include="LLamaSharp.Backend.Cuda12" Version="0.27.0" />
               <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.27.0" />
+              <!-- v10.16: GPU backends are OS-specific — include both via conditionals -->
+              <!-- Windows/Linux: CUDA 12 for NVIDIA GPU -->
+              <PackageReference Include="LLamaSharp.Backend.Cuda12" Version="0.27.0" Condition="'$(OS)' == 'WINDOWS'" />
+              <!-- macOS: Vulkan for Metal (MoltenVK) -->
+              <PackageReference Include="LLamaSharp.Backend.Vulkan" Version="0.27.0" Condition="'$(OS)' != 'WINDOWS'" />
               <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.5" />
           </ItemGroup>
 

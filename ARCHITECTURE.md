@@ -8,7 +8,7 @@
 - **Executor:** InteractiveExecutor with KV cache (static prefix prefilled once, incremental feed per turn)
 - **Secondary Executor:** StatelessExecutor (for summaries/decomposition, no cache)
 - **Secondary Model:** Phi-4-mini-instruct-Q4_K_M (decomposition + summarization)
-- **Tools:** 7 registered — EPowerShellAgent, EFileResearchTool, EBackgroundExec, EWebSearch, EDotnetBuild, EGitTool, ECodeEditor
+- **Tools:** 7 registered — EShellAgent, EFileResearchTool, EBackgroundExec, EWebSearch, EDotnetBuild, EGitTool, ECodeEditor
 - **Config:** `~/ECAssistant/appsettings.json` (user-editable, bundled as fallback)
 - **System Prompt:** SystemPrompt.md v6 (~1300 tokens, tool-agnostic)
 - **Working Directory:** `~/ECAssistant/` (all disk writes, build dir read-only)
@@ -132,7 +132,7 @@ Program.cs (entry point, CLI loop, startup, tool registration)
 EToolBase (abstract) — Name, Description, UsageExample, GetToolRules(), GetToolExample()
 ├── ToSystemPromptBlock() — assembles all into system prompt at runtime
 
-1. EPowerShellAgent     — file ops, shell commands, 60s timeout, Continue+try/catch
+1. EShellAgent     — file ops, shell commands, 60s timeout, Continue+try/catch
 2. EFileResearchTool     — project-wide file scan
 3. EBackgroundExec      — background process management
 4. EWebSearch           — DuckDuckGo web search (no auth)

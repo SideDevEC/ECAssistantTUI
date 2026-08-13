@@ -183,7 +183,7 @@ public static class ToolDependencyAnalyzer
             }
 
             // PowerShell: extract file paths from commands
-            if (tc.ToolName?.Equals("EPowerShellAgent", StringComparison.OrdinalIgnoreCase) == true &&
+            if (tc.ToolName?.Equals("EShellAgent", StringComparison.OrdinalIgnoreCase) == true &&
                 (key == "command" || key == "script"))
             {
                 targets.UnionWith(ExtractPathsFromPowerShell(value));
@@ -254,8 +254,8 @@ public static class ToolDependencyAnalyzer
         if (name.Equals("ECodeEditor", StringComparison.OrdinalIgnoreCase))
             return true;
 
-        // EPowerShellAgent: check if command writes files
-        if (name.Equals("EPowerShellAgent", StringComparison.OrdinalIgnoreCase))
+        // EShellAgent: check if command writes files
+        if (name.Equals("EShellAgent", StringComparison.OrdinalIgnoreCase))
         {
             var cmd = tc.Args?.GetValueOrDefault("command") ?? "";
             return IsPowerShellWriteCommand(cmd);

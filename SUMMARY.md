@@ -98,7 +98,7 @@ Everything lives in `~/ECAssistant/`:
 
 | Tool | Purpose | Key Feature |
 |------|---------|-------------|
-| **EPowerShellAgent** | File/system ops, any shell command | Continue+try/catch, 60s timeout |
+| **EShellAgent** | File/system ops, any shell command | Continue+try/catch, 60s timeout |
 | **EFileResearchTool** | Project-wide file scan | Multi-file content scan |
 | **EBackgroundExec** | Background process management | start/status/output/kill |
 | **EWebSearch** | Web search | DuckDuckGo API, no auth |
@@ -207,7 +207,7 @@ ECAssistant/
 ├── Tools/
 │   ├── EToolBase.cs                   ← Abstract base
 │   ├── ToolPolicy.cs                  ← 3-level permission system
-│   ├── EPowerShell/EPowerShellAgent.cs ← Continue+try/catch, 60s timeout
+│   ├── EShell/EShellAgent.cs ← Continue+try/catch, 60s timeout
 │   ├── EResearch/EFileResearchTool.cs
 │   ├── EBackground/EBackgroundExecTool.cs
 │   ├── EWeb/EWebSearchTool.cs

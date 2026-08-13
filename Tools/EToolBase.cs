@@ -10,7 +10,7 @@ namespace ECAssistant.Tools;
 /// </summary>
 public abstract class EToolBase
 {
-             /// <summary>Unique name of this tool (e.g., "EPowerShellAgent")</summary>
+             /// <summary>Unique name of this tool (e.g., "EShellAgent")</summary>
     public abstract string Name { get; }
 
           /// <summary>Human-readable description for system prompt injection</summary>

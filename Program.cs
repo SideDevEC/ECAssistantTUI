@@ -3,7 +3,7 @@ using static ECAssistant.EColor;
 using ECAssistant.Config;
 using ECAssistant.Engine;
 using ECAssistant.Orchestration;
-using ECAssistant.Tools.PowerShell;
+using ECAssistant.Tools.Shell;
 using ECAssistant.Tools.Research;
 using ECAssistant.Tools.Background;
 using ECAssistant.Tools.Web;
@@ -188,7 +188,7 @@ public class Program
                     fileWatcher.Start();
 
                      EColor.TagBold(EColor.Info(), "Init", "Registering tools...");
-                    var psAgent = new EPowerShellAgent(effectiveDir);
+                    var psAgent = new EShellAgent(effectiveDir);
                       agent.RegisterTool(psAgent);
                     agent.RegisterTool(new EBackgroundExecTool(bgMgr, effectiveDir));
                     agent.RegisterTool(new EWebSearchTool());
@@ -285,7 +285,7 @@ public class Program
         EAgentEngine agent,
            AgentOrchestrator orchestrator,
          string workingDir,
-        EPowerShellAgent psAgent,
+        EShellAgent psAgent,
         SessionManager sessionManager,
         BackgroundProcessManager bgMgr,
         FileWatcherService fileWatcher)
@@ -338,7 +338,7 @@ public class Program
                                  // --- FILE PICKER: Open native OS dialog, read file as prompt ---
                               case "file-pick":
                                           {
-                                      var pickResult = await EPowerShellAgent.FilePickerPromptAsync();
+                                      var pickResult = await EShellAgent.FilePickerPromptAsync();
                                       if (pickResult == null)
                                                  {
                                     EColor.Tag(Error(), "Pick", "No file selected or cancelled.");

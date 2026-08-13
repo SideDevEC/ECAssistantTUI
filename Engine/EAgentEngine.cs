@@ -794,7 +794,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
 
         var truncated = text.Substring(0, limit);
         truncated += $"\n\n[OUTPUT STORED: {text.Length} total chars. Full output saved as {storeKey}.]";
-        truncated += $"\nTo see more, use: EPowerShellAgent command=Get-Content tool_outputs/{storeKey}.txt -TotalCount N | Select-Object -Skip M";
+        truncated += $"\nTo see more, use: EShellAgent command=Get-Content tool_outputs/{storeKey}.txt -TotalCount N | Select-Object -Skip M";
         truncated += $"\nOr read a specific part: Get-Content tool_outputs/{storeKey}.txt | Select-Object -Skip {limit/80} -First 50";
         return truncated;
     }

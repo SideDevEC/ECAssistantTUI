@@ -68,7 +68,7 @@ public class ToolPolicy
         _permissions["EFileAnalyzer"] = new ToolPermission { ToolName = "EFileAnalyzer", Level = ToolPermissionLevel.Allowed, Reason = "Read-only analysis" };
 
         // PowerShell — primary tool, allowed (needs command access to be useful)
-        _permissions["EPowerShellAgent"] = new ToolPermission { ToolName = "EPowerShellAgent", Level = ToolPermissionLevel.Allowed, Reason = "Primary tool — command execution" };
+        _permissions["EShellAgent"] = new ToolPermission { ToolName = "EShellAgent", Level = ToolPermissionLevel.Allowed, Reason = "Primary tool — command execution" };
     }
 
     /// <summary>Set permission for a specific tool.</summary>

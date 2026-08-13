@@ -8,13 +8,13 @@ using ECAssistant;
 using ECAssistant.UI;
 using ECAssistant.Services;
 
-namespace ECAssistant.Tools.PowerShell;
+namespace ECAssistant.Tools.Shell;
 
 /// <summary>
-/// PowerShell Agent Tool — the primary tool for all file and system operations.
+/// Shell Agent Tool — the primary tool for all file and system operations.
 /// Gives the LLM full control over filesystem, commands, code execution.
 /// 
-/// Every LLM knows PowerShell, so this one tool handles:
+/// Every LLM knows shell commands, so this one tool handles:
 /// - Read files: Get-Content
 /// - Write files: Set-Content, Out-File
 /// - Copy files: Copy-Item
@@ -26,37 +26,37 @@ namespace ECAssistant.Tools.PowerShell;
 /// - Compile code: dotnet build
 /// - Run scripts: any PowerShell command
 /// </summary>
-public class EPowerShellAgent : EToolBase
+public class EShellAgent : EToolBase
 {
     private readonly string _workingDirectory;
 
-    public EPowerShellAgent(string workingDirectory)
+    public EShellAgent(string workingDirectory)
     {
         _workingDirectory = Path.GetFullPath(workingDirectory);
     }
 
-    public override string Name => "EPowerShellAgent";
+    public override string Name => "EShellAgent";
 
     public override string Description =>
-        "Full filesystem and PowerShell command execution. " +
-        "Can read/write/copy/move/delete files and folders, run any PowerShell command, " +
+        "Full filesystem and shell command execution. " +
+        "Can read/write/copy/move/delete files and folders, run any shell command, " +
         "compile code, search files, manage projects. " +
         "Working directory is set automatically — use relative paths.";
 
     public override string UsageExample =>
-        "EPowerShellAgent(command=\"Get-Content Program.cs\")";
+        "EShellAgent(command=\"Get-Content Program.cs\")";
 
     public override string GetToolRules() =>
-        "RULE: Put the ENTIRE PowerShell command in one <command> tag. No other tags allowed.\n" +
+        "RULE: Put the ENTIRE shell command in one <command> tag. No other tags allowed.\n" +
         "Use relative paths — the working directory is already set.\n" +
         "You can chain commands with semicolons: Get-ChildItem; Write-Host 'done'";
 
     public override string GetToolExample() =>
-        "<toolcall>EPowerShellAgent<command>Get-Content Program.cs</command></toolcall>\n" +
-        "<toolcall>EPowerShellAgent<command>Copy-Item Program.cs Program_backup.cs</command></toolcall>\n" +
-        "<toolcall>EPowerShellAgent<command>Get-ChildItem -Filter *.cs</command></toolcall>\n" +
-        "<toolcall>EPowerShellAgent<command>Select-String -Pattern \"TODO\" -Path *.cs</command></toolcall>\n" +
-        "<toolcall>EPowerShellAgent<command>Set-Content -Path notes.txt -Value 'Hello World'</command></toolcall>";
+        "<toolcall>EShellAgent<command>Get-Content Program.cs</command></toolcall>\n" +
+        "<toolcall>EShellAgent<command>Copy-Item Program.cs Program_backup.cs</command></toolcall>\n" +
+        "<toolcall>EShellAgent<command>Get-ChildItem -Filter *.cs</command></toolcall>\n" +
+        "<toolcall>EShellAgent<command>Select-String -Pattern \"TODO\" -Path *.cs</command></toolcall>\n" +
+        "<toolcall>EShellAgent<command>Set-Content -Path notes.txt -Value 'Hello World'</command></toolcall>";
 
     public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments, CancellationToken cancellationToken = default)
     {
@@ -68,7 +68,7 @@ public class EPowerShellAgent : EToolBase
 
         try
         {
-            var result = await RunPowerShellAsync(psCommand!, _workingDirectory, cancellationToken);
+            var result = await RunShellAsync(psCommand!, _workingDirectory, cancellationToken);
 
             var metadata = new Dictionary<string, string>
             {
@@ -86,8 +86,8 @@ public class EPowerShellAgent : EToolBase
                 // True success — no errors
                 var safeOutput = EscapeXml(result.StandardOutput);
                 var output = string.IsNullOrEmpty(result.StandardOutput)
-                    ? $"[PS Success] Command completed (no output)."
-                    : $"[PS Success]\n{safeOutput}";
+                    ? $"[Shell Success] Command completed (no output)."
+                    : $"[Shell Success]\n{safeOutput}";
 
                 if (!string.IsNullOrEmpty(description))
                     output += $"\nDescription: {description}";
@@ -100,11 +100,11 @@ public class EPowerShellAgent : EToolBase
                 // Report as success but include the error text so the LLM can self-correct.
                 var safeOutput = EscapeXml(result.StandardOutput);
                 var safeErr = EscapeXml(result.StandardError);
-                Logger.Warn("PowerShell", $"Command had stderr output (exit=0): {result.StandardError.Substring(0, Math.Min(result.StandardError.Length, 200))}");
+                Logger.Warn("Shell", $"Command had stderr output (exit=0): {result.StandardError.Substring(0, Math.Min(result.StandardError.Length, 200))}");
                 
                 var output = string.IsNullOrEmpty(result.StandardOutput)
-                    ? $"[PS Warning] Command completed but produced error output:\nSTDERR: {safeErr}"
-                    : $"[PS Warning]\n{safeOutput}\n\nSTDERR: {safeErr}";
+                    ? $"[Shell Warning] Command completed but produced error output:\nSTDERR: {safeErr}"
+                    : $"[Shell Warning]\n{safeOutput}\n\nSTDERR: {safeErr}";
 
                 if (!string.IsNullOrEmpty(description))
                     output += $"\nDescription: {description}";
@@ -115,9 +115,9 @@ public class EPowerShellAgent : EToolBase
             {
                 var safeErr = EscapeXml(result.StandardError);
                 var safeCmd = EscapeXml(psCommand!);
-                Logger.Error("PowerShell", $"Command failed (exit={result.ExitCode}): {psCommand?.Substring(0, Math.Min(psCommand.Length, 100))}");
+                Logger.Error("Shell", $"Command failed (exit={result.ExitCode}): {psCommand?.Substring(0, Math.Min(psCommand.Length, 100))}");
                 return EToolResult.Failure(Name,
-                    $"[PS Error (Exit {result.ExitCode})]\nSTDERR: {safeErr}\nCommand: {safeCmd}",
+                    $"[Shell Error (Exit {result.ExitCode})]\nSTDERR: {safeErr}\nCommand: {safeCmd}",
                     metadata);
             }
         }
@@ -128,10 +128,10 @@ public class EPowerShellAgent : EToolBase
     }
 
     /// <summary>
-    /// Run a PowerShell command with proper working directory.
-    /// Uses a temp script file to avoid quoting issues with cmd.exe.
+    /// Run a shell command with proper working directory.
+    /// Uses a temp script file to avoid quoting issues.
     /// </summary>
-    private static async Task<PSProcessResult> RunPowerShellAsync(string command, string workingDir, CancellationToken cancellationToken = default)
+    private static async Task<ShellProcessResult> RunShellAsync(string command, string workingDir, CancellationToken cancellationToken = default)
     {
         // Write command to a temp .ps1 file to avoid all quoting issues
         // v10.11.2: Prepend $ErrorActionPreference = "Stop" so non-terminating errors
@@ -173,13 +173,13 @@ public class EPowerShellAgent : EToolBase
             {
                 try { proc.Kill(entireProcessTree: true); } catch { }
                 if (cancellationToken.IsCancellationRequested)
-                    return new PSProcessResult("", "[CANCELLED] Command was cancelled by user.", -1);
-                return new PSProcessResult("", "[TIMEOUT] Command exceeded 60 second limit and was killed.", -1);
+                    return new ShellProcessResult("", "[CANCELLED] Command was cancelled by user.", -1);
+                return new ShellProcessResult("", "[TIMEOUT] Command exceeded 60 second limit and was killed.", -1);
             }
             var stdout = await proc.StandardOutput.ReadToEndAsync();
             var stderr = await proc.StandardError.ReadToEndAsync();
 
-            return new PSProcessResult(stdout, stderr, proc.ExitCode);
+            return new ShellProcessResult(stdout, stderr, proc.ExitCode);
         }
         finally
         {
@@ -216,4 +216,4 @@ public class EPowerShellAgent : EToolBase
 }
 
 /// <summary>Lightweight result structure from PowerShell execution.</summary>
-internal record PSProcessResult(string StandardOutput, string StandardError, int ExitCode);
+internal record ShellProcessResult(string StandardOutput, string StandardError, int ExitCode);

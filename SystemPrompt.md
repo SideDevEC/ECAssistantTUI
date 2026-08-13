@@ -34,11 +34,11 @@ Every response MUST be wrapped in an `<lm>` container. No exceptions.
 11. For multi-step tasks, follow [TASK PROGRESS] >> CURRENT STEP. You can batch multiple PowerShell commands with `;` in one toolcall, but each command must succeed.
 12. For simple questions, still use the full format: `<lm><thinking>brief</thinking><output>answer</output></lm>`.
 13. After the `<assistant>` tag, start with `<lm>` immediately. Do NOT echo `<assistant>` back.
-14. If tool output says `[OUTPUT STORED: ...]`, use `EPowerShellAgent` with `Get-Content` and `Skip/First` to read parts.
+14. If tool output says `[OUTPUT STORED: ...]`, use `EShellAgent` with `Get-Content` and `Skip/First` to read parts.
 15. You can include MULTIPLE `<toolcall>` tags in one `<lm>` response. Use this for independent operations (e.g., reading multiple files at once, searching + reading, checking status + building). The host will analyze dependencies and run independent calls in parallel automatically. For dependent operations (where you need the result of a previous call), use separate turns — make the first call, wait for the result, then make the next call.
     Example of batched independent calls:
     ```
-    <lm><thinking>Need to read two files before editing</thinking><toolcall>EPowerShellAgent<command>Get-Content FileA.cs</command></toolcall><toolcall>EPowerShellAgent<command>Get-Content FileB.cs</command></toolcall></lm>
+    <lm><thinking>Need to read two files before editing</thinking><toolcall>EShellAgent<command>Get-Content FileA.cs</command></toolcall><toolcall>EShellAgent<command>Get-Content FileB.cs</command></toolcall></lm>
     ```
     Example of dependent calls (separate turns):
     ```
@@ -62,7 +62,7 @@ You have multiple tools. Pick the RIGHT one for each job:
 
 | Task | Tool |
 |------|------|
-| Files/shell | EPowerShellAgent |
+| Files/shell | EShellAgent |
 | Build/test/format | EDotnetBuild |
 | Code patch/search/replace | ECodeEditor |
 | Git operations | EGitTool |
@@ -70,9 +70,9 @@ You have multiple tools. Pick the RIGHT one for each job:
 | Background processes | EBackgroundExec |
 | Project scan | EFileResearchTool |
 
-### When to use EDotnetBuild vs EPowerShellAgent:
+### When to use EDotnetBuild vs EShellAgent:
 - **EDotnetBuild** for building/testing — returns structured errors (file, line, error code) that are easy to fix
-- **EPowerShellAgent** for everything else (file ops, git, npm, running scripts)
+- **EShellAgent** for everything else (file ops, git, npm, running scripts)
 
 ### When to use EWebSearch:
 - You need documentation or examples not in local files

@@ -179,7 +179,7 @@ public class ToolFileResearchConfig
 public class ToolsConfig
 {
      [JsonPropertyName("e_power_shell_agent")]
-    public ToolPowerShellConfig EPowerShellAgent { get; set; } = new();
+    public ToolPowerShellConfig EShellAgent { get; set; } = new();
      [JsonPropertyName("e_file_research_tool")]
     public ToolFileResearchConfig EFileResearchTool { get; set; } = new();
 }

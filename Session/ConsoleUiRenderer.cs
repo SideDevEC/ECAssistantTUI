@@ -49,6 +49,7 @@ public class ConsoleUiRenderer : IUiRenderer
             case "raw_token":
                 // Raw token from streaming — write inline, no newline
                 Console.Write(entry.Text);
+                Console.Out.Flush(); // v10.21: Flush after each token for real-time streaming
                 break;
 
             case "stream":

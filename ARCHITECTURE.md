@@ -1,6 +1,6 @@
-# ECAssistant Architecture (v10.20 — 2026-08-13)
+# ECAssistant Architecture (v10.21 — 2026-08-13)
 
-**Summary:** A local, offline AI agent in C# .NET 8 using LLamaSharp. Runs GGUF models locally with no external API calls. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags (`<thinking>`, `<toolcall>`, `<output>`). 8 registered tools self-register their rules at runtime. Multi-step autonomous loops with dual memory (keyword + TF-IDF vector), sliding context windows with LLM summarization, self-correction with failure loop detection and file rollback, project context awareness with dependency graph, two-phase task planning (decompose → map → execute), surgical code editing, background process management, file watching, structured logging, and sub-agent system with shared model weights. Token-optimized for 8B models. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.16: Cross-platform (Windows + macOS). v10.17: StepMapper (two-phase planning), automated test framework. v10.18: Sub-agent system. v10.19.2: All artifacts in working directory. v10.20: Fully isolated multi-session architecture — each session has own engine, KV cache, tools, memory, output buffer, and prompt queue. Sessions share one model in RAM with serialized inference. File-based JSONL output buffer with output states (not colors). Session is the UI gateway — all components route output through ISessionOutput. No inter-session communication (tool-level concern for later).
+**Summary:** A local, offline AI agent in C# .NET 8 using LLamaSharp. Runs GGUF models locally with no external API calls. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags (`<thinking>`, `<toolcall>`, `<output>`). 8 registered tools self-register their rules at runtime. Multi-step autonomous loops with dual memory (keyword + TF-IDF vector), sliding context windows with LLM summarization, self-correction with failure loop detection and file rollback, project context awareness with dependency graph, two-phase task planning (decompose → map → execute), surgical code editing, background process management, file watching, structured logging, and sub-agent system with shared model weights. Token-optimized for 8B models. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.16: Cross-platform (Windows + macOS). v10.17: StepMapper (two-phase planning), automated test framework. v10.18: Sub-agent system. v10.19.2: All artifacts in working directory. v10.20: Fully isolated multi-session architecture — each session has own engine, KV cache, tools, memory, output buffer, and prompt queue. Sessions share one model in RAM with serialized inference. File-based JSONL output buffer with output states (not colors). Session is the UI gateway — all components route output through ISessionOutput. No inter-session communication (tool-level concern for later). v10.21: Shared model weights (one GGUF load via `LLamaWeights` shared across sessions, each gets own `LLamaContext`/KV cache). Terminal.Gui TUI replaces raw console — scrollable output view + always-free input field + status bar. Session discovery from disk with animated loading indicator. Native llama.cpp C++ log redirect to file (clean console).
 
 ## Key Facts
 - **Language:** C# .NET 8 console app (`net8.0`, cross-platform, Nullable enabled)
@@ -17,6 +17,7 @@
 - **Working Directory:** `~/ECAssistant/` (ALL disk writes — logs, tests, temp scripts, sub-agent dirs, background agent dirs — v10.19.2)
 - **Context:** 16384 tokens, max_tokens 2048, auto-summarize at 50%
 - **Repo:** `github.com/LLamaDudeX/ECAssistant.git` (branch: `main`)
+- **UI:** Terminal.Gui v1.9.0 (MIT) — scrollable output view + always-free input field + status bar (v10.21)
 
 ## 📦 `<lm>` Container Tag System (v10.15.2)
 
@@ -97,14 +98,14 @@ Now: everything inside `~/ECAssistant/`:
 - Background agent working dirs → `~/ECAssistant/.bgagents/`
 `BackgroundProcessManager` also made OS-aware (was Windows-only `powershell.exe`, now uses `/bin/zsh` on Mac).
 
-## Session Architecture (v10.20)
+## Session Architecture (v10.20 + v10.21)
 
-**Fully isolated multi-session system.** Each session is an independent agent with its own engine, context, tools, memory, and output buffer. Sessions share one model in RAM but are otherwise completely independent.
+**Fully isolated multi-session system with shared model weights.** Each session is an independent agent with its own engine, context, tools, memory, and output buffer. Sessions share one `LLamaWeights` instance in RAM (one GGUF load) but each gets its own `LLamaContext` (own KV cache).
 
 **Key design principles:**
 1. **Session = fully independent agent** — own EAgentEngine (own KV cache), own orchestrator, own tools, own memory
 2. **No inter-session communication** — sessions don't know about each other. If needed, it's a tool-level concern (future `ESessionMessage` tool)
-3. **Shared model weights, separate KV caches** — one GGUF in RAM, each session has own EAgentEngine with own KV cache. Inference serialized via `SemaphoreSlim(1,1)`
+3. **Shared model weights, separate KV caches** — one `LLamaWeights` loaded ONCE by `SessionManager`, each session gets own `EAgentEngine` with own `LLamaContext` (KV cache). `_sharesWeights` flag prevents disposing shared weights. Inference serialized via `SemaphoreSlim(1,1)`
 4. **Session is the UI gateway** — all components (orchestrator, engine, tools) get `ISessionOutput` reference and call `session.Write/WriteLine/WriteRaw` for output
 5. **Output states, not colors** — session emits semantic states (Info/Success/Warning/Error/Dim/Bold/Raw/System). UI maps states to colors
 6. **File-based output buffer** — JSONL file per session (`~/.sessions/<key>/ui_output.jsonl`), append-only, persistent, scrollable
@@ -144,23 +145,27 @@ Now: everything inside `~/ECAssistant/`:
 ```
 Program.cs (entry point, CLI loop, startup, tool registration)
     │
-    ├── Startup Flow:
+    ├── Startup Flow (v10.21):
     │   1. Create ~/ECAssistant/ if missing
     │   2. Copy appsettings.json from build dir if missing (first run only)
     │   3. Load config from ~/ECAssistant/appsettings.json
-    │   4. Resolve model path (absolute path from config)
-    │   5. Load OS-specific system prompt (Windows/Mac/fallback)
-    │   6. Create EAgentEngine (model, 16384 context, 15 GPU layers, working dir)
-    │   7. Load secondary model (Phi-4-mini, configurable sampling params + anti-prompts)
-    │   8. WireSummaryService, InitializeVectorMemory, SelfCorrection, ProjectContext
-    │   9. InitializeTaskPlanner (task decomposition)
-    │   10. Register 7 tools (self-inject rules into system prompt, OS-aware)
-    │   11. Start RunAgentLoop
+    │   4. Init Terminal.Gui TUI (EGuiTerminal — TextView + TextField + StatusBar)
+    │   5. Resolve model path (absolute path from config)
+    │   6. Create SessionManager (loads LLamaWeights ONCE, redirects native logs to file)
+    │   7. Discover sessions from .sessions/ dir (SessionDiscovery)
+    │   8. Animated loading (. .. ...) while initializing each session:
+    │      ├── Attach TerminalGuiRenderer to session
+    │      ├── Init vector memory, project context
+    │      ├── Register 7 tools + ESubAgent
+    │      └── Load secondary model (Phi-4-mini)
+    │   9. [Ready] message, input field focused, user can type
+    │   10. On input Enter → ProcessInputAsync (command or session.Prompt)
     │
-    ├── CLI Loop (RunAgentLoop):
-    │   ├── Read user input (> prompt)
-    │   ├── Parse command (help, tools, memory, sessions, bg, watch, etc.)
-    │   └── If not a command → AgentOrchestrator.ExecuteMultiStep(input)
+    ├── Input Flow (v10.21 — Terminal.Gui event loop):
+    │   ├── TextField.KeyPress(Enter) → OnInputSubmitted callback
+    │   ├── ProcessInputAsync: parse command or route to session.Prompt
+    │   ├── session.Prompt → background Task runner → token stream to output view
+    │   └── Application.Run() event loop (never blocks, never deadlocks)
     │
     └── AgentOrchestrator.ExecuteMultiStep(goal)
         │
@@ -170,7 +175,7 @@ Program.cs (entry point, CLI loop, startup, tool registration)
         │   │   ├── BuildIncrementalInput (turn 1: user msg + directive + cue)
         │   │   │                       (turn 2+: tool output + directive + cue)
         │   │   ├── Inference: LLamaSharp InteractiveExecutor
-        │   │   │   ├── Token streaming to console (dim color, real-time)
+        │   │   │   ├── Token streaming to output view via MainLoop.Invoke (real-time)
         │   │   │   ├── Manual stop tag check: only </lm>
         │   │   │   ├── ESC key detection → bail out
         │   │   │   └── 90s timeout, 2048 max tokens
@@ -383,12 +388,17 @@ All components (orchestrator, engine, tools) receive an `ISessionOutput` referen
 18. **Background agents removed (v10.19.3)** — replaced by session architecture design (see SESSIONS_DESIGN.md)
 19. **StepMapper file creation guidance (v10.19.4)** — prefer ECodeEditor for file creation (cross-platform safe), validate method-call syntax in shell commands
 20. **Independent subagent config (v10.19.5)** — sub-agents have their own config section with enabled flag, context_size, gpu_layers, threads, and all operational parameters
+21. **Shared LLamaWeights (v10.21)** — SessionManager loads GGUF once, passes shared weights to each session's EAgentEngine. Each engine creates own LLamaContext (KV cache) from shared weights. `_sharesWeights` flag prevents disposing shared weights in `DisposeAsync`
+22. **Terminal.Gui TUI (v10.21)** — replaces raw Console.Write/ReadLine with Terminal.Gui event loop. Scrollable output view (TextView) + always-free input field (TextField) + status bar. Thread-safe output via `Application.MainLoop.Invoke`. No console sync deadlocks
+23. **Session discovery from disk (v10.21)** — SessionDiscovery scans `.sessions/` dir, finds most recently modified session, auto-activates. Animated loading indicator (500ms dots) during init. Legacy transcript.json migrated to `.sessions/main/`
+24. **Native log redirect (v10.21)** — `NativeLogConfig.llama_log_set` redirects all C++ llama.cpp output (load_tensors, repack, ggml_metal) to log file, keeping console clean. LLAMA-tagged Logger entries skip console output
 
 ## 🔖 Known-Good Builds (Git Tags)
 
 | Tag | Version | Description |
 |-----|---------|-------------|
-| `v10.19.5-safe` | v10.19.5 | Independent subagent config section with enabled flag ← CURRENT |
+| _(uncommitted)_ | v10.21 | Shared weights, Terminal.Gui TUI, session discovery, native log redirect ← CURRENT |
+| `v10.19.5-safe` | v10.19.5 | Independent subagent config section with enabled flag |
 | `v10.19.4-safe` | v10.19.4 | StepMapper file creation guidance, sub-agent config inheritance fix |
 | `v10.19.3-safe` | v10.19.3 | Removed background agents, kept sub-agents, session design |
 | `v10.19.2-safe` | v10.19.2 | All artifacts in working dir, BackgroundProcessManager OS-aware |
@@ -405,4 +415,4 @@ git checkout pre-mac        # Pre-migration (Windows-only)
 git checkout v10.12.20-working  # Pre-<lm> audit baseline
 ```
 
-**Status:** v10.19.5 — Independent subagent config section with enabled flag. 8 tools, sub-agents configurable and disableable, 28/28 tests passing. All artifacts in working directory. Cross-platform (Windows + macOS). Ready for session architecture implementation (v10.20, see SESSIONS_DESIGN.md).
+**Status:** v10.21 — Shared model weights (one GGUF load in RAM), Terminal.Gui TUI with scrollable output + always-free input field, session discovery from disk with animated loading, native llama.cpp log redirect to file (clean console). Build: 0 errors. Core commands (quit, help, tools, stop, clear-history, save-context, free-text prompts) functional. Less common commands trimmed (can be re-added). Token streaming real-time via MainLoop.Invoke. Cross-platform (Windows + macOS).

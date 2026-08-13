@@ -20,6 +20,7 @@
               <!-- All platforms: Vulkan (Metal/MoltenVK on Mac, Vulkan drivers on Windows/Linux) -->
               <PackageReference Include="LLamaSharp.Backend.Vulkan" Version="0.27.0" />
               <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.5" />
+              <PackageReference Include="Terminal.Gui" Version="1.9.0" />
           </ItemGroup>
 
           <ItemGroup>

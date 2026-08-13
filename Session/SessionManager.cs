@@ -1,7 +1,10 @@
 using System.Text.Json;
 using ECAssistant.Config;
 using ECAssistant.Engine;
+using ECAssistant.Services;
+using LLama;
 using LLama.Common;
+using LLama.Native;
 using LLama.Sampling;
 
 namespace ECAssistant.Session;
@@ -10,11 +13,10 @@ namespace ECAssistant.Session;
 /// Session Manager — creates, tracks, and manages all sessions.
 ///
 /// All sessions share the same loaded model weights (one GGUF in RAM).
-/// Each session has its own EAgentEngine with its own KV cache.
+/// Each session has its own EAgentEngine with its own KV cache (LLamaContext).
 /// Inference is serialized via a shared SemaphoreSlim — only one GenerateAsync runs at a time.
 ///
-/// The SessionManager creates sessions, lists them, switches between them,
-/// and handles global stop/cleanup.
+/// v10.21: Supports discovering existing sessions on disk and loading them on startup.
 /// </summary>
 public class SessionManager : IAsyncDisposable
 {
@@ -26,19 +28,31 @@ public class SessionManager : IAsyncDisposable
     private readonly SubAgentConfig _subAgentConfig;
     private readonly SemaphoreSlim _inferenceLock = new(1, 1);
 
+    /// <summary>Shared model weights — loaded ONCE, shared across all sessions.</summary>
+    private readonly LLamaWeights _sharedWeights;
+
     /// <summary>The currently active session (the one the UI is viewing).</summary>
     public AgentSession? ActiveSession { get; private set; }
 
     /// <summary>The main session (always exists, always key "main").</summary>
-    public AgentSession Main { get; }
+    public AgentSession Main { get; private set; } = null!;
 
     /// <summary>Config for creating new sessions.</summary>
     private readonly EAgentConfig _config;
 
     private int _sessionCounter = 0;
 
+    // ── Callbacks for startup loading (v10.21) ──
+
+    /// <summary>Called when a session is being loaded (for UI feedback). Receives session key.</summary>
+    public Action<string>? OnSessionLoading { get; set; }
+
+    /// <summary>Called when a session has finished loading. Receives session key.</summary>
+    public Action<string>? OnSessionLoaded { get; set; }
+
     /// <summary>
-    /// Create session manager. Loads model weights once, creates the main session.
+    /// Create session manager. Loads model weights ONCE (does NOT create sessions yet).
+    /// Call LoadSessionsFromDiskAsync() or CreateSession() afterwards.
     /// </summary>
     public SessionManager(EAgentConfig config, string resolvedModelPath, string workingDir)
     {
@@ -51,6 +65,7 @@ public class SessionManager : IAsyncDisposable
         {
             GpuLayerCount = Math.Clamp(config.Llm.GpuLayers, 0, 100),
             ContextSize = config.Llm.ContextSize,
+            Threads = config.Llm.Threads == -1 ? null : config.Llm.Threads,
         };
 
         _inferenceParams = new InferenceParams
@@ -69,9 +84,25 @@ public class SessionManager : IAsyncDisposable
             }
         };
 
-        // Create main session
-        Main = CreateSession("main", label: "Main Session");
-        ActiveSession = Main;
+        // v10.21: Redirect native llama.cpp C++ logging through callback — keeps console clean.
+        // All load_tensors:, repack:, ggml_metal_, llama_context: etc go to file, not stderr/stdout.
+        try
+        {
+            LLama.Native.NativeLogConfig.llama_log_set(delegate (LLamaLogLevel level, string message)
+            {
+                if (level == LLamaLogLevel.Error)
+                    Logger.Error("LLAMA", message);
+                else if (level == LLamaLogLevel.Warning)
+                    Logger.Warn("LLAMA", message);
+                // Info/Debug → file only via Logger, never console
+                else
+                    Logger.Info("LLAMA", message);
+            });
+        }
+        catch { /* native lib may not be loaded yet — ignore */ }
+
+        // Load model weights ONCE — shared across all sessions
+        _sharedWeights = LLamaWeights.LoadFromFile(_modelParams);
     }
 
     /// <summary>Get a session by key.</summary>
@@ -85,8 +116,91 @@ public class SessionManager : IAsyncDisposable
     /// <summary>Number of sessions.</summary>
     public int Count => _sessions.Count;
 
+    /// <summary>Shared model weights (for sub-agent managers etc.).</summary>
+    public LLamaWeights SharedWeights => _sharedWeights;
+
+    /// <summary>Shared model params.</summary>
+    public ModelParams SharedModelParams => _modelParams;
+
+    /// <summary>Shared inference params.</summary>
+    public InferenceParams InferenceParams => _inferenceParams;
+
+    /// <summary>Shared inference lock.</summary>
+    public SemaphoreSlim InferenceLock => _inferenceLock;
+
+    /// <summary>Working directory.</summary>
+    public string WorkingDir => _workingDir;
+
+    /// <summary>Sub-agent config.</summary>
+    public SubAgentConfig SubAgentConfig => _subAgentConfig;
+
+    /// <summary>Agent config.</summary>
+    public EAgentConfig Config => _config;
+
+    // ── Session lifecycle ──────────────────────────────
+
+    /// <summary>
+    /// Discover existing sessions on disk and load them.
+    /// The most recently modified session becomes active.
+    /// If no sessions exist, creates a "main" session.
+    /// Returns the key of the session that was set as active.
+    /// </summary>
+    public async Task<string> LoadSessionsFromDiskAsync(
+        Func<AgentSession, Task> initSessionAsync)
+    {
+        // Migrate legacy transcript if needed
+        SessionDiscovery.MigrateLegacyTranscript(_workingDir);
+        SessionDiscovery.EnsureSessionsDir(_workingDir);
+
+        // Discover existing sessions
+        var discovered = SessionDiscovery.DiscoverSessions(_workingDir);
+        string activeKey;
+
+        if (discovered.Count == 0)
+        {
+            // No sessions on disk — create main
+            activeKey = "main";
+            OnSessionLoading?.Invoke(activeKey);
+            Main = CreateSession(activeKey, label: "Main Session");
+            await initSessionAsync(Main);
+            OnSessionLoaded?.Invoke(activeKey);
+        }
+        else
+        {
+            activeKey = discovered[0]; // most recently modified
+
+            // Load all discovered sessions
+            foreach (var key in discovered)
+            {
+                OnSessionLoading?.Invoke(key);
+                var session = CreateSession(key, label: key == "main" ? "Main Session" : key);
+
+                if (key == "main")
+                    Main = session;
+
+                await initSessionAsync(session);
+                OnSessionLoaded?.Invoke(key);
+            }
+
+            // Ensure main always exists
+            if (Main == null)
+            {
+                Main = CreateSession("main", label: "Main Session");
+                await initSessionAsync(Main);
+            }
+        }
+
+        // Set active session
+        var activeSession = Get(activeKey) ?? Main;
+        ActiveSession = activeSession;
+        SessionDiscovery.TouchSessionMeta(_workingDir, activeKey);
+
+        return activeKey;
+    }
+
     /// <summary>
     /// Create a new session with the given key.
+    /// The session uses shared model weights but gets its own LLamaContext (own KV cache).
     /// </summary>
     public AgentSession CreateSession(string key, string? label = null)
     {
@@ -96,7 +210,8 @@ public class SessionManager : IAsyncDisposable
         var session = new AgentSession(
             key: key,
             modelPath: _modelPath,
-            modelParams: _modelParams,
+            sharedWeights: _sharedWeights,
+            sharedModelParams: _modelParams,
             inferenceParams: _inferenceParams,
             workingDir: _workingDir,
             inferenceLock: _inferenceLock,
@@ -120,6 +235,7 @@ public class SessionManager : IAsyncDisposable
     {
         if (!_sessions.TryGetValue(key, out var session)) return false;
         ActiveSession = session;
+        SessionDiscovery.TouchSessionMeta(_workingDir, key);
         return true;
     }
 
@@ -129,6 +245,7 @@ public class SessionManager : IAsyncDisposable
         var list = _sessions.Values.ToList();
         if (index < 1 || index > list.Count) return false;
         ActiveSession = list[index - 1];
+        SessionDiscovery.TouchSessionMeta(_workingDir, ActiveSession.Key);
         return true;
     }
 
@@ -203,5 +320,7 @@ public class SessionManager : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await StopAllAsync();
+        // Dispose shared weights after all sessions are gone
+        try { _sharedWeights.Dispose(); } catch { }
     }
 }

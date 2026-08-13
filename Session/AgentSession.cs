@@ -6,6 +6,7 @@ using ECAssistant.Memory;
 using ECAssistant.Orchestration;
 using ECAssistant.Services;
 using ECAssistant.Tools;
+using LLama;
 using LLama.Common;
 using LLama.Sampling;
 
@@ -15,7 +16,7 @@ namespace ECAssistant.Session;
 /// A fully isolated agent session.
 ///
 /// Each session has:
-/// - Its own EAgentEngine (own KV cache, own context window, own transcript)
+/// - Its own EAgentEngine (own KV cache via own LLamaContext, shares model weights)
 /// - Its own orchestrator
 /// - Its own tools (registered independently)
 /// - Its own memory
@@ -83,11 +84,12 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
     private readonly ToolPolicy _toolPolicy;
 
     /// <summary>
-    /// Create a new fully isolated session.
+    /// Create a new fully isolated session with shared model weights.
     /// </summary>
     /// <param name="key">Unique session key (e.g. "main", "watcher")</param>
-    /// <param name="modelPath">Path to GGUF model file</param>
-    /// <param name="modelParams">Model params (context size, GPU layers, etc.)</param>
+    /// <param name="modelPath">Path to GGUF model file (for logging/metadata)</param>
+    /// <param name="sharedWeights">Pre-loaded shared model weights (one GGUF in RAM)</param>
+    /// <param name="sharedModelParams">Model params used to load the shared weights</param>
     /// <param name="inferenceParams">Inference params (max tokens, temperature, etc.)</param>
     /// <param name="workingDir">Working directory for this session</param>
     /// <param name="inferenceLock">Shared semaphore for serializing inference across sessions</param>
@@ -96,7 +98,8 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
     public AgentSession(
         string key,
         string modelPath,
-        ModelParams modelParams,
+        LLamaWeights sharedWeights,
+        ModelParams sharedModelParams,
         InferenceParams inferenceParams,
         string workingDir,
         SemaphoreSlim inferenceLock,
@@ -113,20 +116,25 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
         // Create session directory
         _sessionDir = Path.Combine(workingDir, ".sessions", key);
         Directory.CreateDirectory(_sessionDir);
-        Directory.CreateDirectory(Path.Combine(workingDir, ".sessions", key));
 
         // Open output file (append mode, UTF-8, auto-flush)
         _outputFilePath = Path.Combine(_sessionDir, "ui_output.jsonl");
         _outputFile = new StreamWriter(_outputFilePath, append: true, Encoding.UTF8) { AutoFlush = true };
 
-        // Create own engine instance (own KV cache, shares model weights via separate load)
-        // Note: LLamaSharp loads model weights once per LLamaWeights.LoadFromFile.
-        // For true shared weights, the caller should pass a shared LLamaWeights instance.
-        // For now, each session creates its own engine (loads weights separately).
-        // Future optimization: share weights, separate contexts.
-        _engine = new EAgentEngine(modelPath, modelParams.ContextSize ?? 16384, modelParams.GpuLayerCount,
-            modelParams.Threads == -1 ? Environment.ProcessorCount : (int)modelParams.Threads,
-            inferenceParams, workingDir);
+        // Create engine with SHARED weights — gets own LLamaContext (own KV cache)
+        var ctxSize = sharedModelParams.ContextSize ?? 16384;
+        var gpuLayers = sharedModelParams.GpuLayerCount;
+        var threads = (sharedModelParams.Threads ?? -1) == -1 ? Environment.ProcessorCount : (int)sharedModelParams.Threads!;
+
+        _engine = new EAgentEngine(
+            modelPath: modelPath,
+            contextSize: ctxSize,
+            gpuLayers: gpuLayers,
+            threadCount: threads,
+            inferenceParams: inferenceParams,
+            workingDir: workingDir,
+            sharedWeights: sharedWeights,
+            sharedModelParams: sharedModelParams);
 
         _engine.LoadContext();
         _engine.WireSummaryService();
@@ -136,12 +144,6 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
 
         // Wire engine output through this session
         _engine.SessionOutput = this;
-
-        // Initialize sub-agents if enabled
-        if (_subAgentConfig.Enabled)
-        {
-            // Note: InitializeSubAgentsAsync will be called after tools are registered
-        }
 
         // Initialize self-correction, project context, task planner
         _engine.InitializeSelfCorrection(workingDir);

@@ -35,6 +35,7 @@ public sealed class EAgentEngine : IAsyncDisposable
     private LLamaWeights? _weights;
     private LLamaContext? _context;
     private ModelParams? _modelParams;
+    private bool _sharesWeights = false; // v10.20: if true, don't dispose _weights in DisposeAsync
     // v10.5: Switched to InteractiveExecutor for KV cache reuse.
     // Static prefix (system prompt + tools) is prefilled once at session start.
     // Only new tokens (user msg, tool output, directives) are fed per turn.
@@ -293,18 +294,39 @@ public sealed class EAgentEngine : IAsyncDisposable
        /// <summary>Create engine with context window support and auto-injected memory.</summary>
      private string _workingDir = "";
 
+/// <summary>Original constructor — loads GGUF from disk. Use this for standalone engines.</summary>
 public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threadCount, InferenceParams inferenceParams, string workingDir = "")
+          : this(modelPath, contextSize, gpuLayers, threadCount, inferenceParams, workingDir, sharedWeights: null, sharedModelParams: null)
+    {
+    }
+
+    /// <summary>
+    /// Shared-weights constructor — uses an already-loaded LLamaWeights instance.
+    /// Creates its own LLamaContext (own KV cache) from the shared weights.
+    /// This is the v10.20 session path: one GGUF in RAM, separate KV caches per session.
+    /// </summary>
+    /// <param name="modelPath">Path to model (for logging/metadata only — not loaded from disk)</param>
+    /// <param name="sharedWeights">Pre-loaded model weights (shared across sessions)</param>
+    /// <param name="sharedModelParams">Model params used to create the shared weights (reused for context creation)</param>
+    /// <param name="contextSize">Context size for THIS engine's KV cache (can differ from shared weights)</param>
+    /// <param name="gpuLayers">GPU layers for THIS engine's context</param>
+    /// <param name="threadCount">Thread count for THIS engine</param>
+    /// <param name="inferenceParams">Inference params for THIS engine</param>
+    /// <param name="workingDir">Working directory</param>
+    public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threadCount, InferenceParams inferenceParams, string workingDir,
+        LLamaWeights? sharedWeights = null, ModelParams? sharedModelParams = null)
           {
                // Enable native library logging — only once (LLamaSharp throws on second config)
                if (!_nativeLibConfigured)
                {
                    _nativeLibConfigured = true;
-                   NativeLibraryConfig.All.WithLogCallback(delegate (LLamaLogLevel level, string message)
+                   try {
+                       NativeLibraryConfig.All.WithLogCallback(delegate (LLamaLogLevel level, string message)
                         {
-                         // v9.4: Only log LLAMA errors to console, skip debug/info spam
-                        if (level == LLamaLogLevel.Error)
+                         if (level == LLamaLogLevel.Error)
                             Program.Gui.LogInternal($"[LLAMA ERROR] {message}");
                         });
+                   } catch { /* may already be loaded */ }
                }
            var sysInfo = SystemInfo.Get();
           if (sysInfo.OSPlatform != null)
@@ -320,12 +342,6 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
            // v9.4: Suppress SystemInfo dump on startup
            try { Logger.Debug("System", SystemInfo.Get().ToString()); } catch { }
 
-           var parameters = new ModelParams(modelPath)
-                     {
-                       GpuLayerCount = Math.Clamp(gpuLayers, 0, 100),
-                          ContextSize = contextSize,
-                           };
-
               _contextSize = contextSize;
                _gpuLayers = gpuLayers;
                _threads = threadCount;
@@ -333,12 +349,39 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
 
                _workingDir = string.IsNullOrEmpty(workingDir) ? AppContext.BaseDirectory : workingDir;
 
-               _weights = LLamaWeights.LoadFromFile(parameters);
+               if (sharedWeights != null && sharedModelParams != null)
+               {
+                   // ── Shared weights path (v10.20 sessions) ──
+                   // One GGUF in RAM, each engine gets its own LLamaContext (own KV cache)
+                   _weights = sharedWeights;
+                   _sharesWeights = true; // Don't dispose shared weights
+
+                   // Create fresh ModelParams for this context (context size may differ per session)
+                   var ctxParams = new ModelParams(modelPath)
+                   {
+                       GpuLayerCount = Math.Clamp(gpuLayers, 0, 100),
+                       ContextSize = contextSize,
+                       Threads = sharedModelParams.Threads,
+                   };
+                   _modelParams = ctxParams;
+                   _context = _weights.CreateContext(ctxParams);
+               }
+               else
+               {
+                   // ── Standalone path (original behavior) ──
+                   var parameters = new ModelParams(modelPath)
+                     {
+                       GpuLayerCount = Math.Clamp(gpuLayers, 0, 100),
+                          ContextSize = contextSize,
+                           };
+                   _modelParams = parameters;
+                   _weights = LLamaWeights.LoadFromFile(parameters);
                 _context = _weights.CreateContext(parameters);
+               }
+
           var nullLog = new NullLogger();
             // v10.5: InteractiveExecutor with KV cache reuse.
             // Static prefix is prefilled once, then only new tokens per turn.
-            _modelParams = parameters;
             _executor = new InteractiveExecutor(_context, nullLog);
 
              // ── Initialize tokenizer for accurate token counting ───
@@ -1417,6 +1460,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
    public async ValueTask DisposeAsync()
         {
            try { _context?.Dispose(); } catch { }
+           if (!_sharesWeights) { try { _weights?.Dispose(); } catch { } }
               foreach (var t in _tools) { if (t is IDisposable d) d.Dispose(); }
                 _out?.WriteInfo("[Exit] Engine disposed.");
                     }

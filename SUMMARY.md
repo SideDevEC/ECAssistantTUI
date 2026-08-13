@@ -1,6 +1,6 @@
-# ECAssistant — Project Summary (v10.20 — 2026-08-13)
+# ECAssistant — Project Summary (v10.21 — 2026-08-13)
 
-**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Cross-platform (Windows + macOS). Loads GGUF models from disk — no API calls, no cloud, fully self-contained. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags for tool calling. Multi-step autonomous loops, dual memory (keyword + vector/semantic), sliding context windows, self-correction with failure loop detection, project context awareness, task decomposition, surgical code editing, 8 registered tools, sub-agent system with shared model weights. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.15: KV cache hybrid rewind, off-by-one fixes, `<llm>`→`<lm>` rename, sub-task advancement fixes. v10.16: Cross-platform migration — EShellAgent, dual system prompts, Mac support. v10.17: StepMapper (two-phase planning: decompose → map → execute), automated test framework. v10.18: Sub-agent system — isolated agents with shared model weights. v10.19.2: All artifacts in working directory, BackgroundProcessManager OS-aware. v10.19.3: Removed background agents — session architecture design drafted. v10.20: Fully isolated multi-session architecture — each session has own engine, KV cache, tools, memory, output buffer (JSONL), prompt queue. Session is UI gateway via ISessionOutput. Output states (not colors). SemaphoreSlim inference scheduler. No inter-session communication.
+**Summary:** A local, offline AI agent built in C# .NET 8 using LLamaSharp. Cross-platform (Windows + macOS). Loads GGUF models from disk — no API calls, no cloud, fully self-contained. Uses `<lm>` container tag for noise-proof response parsing with XML-style inner tags for tool calling. Multi-step autonomous loops, dual memory (keyword + vector/semantic), sliding context windows, self-correction with failure loop detection, project context awareness, task decomposition, surgical code editing, 8 registered tools, sub-agent system with shared model weights. Secondary model (Phi-4-mini) with fully configurable sampling params and anti-prompts. v10.13: Parallel multi-tool execution. v10.15: KV cache hybrid rewind, off-by-one fixes, `<llm>`→`<lm>` rename, sub-task advancement fixes. v10.16: Cross-platform migration — EShellAgent, dual system prompts, Mac support. v10.17: StepMapper (two-phase planning: decompose → map → execute), automated test framework. v10.18: Sub-agent system — isolated agents with shared model weights. v10.19.2: All artifacts in working directory, BackgroundProcessManager OS-aware. v10.19.3: Removed background agents — session architecture design drafted. v10.20: Fully isolated multi-session architecture — each session has own engine, KV cache, tools, memory, output buffer (JSONL), prompt queue. Session is UI gateway via ISessionOutput. Output states (not colors). SemaphoreSlim inference scheduler. No inter-session communication. v10.21: Shared model weights (one GGUF load in RAM), Terminal.Gui TUI with scrollable output + always-free input field, session discovery from disk, animated loading indicator, native llama.cpp log redirect to file (clean console).
 
 ## Key Facts
 - **Language:** C# .NET 8 console app (`net8.0`, cross-platform, Nullable enabled)
@@ -168,11 +168,20 @@ ECAssistant/
 │   ├── EGit/EGitTool.cs
 │   └── ECode/ECodeEditorTool.cs
 │
-├── Session/AgentSession.cs
+├── Session/
+│   ├── AgentSession.cs           ← v10.21: accepts shared LLamaWeights
+│   ├── SessionManager.cs          ← v10.21: loads weights once, LoadSessionsFromDiskAsync
+│   ├── SessionDiscovery.cs         ← v10.21: discovers sessions on disk, migrates transcript
+│   ├── LoadingIndicator.cs         ← v10.21: animated 500ms dots indicator
+│   ├── ConsoleUiRenderer.cs        ← Console IUiRenderer (fallback)
+│   ├── TerminalGuiRenderer.cs      ← v10.21: Terminal.Gui IUiRenderer
+│   ├── ISessionOutput.cs
+│   ├── OutputTypes.cs
+│   └── SessionRunState.cs
 ├── Services/
 │   ├── BackgroundProcessManager.cs     ← v10.19.2: OS-aware, temp scripts in working dir
 │   ├── FileWatcherService.cs
-│   └── Logger.cs
+│   └── Logger.cs                       ← v10.21: LLAMA-tagged logs file-only
 ├── Memory/
 │   ├── EMemoryManager.cs
 │   └── VectorMemoryStore.cs
@@ -180,7 +189,8 @@ ECAssistant/
 ├── Analysis/EContextAnalyzer.cs
 └── UI/
     ├── EGuiBase.cs                     ← Abstract UI + Truncate() centralized
-    └── EGuiConsole.cs                  ← Console implementation
+    ├── EGuiConsole.cs                  ← Console implementation (fallback)
+    └── EGuiTerminal.cs                 ← v10.21: Terminal.Gui TUI (TextView + TextField + StatusBar)
 │
 ├── Testing/                            ← v10.17: Automated test framework, v10.19: 30 tests
 │   ├── EGuiTestHarness.cs              ← Non-interactive UI (captures output, scripts input)
@@ -457,3 +467,63 @@ Existing files moved from old locations into `~/ECAssistant/`.
 - Old `SessionState` enum (Active/Idle/Archived) — replaced by `SessionRunState` (Idle/Running/Stopping)
 
 **Status:** v10.20 — Build: 0 errors, 12 warnings (pre-existing). Session architecture implemented, all output routed through ISessionOutput, session commands working. Tests require model loading (couldn't complete — logic unchanged, only output routing refactored).
+
+## What's New (v10.21 — Shared Weights + Terminal.Gui TUI + Session Discovery — 2026-08-13)
+
+### Shared Model Weights (One GGUF Load in RAM)
+- **Problem:** v10.20 each session loaded its own GGUF (~4.7 GB each) — N sessions = N×4.7 GB
+- **Fix:** `SessionManager` loads `LLamaWeights` ONCE via `LLamaWeights.LoadFromFile()`, passes shared weights to each `AgentSession`
+- `EAgentEngine` gets new constructor overload accepting `LLamaWeights? sharedWeights` + `ModelParams? sharedModelParams`
+- Each session creates its own `LLamaContext` (own KV cache) from shared weights — true v10.20 design intent
+- `_sharesWeights` flag prevents `DisposeAsync` from disposing shared weights
+- Sub-agent managers also use shared weights (no duplicate GGUF loads)
+
+### Terminal.Gui TUI (v10.21)
+- **Problem:** `Console.ReadLine()` on main thread blocks `Console.Write` from background runner thread on macOS — tokens only render after pressing Enter
+- **Fix:** Replaced `EGuiConsole` with `EGuiTerminal` using Terminal.Gui v1.9.0 (MIT, net8.0 compatible)
+- Layout: scrollable `TextView` (output) + `TextField` (input, always free) + `StatusBar` (session/state/quit)
+- Thread-safe output via `Application.MainLoop.Invoke()` — runner thread writes tokens, never blocks
+- `TerminalGuiRenderer` implements `IUiRenderer` routing session output through the TUI
+- Input handled by `TextField.KeyPress` (Enter to submit) — no `Console.ReadLine` blocking
+- `ProcessInputAsync` replaces `RunAgentLoop` — processes single input, not a blocking while-loop
+- ANSI colors stripped (Terminal.Gui has own color system — future enhancement)
+
+### Session Discovery + Animated Loading (v10.21)
+- `SessionDiscovery` static helper — scans `~/ECAssistant/.sessions/` for existing sessions
+- Finds most recently modified session (by `session_meta.json` write time) — auto-activates it
+- `LoadingIndicator` — animated `.` `..` `...` on 500ms timer, shows session name being initialized
+- Input naturally disabled during loading (prompt not shown until loading complete)
+- Legacy `transcript.json` migrated to `.sessions/main/transcript.json` on first run
+- `SessionManager.LoadSessionsFromDiskAsync()` — discovers, creates, and initializes each session with `InitSessionAsync` callback
+
+### Native Log Redirect (v10.21)
+- **Problem:** LLamaSharp native C++ output (load_tensors, repack, ggml_metal, llama_context) flooded console
+- **Fix:** `NativeLogConfig.llama_log_set()` in `SessionManager` before `LoadFromFile` — redirects ALL native C++ logs through callback
+- Callback routes logs to `Logger` (file only) — `Logger.cs` skips console output for LLAMA-tagged entries
+- Console now shows only app-level messages: session discovery, tool registration, KV cache status, model responses
+
+### Nullable Threads Fix (v10.21)
+- **Problem:** `ModelParams.Threads` is `int?` (nullable), default null = autodetect. `(int)modelParams.Threads` threw `InvalidOperationException: Nullable object must have a value`
+- **Fix:** `(modelParams.Threads ?? -1) == -1 ? Environment.ProcessorCount : (int)modelParams.Threads!`
+- Also set `Threads = config.Llm.Threads == -1 ? null : config.Llm.Threads` in `SessionManager` constructor
+
+### New Files
+- `Session/SessionDiscovery.cs` — discovers sessions on disk, migrates legacy transcript, touches session meta
+- `Session/LoadingIndicator.cs` — animated 500ms timer-based dots indicator
+- `UI/EGuiTerminal.cs` — Terminal.Gui-based UI (TextView + TextField + StatusBar)
+- `Session/TerminalGuiRenderer.cs` — IUiRenderer routing through EGuiTerminal
+
+### Changed Files
+- `Engine/EAgentEngine.cs` — new shared-weights constructor overload, `_sharesWeights` flag, safe `DisposeAsync`, `try/catch` on `NativeLibraryConfig`
+- `Session/SessionManager.cs` — loads weights once, `LoadSessionsFromDiskAsync()`, `OnSessionLoading/Loaded` callbacks, native log redirect
+- `Session/AgentSession.cs` — accepts `LLamaWeights` instead of `ModelParams`, uses shared-weights engine constructor
+- `Program.cs` — Terminal.Gui init, `InitSessionAsync` per session, `ProcessInputAsync` replaces `RunAgentLoop`, trimmed command set
+- `Services/Logger.cs` — LLAMA-tagged logs file-only (skip console)
+- `Session/ConsoleUiRenderer.cs` — `Console.Out.Flush()` after raw tokens (kept for fallback)
+- `UI/EGuiConsole.cs` — `ReadKey`-based input loop (kept for fallback)
+- `ECAssistant.csproj` — added `Terminal.Gui` v1.9.0 NuGet package
+
+### New Dependency
+- `Terminal.Gui` v1.9.0 (MIT License) — terminal GUI framework for .NET
+
+**Status:** v10.21 — Build: 0 errors. Shared weights, Terminal.Gui TUI, session discovery, animated loading, native log redirect all working. Core commands (quit, help, tools, stop, clear-history, save-context, free-text prompts) functional. Less common commands trimmed (can be re-added). Token streaming real-time via MainLoop.Invoke. Input field always free.

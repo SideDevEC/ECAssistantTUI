@@ -93,7 +93,8 @@ public static class Logger
             catch { /* Don't crash on log write failure */ }
 
             // Write to console via GUI (only for Warn/Error to avoid spam)
-            if (_gui != null && level >= LogLevel.Warn)
+            // v10.21: Skip console output for LLAMA native logs (they go to file only)
+            if (_gui != null && level >= LogLevel.Warn && !tag.Equals("LLAMA", StringComparison.OrdinalIgnoreCase))
             {
                 var color = level switch
                 {

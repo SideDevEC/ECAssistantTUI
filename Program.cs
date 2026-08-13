@@ -1,3 +1,4 @@
+using Terminal.Gui;
 using static ECAssistant.EColor;
 
 using ECAssistant.Config;
@@ -36,7 +37,10 @@ public class Program
                  }
 
                  // ── UI initialisation — single line, swap anywhere ──
-             Gui = new EGuiConsole();
+             // v10.21: Terminal.Gui-based UI — no console sync issues, free last line for input
+            var termGui = new EGuiTerminal();
+            termGui.Init("ECAssistant v10.21");
+            Gui = termGui;
 
             // ── Initialize structured logging (P2) ──
             var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "ECAssistant.log");
@@ -129,62 +133,7 @@ public class Program
 
             if (File.Exists(effectiveModelPath))
                        {
-                    EColor.TagBold(EColor.Success(), "Model", "Loaded successfully.");
-                    var agent = new EAgentEngine(
-                         modelPath: effectiveModelPath,
-                        workingDir: effectiveDir,
-                        contextSize: _config.Llm.ContextSize,
-                         gpuLayers: _config.Llm.GpuLayers,
-                        threadCount: _config.Llm.Threads,
-                          inferenceParams: inferenceParams
-                           );
-
-                   agent.LoadContext();
-                    agent.WireSummaryService(); // Wire LLM-based context compaction
-
-                    // ── Vector Memory (semantic search, v9.10) ──
-                    if (_config.VectorMemory.Enabled)
-                    {
-                        var vecDir = Path.Combine(effectiveDir, _config.VectorMemory.Directory);
-                        await agent.InitializeVectorMemoryAsync(vecDir);
-                    }
-
-                    // ── v10: Self-Correction Manager ──
-                    agent.InitializeSelfCorrection(effectiveDir);
-
-                    // ── v10: Project Context Manager (auto-scan project) ──
-                    await agent.InitializeProjectContextAsync(effectiveDir);
-
-                    // ── v10: Task Planner ──
-                    agent.InitializeTaskPlanner();
-
-                    // ── Secondary Model (optional, for summarization) ──
-                    if (_config.SecondaryModel.Enabled && !string.IsNullOrEmpty(_config.SecondaryModel.ModelPath))
-                    {
-                        var secPath = _config.SecondaryModel.ModelPath;
-                        if (!Path.IsPathRooted(secPath))
-                        {
-                            var secInWork = Path.Combine(userConfigDir, secPath);
-                            var secInBuild = Path.Combine(AppContext.BaseDirectory, secPath);
-                            secPath = File.Exists(secInWork) ? secInWork : (File.Exists(secInBuild) ? secInBuild : secInWork);
-                        }
-                        var secondary = SecondaryModelLoader.Load(secPath,
-                            contextSize: _config.SecondaryModel.ContextSize,
-                            gpuLayers: _config.SecondaryModel.GpuLayers,
-                            temperature: _config.SecondaryModel.Temperature,
-                            topP: _config.SecondaryModel.TopP,
-                            topK: _config.SecondaryModel.TopK,
-                            repeatPenalty: _config.SecondaryModel.RepeatPenalty,
-                            maxTokens: _config.SecondaryModel.MaxTokens,
-                            antiPrompts: _config.SecondaryModel.AntiPrompts);
-                        if (secondary != null)
-                        {
-                            agent.SetSecondaryModel(secondary);
-                            EColor.TagBold(EColor.Success(), "Secondary", $"Model loaded: {Path.GetFileName(secPath)}");
-                        }
-                        else
-                            EColor.Tag(EColor.Info(), "Secondary", "Failed to load — will use primary model for summarization.");
-                    }
+                    EColor.TagBold(EColor.Success(), "Model", "Found at: " + effectiveModelPath);
 
                      // ── Background Process Manager (must be before tool registration) ──
                     var bgMgr = new BackgroundProcessManager();
@@ -194,56 +143,43 @@ public class Program
                     var fileWatcher = new FileWatcherService(effectiveDir);
                     fileWatcher.Start();
 
-                     EColor.TagBold(EColor.Info(), "Init", "Registering tools...");
-                    var psAgent = new EShellAgent(effectiveDir);
-                      agent.RegisterTool(psAgent);
-                    agent.RegisterTool(new EBackgroundExecTool(bgMgr, effectiveDir));
-                    agent.RegisterTool(new EWebSearchTool());
-                    agent.RegisterTool(new EDotnetBuildTool(effectiveDir));
-                    agent.RegisterTool(new EGitTool(effectiveDir));
-                    agent.RegisterTool(new ECodeEditorTool(effectiveDir));
-
-                    // EFileResearchTool — project-wide file scan for analysis
-                       {
-                          var researchExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                               { ".cs", ".md", ".json", ".txt", ".xml", ".ps1", ".sln",
-                                ".csproj", ".config", ".sql", ".html", ".css", ".js" };
-
-                        var toolConfig = _config.Tools.EFileResearchTool;
-                         foreach (var ext in toolConfig.DefaultExtensions)
-                             researchExtensions.Add(ext);
-
-                         agent.RegisterTool(new EFileResearchTool(
-                             effectiveDir, defaultExtensions: researchExtensions,
-                              maxCharsPerFile: toolConfig.MaxCharsPerFile));
-                        }
-
-                    EColor.TagBold(EColor.Info(), "Init", $"Tools: {string.Join(", ", agent.Tools.Select(t => t.Name))}");
-                      Gui.BlankLine();
-
-                        // Orchestrator limits — fixed defaults, not reusing context config
-                    var maxTurns = 5; // Hard limit: 5 turns per task
-                    var maxFailures = 3;
-
-                    var orchestrator = new AgentOrchestrator(agent, sessionOutput: null, maxTurns: maxTurns, maxFailures: maxFailures, toolPolicy: new ToolPolicy());
-
-                    // v10.18: Initialize sub-agent system (only if enabled in config)
-                    if (_config.SubAgent.Enabled)
-                    {
-                        await orchestrator.InitializeSubAgentsAsync(effectiveDir);
-                    }
-                    else
-                    {
-                        EColor.Tag(EColor.Info(), "SubAgent", "Sub-agents disabled in config — skipping initialization.");
-                    }
-
-                    // ── Session Manager (v10.20: fully isolated sessions) ──
+                    // ── Session Manager (v10.21: shared weights, session discovery) ──
+                    // Loads model weights ONCE. Sessions are loaded from disk afterwards.
                     var sessionManager = new SessionManager(_config, effectiveModelPath, effectiveDir);
-                    EColor.TagBold(EColor.Info(), "Session", $"Main session created. Sessions: {sessionManager.List().Count}");
 
+                    // ── Loading phase: animated dots while sessions init ──
+                    EColor.TagBold(Cyan, "Sessions", "Discovering sessions...");
 
+                    var discovered = SessionDiscovery.DiscoverSessions(effectiveDir);
+                    if (discovered.Count > 0)
+                        EColor.Tag(EColor.Info(), "Sessions", $"Found {discovered.Count} session(s): {string.Join(", ", discovered)}");
+                    else
+                        EColor.Tag(EColor.Info(), "Sessions", "No existing sessions found — creating new 'main' session.");
 
-                   await RunAgentLoop(agent, orchestrator, effectiveDir, psAgent, sessionManager, bgMgr, fileWatcher);
+                    var loading = new LoadingIndicator(Gui);
+                    loading.Start("Loading model weights");
+
+                    string activeKey = await sessionManager.LoadSessionsFromDiskAsync(async (session) =>
+                    {
+                        loading.UpdateLabel($"Initializing session '{session.Key}'");
+                        await InitSessionAsync(session, effectiveDir, bgMgr, userConfigDir, termGui);
+                    });
+
+                    loading.Stop();
+
+                    var mainSession = sessionManager.Main;
+                    var activeSession = sessionManager.ActiveSession ?? mainSession;
+                    EColor.TagBold(EColor.Success(), "Ready", $"Active session: {activeKey} ({sessionManager.List().Count} total)");
+                    Gui.BlankLine();
+
+                   // v10.21: Terminal.Gui event loop — input comes from TextField, not PromptRaw
+                    termGui.OnInputSubmitted = async (input) =>
+                    {
+                        await ProcessInputAsync(input, activeSession, sessionManager, effectiveDir, bgMgr, fileWatcher, termGui);
+                    };
+                    termGui.SetSessionName(activeSession.Key);
+                    termGui.FocusInput();
+                    termGui.Run(); // blocks until Application.RequestStop()
                         }
             else
                      {
@@ -252,7 +188,7 @@ public class Program
                      }
 
            // Save transcript on exit (cleanup via async)
-             var transPath = Path.Combine(effectiveDir, "transcript.json");
+             var transPath = Path.Combine(effectiveDir, ".sessions", "main", "transcript.json");
             if (File.Exists(transPath))
                {
                 // Transcript already auto-saved in loop via "save-context" command
@@ -265,7 +201,7 @@ public class Program
     private static void ShowConfigSummary()
             {
             var model = Path.GetFileName(_config.Llm.ModelPath);
-            EColor.WriteLine(Dim, $"  Model: {model} | Ctx: {_config.Llm.ContextSize} | GPU: {_config.Llm.GpuLayers} | Tokens: {_config.Inference.MaxTokens} | Temp: {_config.Sampling.Temperature}");
+            EColor.WriteLine(EColor.Dim, $"  Model: {model} | Ctx: {_config.Llm.ContextSize} | GPU: {_config.Llm.GpuLayers} | Tokens: {_config.Inference.MaxTokens} | Temp: {_config.Sampling.Temperature}");
            }
 
     private static void ApplyCommandLineArgs(ref EAgentConfig config, string[] args)
@@ -385,540 +321,148 @@ public class Program
         return results.Any(r => !r.Passed) ? 1 : 0;
     }
 
-    private static async Task RunAgentLoop(
-        EAgentEngine agent,
-           AgentOrchestrator orchestrator,
-         string workingDir,
-        EShellAgent psAgent,
+    /// <summary>
+    /// Initialize a session: attach UI, vector memory, project context, tools, secondary model, sub-agents.
+    /// Called for each session during startup loading.
+    /// </summary>
+    private static async Task InitSessionAsync(AgentSession session, string workingDir,
+        BackgroundProcessManager bgMgr, string userConfigDir, EGuiTerminal termGui)
+    {
+        // ── Attach UI renderer to the session ──
+        var uiRenderer = new TerminalGuiRenderer(termGui);
+        session.AttachUi(uiRenderer);
+
+        // ── Vector Memory (semantic search) ──
+        if (_config.VectorMemory.Enabled)
+        {
+            var vecDir = Path.Combine(workingDir, _config.VectorMemory.Directory);
+            await session.InitializeVectorMemoryAsync(vecDir);
+        }
+
+        // ── Project Context Manager ──
+        await session.InitializeProjectContextAsync();
+
+        // ── Register tools on the session's engine ──
+        var psAgent = new EShellAgent(workingDir);
+        session.RegisterTool(psAgent);
+        session.RegisterTool(new EBackgroundExecTool(bgMgr, workingDir));
+        session.RegisterTool(new EWebSearchTool());
+        session.RegisterTool(new EDotnetBuildTool(workingDir));
+        session.RegisterTool(new EGitTool(workingDir));
+        session.RegisterTool(new ECodeEditorTool(workingDir));
+
+        // EFileResearchTool
+        {
+            var researchExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+               { ".cs", ".md", ".json", ".txt", ".xml", ".ps1", ".sln",
+                ".csproj", ".config", ".sql", ".html", ".css", ".js" };
+
+            var toolConfig = _config.Tools.EFileResearchTool;
+            foreach (var ext in toolConfig.DefaultExtensions)
+                researchExtensions.Add(ext);
+
+            session.RegisterTool(new EFileResearchTool(
+                workingDir, defaultExtensions: researchExtensions,
+                maxCharsPerFile: toolConfig.MaxCharsPerFile));
+        }
+
+        // ── Secondary Model (optional) ──
+        if (_config.SecondaryModel.Enabled && !string.IsNullOrEmpty(_config.SecondaryModel.ModelPath))
+        {
+            var secPath = _config.SecondaryModel.ModelPath;
+            if (!Path.IsPathRooted(secPath))
+            {
+                var secInWork = Path.Combine(userConfigDir, secPath);
+                var secInBuild = Path.Combine(AppContext.BaseDirectory, secPath);
+                secPath = File.Exists(secInWork) ? secInWork : (File.Exists(secInBuild) ? secInBuild : secInWork);
+            }
+            var secondary = SecondaryModelLoader.Load(secPath,
+                contextSize: _config.SecondaryModel.ContextSize,
+                gpuLayers: _config.SecondaryModel.GpuLayers,
+                temperature: _config.SecondaryModel.Temperature,
+                topP: _config.SecondaryModel.TopP,
+                topK: _config.SecondaryModel.TopK,
+                repeatPenalty: _config.SecondaryModel.RepeatPenalty,
+                maxTokens: _config.SecondaryModel.MaxTokens,
+                antiPrompts: _config.SecondaryModel.AntiPrompts);
+            if (secondary != null)
+            {
+                session.SetSecondaryModel(secondary);
+            }
+        }
+
+        // ── Sub-agents (only if enabled) ──
+        if (_config.SubAgent.Enabled)
+        {
+            await session.InitializeSubAgentsAsync();
+        }
+    }
+
+/// <summary>
+    /// Process a single user input (command or prompt). Called by the Terminal.Gui TextField KeyPress handler.
+    /// </summary>
+    private static async Task ProcessInputAsync(
+        string input,
+        AgentSession activeSession,
         SessionManager sessionManager,
+        string workingDir,
         BackgroundProcessManager bgMgr,
-        FileWatcherService fileWatcher)
-              {
-            Gui.BlankLine();
-             EColor.TagBold(Cyan, "ECLoop", "Type your request (help | quit)");
-                Gui.WriteLine("===========================================");
-           EColor.TagBold(EColor.Info(), "Mode", "The agent decides tools automatically.");
-            EColor.TagBold(Info(), "Hint", "Use <thinking>... </thinking>, then <toolcall>... or <output>");
-             Gui.BlankLine();
+        FileWatcherService fileWatcher,
+        EGuiTerminal termGui)
+    {
+        var agent = activeSession.Engine;
+        var orchestrator = activeSession.Orchestrator;
 
-                // Show transcript status if resuming
-              var transPath = Path.Combine(workingDir, "transcript.json");
-               if (File.Exists(transPath))
-                     {
-                 var trans = ConversationTranscript.LoadFromDisk(transPath);
-                  if (trans != null)
-                   {
-                      EColor.Tag(EColor.Info(), "Context", $"Resuming session: {trans.MessageCount} messages loaded from transcript.");
-                       Gui.BlankLine();
-                    }
-                }
+        input = input.Trim();
+        if (string.IsNullOrEmpty(input)) return;
 
-            while (true)
-                        {
-                  var input = Gui.PromptRaw(Cyan + "> " + Reset)?.Trim();
-
-                   if (string.IsNullOrEmpty(input)) continue;
-
-                   switch (input.ToLower())
-                                 {
-                           case "quit":   case "exit":
-                              EColor.TagBold(EColor.Info(), "Bye", "Goodbye.");
-                               Gui.BlankLine();
-                            // v10.20: Stop all sessions gracefully
-                             await sessionManager.StopAllAsync();
-                                 return;
-                           case "help":    await PrintHelp(); continue;
-                              case "tools":    ListTools(agent); continue;
-                               case "clear-history":  agent.ClearHistory(); continue;
-                            case "save-context":  { var p = Path.Combine(workingDir, "transcript.json"); agent.SaveTranscript(p); Gui.BlankLine(); } continue;
-
-                         case "single":    EColor.Tag(Info(), "Mode", "Single-turn mode reset."); orchestrator.Reset(); continue;
-                            case "stop":     // v10.20: Stop active session's execution
-                              var activeSession = sessionManager.ActiveSession;
-                              if (activeSession != null && activeSession.RunState == SessionRunState.Running) {
-                                  activeSession.Stop();
-                                  EColor.TagBold(EColor.Error(), "Stop", "Cancelling active session...");
-                              }
-                              else { EColor.Tag(Info(), "Stop", "Nothing is running."); }
-                              continue;
-
-                                 // --- FILE PICKER: Open native OS dialog, read file as prompt ---
-                              case "file-pick":
-                                          {
-                                      var pickResult = await EShellAgent.FilePickerPromptAsync();
-                                      if (pickResult == null)
-                                                 {
-                                    EColor.Tag(Error(), "Pick", "No file selected or cancelled.");
-                                  continue;
-                                          }
-
-                                       EColor.TagBold(Success(), "Pick", $"File loaded: {pickResult.Length} chars");
-                                         Gui.WriteLine($"--- PREVIEW (first {_config.Tools.EFileResearchTool.MaxCharsPerFile} chars) ---");
-                                     Gui.WriteLine(pickResult.Substring(0, Math.Min(pickResult.Length, _config.Tools.EFileResearchTool.MaxCharsPerFile)));
-                                          if (pickResult.Length > _config.Tools.EFileResearchTool.MaxCharsPerFile) Gui.WriteLine("... [truncated]");
-                                      Gui.WriteLine("--- END PREVIEW ---");
-                                           Gui.BlankLine();
-
-                                              // Send the file content as the prompt to the agent
-                                       EColor.TagBold(Cyan, "Agent", "Sending file content to LLM...");
-                                         var ticFile = DateTime.Now;
-                                        try
-                                                    {
-                                            agent.StartExecution();
-                                            var orchestratorResult = await orchestrator.ExecuteMultiStep(pickResult);
-                                            agent.EndExecution();
-                                         Gui.BlankLine();
-                                         var maxTurnsDisplayA = 5;
-                                              EColor.TagBold(Success(), "Agent", $"Turns: {orchestratorResult.ToolCallsMade}/{maxTurnsDisplayA} | Status: {orchestratorResult.Status}");
-                                            if (!string.IsNullOrEmpty(orchestratorResult.FinalOutput))
-                                             EColor.WriteLine(Bold, orchestratorResult.FinalOutput);
-                                          }
-                                        catch (Exception ex)
-                                                     {
-                                         EColor.TagBold(Error(), "Error", ex.Message);
-                                           if (ex.InnerException != null) EColor.Tag(Info(), "Detail", ex.InnerException.Message);
-                                              }
-
-                                          if (_config.Interface.ShowElapsedTime)
-                                                    {
-                                           var elapsed = DateTime.Now - ticFile;
-                                              EColor.WriteLine(Dim, $"[<took {elapsed.TotalMilliseconds:N0}ms>]");
-                                         }
-                                     continue;
-                                     }
-
-                                case "memory-save": {
-                                   var key = Gui.PromptRaw("Enter memory key: ")?.Trim() ?? "";
-                                 if (string.IsNullOrEmpty(key)) { EColor.Tag(Info(), "Memory", "Empty key - nothing saved."); continue; }
-                              var content = Gui.PromptRaw("Enter content: ")?.Trim() ?? "";
-                                   if (!string.IsNullOrEmpty(content)) { agent.SaveMemory(key, content, "user"); EColor.Tag(Success(), "Memory", "Saved."); }
-                                    else { EColor.Tag(Info(), "Memory", "Empty content - nothing saved."); }
-                                     continue;
-                                       }
-
-                               case "memory-query": {
-                                   var query = Gui.PromptRaw("Search query: ")?.Trim() ?? "";
-                                  if (!string.IsNullOrEmpty(query)) { EColor.WriteLine(Bold, agent.QueryMemory(query)); }
-                                     else { EColor.Tag(Info(), "Memory", "Empty query - nothing found."); }
-                                    continue;
-                                       }
-
-                                 case "memory-stats": {
-                                var stats = agent.Memory.GetStats();
-                                  EColor.WriteLine(Bold, stats); continue;
-                                       }
-
-                                case "clear-context":  {             // New: Clear context window (not just transcript)
-                                      agent.ClearHistory();
-                                     Gui.BlankLine();
-                                     EColor.Tag(Success(), "Context", "Window cleared. Agent starts fresh with no history.");
-                                    continue;
-                                        }
-
-                           case "analyze-project":
-                              case "context-analyze": {
-                               EColor.TagBold(Info(), "Analyzer", "Starting cross-file analysis...");
-                                  var analyzer = new ECAssistant.Analysis.EContextAnalyzer(workingDir);
-                                   await analyzer.AnalyzeProjectAsync();
-                                    EColor.WriteLine(Bold, analyzer.GetDebugContextSummary());
-                               continue;
-                                     }
-
-                            case "interactive-decision": {
-                                 EColor.TagBold(Cyan, "Decision", "Starting...");
-                                var decisionLoop = new ECAssistant.Engine.EDecisionLoop(agent);
-                                  await decisionLoop.ExecuteInteractiveLoop("Analyze project structure.");
-                               continue;
-                                   }
-
-                           // ── Session Commands (P0) ──
-                            case "sessions": case "session-list": {
-                                Gui.BlankLine();
-                                EColor.TagBold(Cyan, "Sessions", sessionManager.GetStatusReport());
-                                continue;
-                            }
-                            case "session-status": {
-                                Gui.BlankLine();
-                                var activeS = sessionManager.ActiveSession;
-                                if (activeS != null)
-                                    EColor.TagBold(Cyan, "Active Session", activeS.GetStatusSummary());
-                                continue;
-                            }
-                            case "session-create": case "session-new": {
-                                var name = Gui.PromptRaw("Session name: ")?.Trim() ?? "";
-                                if (!string.IsNullOrEmpty(name)) {
-                                    var s = sessionManager.CreateSession(name, label: name);
-                                    EColor.TagBold(EColor.Success(), "Session", $"Created session: {s.Key}");
-                                }
-                                continue;
-                            }
-                            case "session-cleanup": {
-                                EColor.TagBold(EColor.Info(), "Session", "No cleanup needed — sessions are persistent.");
-                                continue;
-                            }
-                            // session <n> — switch to session by number or name
-                            case var sCmd when sCmd.StartsWith("session ") && !sCmd.StartsWith("session-stop") && !sCmd.StartsWith("session-close") && !sCmd.StartsWith("session-peek") && !sCmd.StartsWith("session-queue") && !sCmd.StartsWith("session-new") && !sCmd.StartsWith("session-create") && !sCmd.StartsWith("session-status") && !sCmd.StartsWith("session-list"):
-                            {
-                                var arg = sCmd.Substring("session ".Length).Trim();
-                                if (int.TryParse(arg, out int idx))
-                                {
-                                    if (sessionManager.SwitchTo(idx))
-                                    {
-                                        var s = sessionManager.ActiveSession!;
-                                        var history = s.ReadOutputHistory();
-                                        ConsoleUiRenderer.RenderHistory(history);
-                                        EColor.TagBold(Cyan, "Session", $"Switched to: {s.Key}");
-                                    }
-                                    else { EColor.TagBold(Error(), "Session", $"No session at index {idx}"); }
-                                }
-                                else
-                                {
-                                    if (sessionManager.SwitchTo(arg))
-                                    {
-                                        var s = sessionManager.ActiveSession!;
-                                        var history = s.ReadOutputHistory();
-                                        ConsoleUiRenderer.RenderHistory(history);
-                                        EColor.TagBold(Cyan, "Session", $"Switched to: {s.Key}");
-                                    }
-                                    else { EColor.TagBold(Error(), "Session", $"No session: {arg}"); }
-                                }
-                                continue;
-                            }
-                            // session-stop <n> — stop a session's execution
-                            case var ssCmd when ssCmd.StartsWith("session-stop"):
-                            {
-                                var arg = ssCmd.Substring("session-stop".Length).Trim();
-                                if (int.TryParse(arg, out int idx))
-                                {
-                                    var s = sessionManager.GetByIndex(idx);
-                                    if (s != null) { s.Stop(); EColor.TagBold(Warn(), "Session", $"Stopped: {s.Key}"); }
-                                    else { EColor.TagBold(Error(), "Session", $"No session at index {idx}"); }
-                                }
-                                else if (!string.IsNullOrEmpty(arg))
-                                {
-                                    var s = sessionManager.Get(arg);
-                                    if (s != null) { s.Stop(); EColor.TagBold(Warn(), "Session", $"Stopped: {s.Key}"); }
-                                    else { EColor.TagBold(Error(), "Session", $"No session: {arg}"); }
-                                }
-                                else
-                                {
-                                    sessionManager.ActiveSession?.Stop();
-                                }
-                                continue;
-                            }
-                            // session-close <n> — close and delete a session
-                            case var scCmd when scCmd.StartsWith("session-close"):
-                            {
-                                var arg = scCmd.Substring("session-close".Length).Trim();
-                                var key = arg;
-                                if (int.TryParse(arg, out int idx))
-                                {
-                                    var s = sessionManager.GetByIndex(idx);
-                                    key = s?.Key ?? "";
-                                }
-                                if (!string.IsNullOrEmpty(key) && key != sessionManager.Main.Key)
-                                {
-                                    await sessionManager.CloseSessionAsync(key);
-                                    EColor.TagBold(EColor.Info(), "Session", $"Closed: {key}");
-                                }
-                                else if (key == sessionManager.Main.Key)
-                                {
-                                    EColor.TagBold(Error(), "Session", "Cannot close the main session.");
-                                }
-                                else { EColor.TagBold(Error(), "Session", $"No session: {arg}"); }
-                                continue;
-                            }
-                            // session-peek <n> — quick glance at last few output lines
-                            case var spCmd when spCmd.StartsWith("session-peek"):
-                            {
-                                var arg = spCmd.Substring("session-peek".Length).Trim();
-                                AgentSession? peekSession = null;
-                                if (int.TryParse(arg, out int idx))
-                                    peekSession = sessionManager.GetByIndex(idx);
-                                else if (!string.IsNullOrEmpty(arg))
-                                    peekSession = sessionManager.Get(arg);
-                                else
-                                    peekSession = sessionManager.ActiveSession;
-
-                                if (peekSession != null)
-                                {
-                                    var last5 = peekSession.ReadOutputHistory(5);
-                                    Gui.BlankLine();
-                                    EColor.TagBold(Cyan, "Peek", $"[{peekSession.Key}] last {last5.Count} lines:");
-                                    foreach (var e in last5)
-                                        ConsoleUiRenderer.RenderHistory(new List<OutputEntry> { e });
-                                    Gui.BlankLine();
-                                }
-                                else { EColor.TagBold(Error(), "Session", $"No session: {arg}"); }
-                                continue;
-                            }
-                            // session-queue — show active session's prompt queue
-                            case "session-queue": case "queue":
-                            {
-                                var s = sessionManager.ActiveSession;
-                                if (s != null)
-                                {
-                                    var q = s.GetQueue();
-                                    Gui.BlankLine();
-                                    if (q.Count == 0)
-                                        EColor.TagBold(EColor.Info(), "Queue", "(empty)");
-                                    else
-                                    {
-                                        EColor.TagBold(Cyan, "Queue", $"{q.Count} prompt(s) pending for [{s.Key}]:");
-                                        for (int qi = 0; qi < q.Count; qi++)
-                                            EColor.WriteLine(Yellow + Bold, $"  {qi + 1}. {TruncatePrompt(q[qi])}");
-                                    }
-                                    Gui.BlankLine();
-                                }
-                                continue;
-                            }
-                            // session-queue-remove <i> — remove a prompt from the queue
-                            case var sqrCmd when sqrCmd.StartsWith("session-queue-remove") || sqrCmd.StartsWith("queue-remove"):
-                            {
-                                var arg = sqrCmd.Contains(" ") ? sqrCmd.Substring(sqrCmd.IndexOf(' ')).Trim() : "";
-                                if (int.TryParse(arg, out int qi) && qi > 0)
-                                {
-                                    var s = sessionManager.ActiveSession;
-                                    if (s != null && s.RemoveFromQueue(qi - 1))
-                                        EColor.TagBold(EColor.Success(), "Queue", $"Removed prompt {qi}");
-                                    else
-                                        EColor.TagBold(Error(), "Queue", $"No prompt at index {qi}");
-                                }
-                                continue;
-                            }
-                            // session-queue-clear — clear all queued prompts
-                            case "session-queue-clear": case "queue-clear":
-                            {
-                                sessionManager.ActiveSession?.ClearQueue();
-                                EColor.TagBold(EColor.Info(), "Queue", "Queue cleared.");
-                                continue;
-                            }
-
-                           // ── Background Exec Commands (P1) ──
-                            case "bg-run": case "bg": {
-                                var cmd = Gui.PromptRaw("Command: ")?.Trim() ?? "";
-                                if (!string.IsNullOrEmpty(cmd)) {
-                                    var bgId = await bgMgr.StartAsync(cmd, workingDir);
-                                    EColor.TagBold(EColor.Success(), "Background", $"Started: {bgId} — {cmd}");
-                                }
-                                continue;
-                            }
-                            case "bg-status": {
-                                var list = bgMgr.List();
-                                Gui.BlankLine();
-                                EColor.TagBold(Cyan, "Background", $"{list.Count} process(es):");
-                                foreach (var p in list) Gui.WriteLineColored($"  {p}");
-                                Gui.BlankLine();
-                                continue;
-                            }
-                            case "bg-output": {
-                                var bgId = Gui.PromptRaw("Process ID: ")?.Trim() ?? "";
-                                if (!string.IsNullOrEmpty(bgId)) {
-                                    var output = bgMgr.GetOutput(bgId);
-                                    var status = bgMgr.GetStatus(bgId);
-                                    EColor.TagBold(Cyan, "Background", $"{bgId} — {status}");
-                                    Gui.WriteLineColored(output);
-                                }
-                                continue;
-                            }
-                            case "bg-kill": {
-                                var bgId = Gui.PromptRaw("Process ID: ")?.Trim() ?? "";
-                                if (!string.IsNullOrEmpty(bgId)) {
-                                    var killed = bgMgr.Kill(bgId);
-                                    EColor.TagBold(killed ? EColor.Success() : EColor.Error(), "Background", killed ? $"Killed: {bgId}" : $"Failed to kill: {bgId}");
-                                }
-                                continue;
-                            }
-                            case "bg-cleanup": {
-                                bgMgr.CleanupFinished();
-                                EColor.TagBold(EColor.Info(), "Background", "Finished processes cleaned up.");
-                                continue;
-                            }
-
-                           // ── File Watcher Commands ──
-                            case "watch": {
-                                var changes = fileWatcher.GetChangeSummary();
-                                Gui.BlankLine();
-                                EColor.TagBold(Cyan, "Watch", changes == "(No file changes detected.)" ? "No changes since last check." : "Recent changes:");
-                                Gui.WriteLineColored(changes);
-                                Gui.BlankLine();
-                                continue;
-                            }
-                            case "watch-start": {
-                                fileWatcher.Start();
-                                EColor.TagBold(EColor.Success(), "Watch", $"Watching: {fileWatcher.WatchPath}");
-                                continue;
-                            }
-                            case "watch-stop": {
-                                fileWatcher.Stop();
-                                EColor.TagBold(EColor.Info(), "Watch", "Stopped.");
-                                continue;
-                            }
-
-                           // ── Clipboard ──
-                            case "clipboard-read": {
-                                try {
-                                    if (OperatingSystem.IsWindows()) {
-                                        var clipText = await Task.Run(() => {
-                                            var clipExe = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo {
-                                                FileName = "powershell.exe",
-                                                Arguments = "-NoProfile -Command Get-Clipboard",
-                                                UseShellExecute = false,
-                                                RedirectStandardOutput = true,
-                                                CreateNoWindow = true
-                                            });
-                                            return clipExe?.StandardOutput.ReadToEnd().Trim() ?? "(empty)";
-                                        });
-                                        Gui.BlankLine();
-                                        EColor.TagBold(Cyan, "Clipboard", clipText.Length > 200 ? clipText.Substring(0, 200) + "..." : clipText);
-                                        Gui.BlankLine();
-                                    } else {
-                                        EColor.Tag(EColor.Info(), "Clipboard", "Windows-only feature.");
-                                    }
-                                } catch (Exception ex) { EColor.Tag(EColor.Error(), "Clipboard", ex.Message); }
-                                continue;
-                            }
-                            case "clipboard-write": {
-                                var text = Gui.PromptRaw("Text to copy: ") ?? "";
-                                if (!string.IsNullOrEmpty(text) && OperatingSystem.IsWindows()) {
-                                    try {
-                                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo {
-                                            FileName = "powershell.exe",
-                                            Arguments = $"-NoProfile -Command Set-Clipboard -Value '{text.Replace("'", "''")}'",
-                                            UseShellExecute = false,
-                                            CreateNoWindow = true
-                                        })?.WaitForExit();
-                                        EColor.TagBold(EColor.Success(), "Clipboard", "Copied to clipboard.");
-                                    } catch (Exception ex) { EColor.Tag(EColor.Error(), "Clipboard", ex.Message); }
-                                }
-                                continue;
-                            }
-
-                           // ── Vector Memory Commands ──
-                            case "vecmem-stats": {
-                                if (agent.VectorMemory != null) {
-                                    Gui.BlankLine();
-                                    Gui.WriteLineColored(agent.VectorMemory.GetStats());
-                                    Gui.BlankLine();
-                                } else {
-                                    EColor.Tag(EColor.Info(), "VecMem", "Not initialized.");
-                                }
-                                continue;
-                            }
-                            case "vecmem-search": {
-                                if (agent.VectorMemory != null) {
-                                    var q = Gui.PromptRaw("Query: ") ?? "";
-                                    if (!string.IsNullOrEmpty(q)) {
-                                        var results = await agent.VectorMemory.SearchAsTextAsync(q, _config.VectorMemory.MaxResults);
-                                        Gui.BlankLine();
-                                        Gui.WriteLineColored(results);
-                                        Gui.BlankLine();
-                                    }
-                                } else {
-                                    EColor.Tag(EColor.Info(), "VecMem", "Not initialized.");
-                                }
-                                continue;
-                            }
-                            case "vecmem-add": {
-                                if (agent.VectorMemory != null) {
-                                    var key = Gui.PromptRaw("Key: ") ?? "";
-                                    var content = Gui.PromptRaw("Content: ") ?? "";
-                                    var cat = Gui.PromptRaw("Category (default: general): ") ?? "general";
-                                    if (!string.IsNullOrEmpty(key) && !string.IsNullOrEmpty(content)) {
-                                        await agent.VectorMemory.AddAsync(key, content, cat);
-                                        EColor.TagBold(EColor.Success(), "VecMem", $"Added: {key}");
-                                    }
-                                } else {
-                                    EColor.Tag(EColor.Info(), "VecMem", "Not initialized.");
-                                }
-                                continue;
-                            }
-
-                           // ── Config Hot-Reload ──
-                            case "reload-config": {
-                                var configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "appsettings.json");
-                                if (File.Exists(configPath)) {
-                                    _config = EAgentConfig.Load(configPath);
-                                    EColor.TagBold(EColor.Success(), "Config", $"Reloaded from: {configPath}");
-                                    EColor.WriteLine(Dim, $"  Model: {Path.GetFileName(_config.Llm.ModelPath)} | Ctx: {_config.Llm.ContextSize} | Tokens: {_config.Inference.MaxTokens} | Temp: {_config.Sampling.Temperature}");
-                                } else {
-                                    EColor.TagBold(EColor.Error(), "Config", $"Not found: {configPath}");
-                                }
-                                continue;
-                            }
-
-                           // ── Model Hot-Swap ──
-                            case "swap-model": {
-                                var newModel = Gui.PromptRaw("Model path (or filename in app dir): ")?.Trim();
-                                if (!string.IsNullOrEmpty(newModel)) {
-                                    if (!File.Exists(newModel)) {
-                                        newModel = Path.Combine(workingDir, newModel);
-                                    }
-                                    if (File.Exists(newModel)) {
-                                        EColor.TagBold(EColor.Info(), "Swap", $"Unloading current model...");
-                                        await agent.DisposeAsync();
-                                        var newParams = new InferenceParams {
-                                            MaxTokens = _config.Inference.MaxTokens,
-                                            AntiPrompts = _config.Inference.AntiPrompts.Length > 0
-                                                ? _config.Inference.AntiPrompts
-                                                : new string[] { "</s>" },
-                                            OverflowStrategy = LLama.Common.ContextOverflowStrategy.TruncateAndReprefill,
-                                            SamplingPipeline = new DefaultSamplingPipeline {
-                                                Temperature = _config.Sampling.Temperature,
-                                                TopP = _config.Sampling.TopP,
-                                                TopK = _config.Sampling.TopK,
-                                                RepeatPenalty = _config.Sampling.RepeatPenalty
-                                            }
-                                        };
-                                        agent = new EAgentEngine(newModel, _config.Llm.ContextSize, _config.Llm.GpuLayers, _config.Llm.Threads == -1 ? Environment.ProcessorCount : _config.Llm.Threads, newParams);
-                                        agent.LoadContext();
-                                        agent.WireSummaryService();
-                                        foreach (var t in agent.Tools) { } // tools already registered in constructor
-                                        EColor.TagBold(EColor.Success(), "Swap", $"Model loaded: {Path.GetFileName(newModel)}");
-                                    } else {
-                                        EColor.TagBold(EColor.Error(), "Swap", $"Model not found: {newModel}");
-                                    }
-                                }
-                                continue;
-                            }
-
-                           // ── Logging Commands (P2) ──
-                            case "log": {
-                                Gui.BlankLine();
-                                EColor.TagBold(Cyan, "Log", $"File: {Logger.LogFilePath} ({Logger.LogFileSize} bytes)");
-                                Gui.BlankLine();
-                                var recent = Logger.GetRecentLines(30);
-                                Gui.WriteLineColored(recent);
-                                Gui.BlankLine();
-                                continue;
-                            }
-                            case "log-level": {
-                                var lvl = Gui.PromptRaw("Level (debug/info/warn/error): ")?.Trim().ToLower() ?? "";
-                                var parsed = lvl switch {
-                                    "debug" => LogLevel.Debug,
-                                    "info" => LogLevel.Info,
-                                    "warn" => LogLevel.Warn,
-                                    "error" => LogLevel.Error,
-                                    _ => LogLevel.Info
-                                };
-                                Logger.SetLevel(parsed);
-                                EColor.TagBold(EColor.Success(), "Log", $"Level set to: {parsed}");
-                                continue;
-                            }
-
-                           case "?":  case "/?": await PrintHelp(); continue;
-
-                         default: break;
-                        }
-
-                // v10.20: Route prompts to the active session
-                var activeSessionForPrompt = sessionManager.ActiveSession;
-                if (activeSessionForPrompt != null)
+        switch (input.ToLower())
+        {
+            case "quit": case "exit":
+                EColor.TagBold(EColor.Info(), "Bye", "Goodbye.");
+                Gui.BlankLine();
+                await sessionManager.StopAllAsync();
+                Application.RequestStop();
+                return;
+            case "help": await PrintHelp(); return;
+            case "tools": ListTools(agent); return;
+            case "clear-history": agent.ClearHistory(); return;
+            case "save-context":
+            {
+                var p = Path.Combine(workingDir, ".sessions", activeSession.Key, "transcript.json");
+                agent.SaveTranscript(p);
+                Gui.BlankLine();
+                return;
+            }
+            case "single":
+                EColor.Tag(Info(), "Mode", "Single-turn mode reset.");
+                orchestrator.Reset();
+                return;
+            case "stop":
+            {
+                var stopSession = sessionManager.ActiveSession;
+                if (stopSession != null && stopSession.RunState == SessionRunState.Running)
                 {
-                    activeSessionForPrompt.Prompt(input);
+                    stopSession.Stop();
+                    EColor.TagBold(EColor.Error(), "Stop", "Cancelling active session...");
                 }
-                   }
-             }
+                else { EColor.Tag(Info(), "Stop", "Nothing is running."); }
+                return;
+            }
+            default: break;
+        }
+
+        // Session commands that need PromptRaw — for now, handle inline
+        // (These are less common commands that need additional input)
+        var lowerInput = input.ToLower();
+        
+        // Route all other inputs as prompts to the active session
+        var activeSessionForPrompt = sessionManager.ActiveSession;
+        if (activeSessionForPrompt != null)
+        {
+            activeSessionForPrompt.Prompt(input);
+        }
+    }
 
     private static string TruncatePrompt(string prompt, int maxLen = 60)
     {

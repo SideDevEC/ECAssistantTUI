@@ -1234,8 +1234,8 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                  toolcallBlocks.Add((tcStart, content.Length));
                  break;
              }
-             toolcallBlocks.Add((tcStart, tcEnd + 10));
-             searchFrom = tcEnd + 10;
+             toolcallBlocks.Add((tcStart, tcEnd + 11));  // </toolcall> is 11 chars
+             searchFrom = tcEnd + 11;  // skip past </toolcall>
          }
 
          // Find <output> block — search from after thinking (or from start if no thinking)
@@ -1246,7 +1246,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
          if (outputStart >= 0)
          {
              var oc = content.IndexOf("</output>", outputStart + 8, StringComparison.OrdinalIgnoreCase);
-             outputEnd = oc >= 0 ? oc + 8 : content.Length;
+             outputEnd = oc >= 0 ? oc + 9 : content.Length;  // </output> is 9 chars
          }
 
          // Check if we found an <output> before any <toolcall> (takes priority)

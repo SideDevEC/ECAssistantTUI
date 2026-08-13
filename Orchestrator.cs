@@ -454,7 +454,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                 else
                 {
                     blockContent = trimmed.Substring(tcStart + 10, tcEnd - tcStart - 10).Trim();
-                    searchFrom = tcEnd + 10;
+                    searchFrom = tcEnd + 11;  // </toolcall> is 11 chars
                 }
 
                 var tc = ParseToolCallBlock(blockContent, toolCalls.Count + 1);

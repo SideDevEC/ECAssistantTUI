@@ -45,6 +45,10 @@ public sealed class AgentOrchestrator : IAsyncDisposable
      // ─── Tool Policy (permissions + approval) ─────
     private readonly ToolPolicy _toolPolicy;
 
+    // v10.18: Sub-agent manager (lazy-init, created when first sub-agent tool is registered)
+    private SubAgentManager? _subAgentManager;
+    public SubAgentManager? SubAgentManager => _subAgentManager;
+
      /// <summary>Create orchestrator with config.</summary>
     public AgentOrchestrator(
         EAgentEngine engine,
@@ -60,6 +64,25 @@ public sealed class AgentOrchestrator : IAsyncDisposable
             foreach (var tool in _engine.Tools)
                   _toolWhitelist.Add(tool.Name);
              }
+
+     /// <summary>v10.18: Initialize sub-agent support. Creates SubAgentManager and registers ESubAgent tool.</summary>
+     public void InitializeSubAgents(string defaultWorkingDir)
+     {
+         _subAgentManager = new SubAgentManager(_engine);
+         _engine.RegisterTool(new Tools.SubAgent.ESubAgentTool(_subAgentManager, defaultWorkingDir));
+         _toolWhitelist.Add("ESubAgent");
+         _toolPolicy.SetPermission("ESubAgent", ToolPermissionLevel.Allowed, "Sub-agent spawning");
+         EColor.TagBold(EColor.Success(), "SubAgent", "Sub-agent system initialized and ESubAgent tool registered.");
+     }
+
+     /// <summary>v10.18: Initialize sub-agents AND rebuild KV cache to include ESubAgent in system prompt.</summary>
+     public async Task InitializeSubAgentsAsync(string defaultWorkingDir)
+     {
+         InitializeSubAgents(defaultWorkingDir);
+         // Rebuild KV cache so ESubAgent appears in the tool list the LLM sees
+         EColor.TagBold(EColor.Warn(), "SubAgent", "Rebuilding KV cache to include ESubAgent...");
+         await _engine.ResetAndRebuildCacheAsync();
+     }
 
      /// <summary>Get the tool policy instance (for runtime modification).</summary>
     public ToolPolicy Policy => _toolPolicy;
@@ -757,7 +780,11 @@ public sealed class AgentOrchestrator : IAsyncDisposable
         }
     }
 
-    public async ValueTask DisposeAsync() => await Task.CompletedTask;
+    public async ValueTask DisposeAsync()
+    {
+        try { _subAgentManager?.Dispose(); } catch { }
+        await Task.CompletedTask;
+    }
 }
 
 // ─── Decision Result (v10.13) ─────────────────────────

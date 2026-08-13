@@ -302,8 +302,6 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                             Program.Gui.LogInternal($"[LLAMA ERROR] {message}");
                         });
                }
-
-              // Check CUDA availability at startup for logging
            var sysInfo = SystemInfo.Get();
           if (sysInfo.OSPlatform != null)
                 {

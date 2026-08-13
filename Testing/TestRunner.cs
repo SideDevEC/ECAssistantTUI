@@ -461,6 +461,9 @@ public sealed class TestRunner : IAsyncDisposable
         var policy = new ToolPolicy();
         var orchestrator = new AgentOrchestrator(engine, maxTurns: 10, maxFailures: 3, toolPolicy: policy);
 
+        // v10.18: Initialize sub-agent support (async — rebuilds KV cache)
+        await orchestrator.InitializeSubAgentsAsync(workingDir);
+
         return (engine, orchestrator);
     }
 

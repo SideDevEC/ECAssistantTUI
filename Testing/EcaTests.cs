@@ -441,6 +441,39 @@ public static class EcaTests
             ExpectedFiles = new() { "step1.txt", "step2.txt", "step3dir/step3.txt" },
             MinToolCalls = 1,
         },
+
+        // ── Tier 10: Sub-Agent Tests (v10.18) ───────────────────
+
+        new TestScenario
+        {
+            Name = "subagent_single_task",
+            Description = "Spawn a single sub-agent to do a focused task",
+            Prompt = "Use ESubAgent to spawn a sub-agent that creates a file called sub_result.txt with the content 'sub-agent was here'. Then tell me the result.",
+            TimeoutSeconds = 300,
+            ExpectedStatus = OrchestratorStatus.GoalAchieved,
+            MinToolCalls = 1,
+            ExpectedOutputContains = new() { "sub-agent" },
+        },
+
+        new TestScenario
+        {
+            Name = "subagent_parallel_spawn",
+            Description = "Spawn 2 sub-agents in parallel to do independent tasks",
+            Prompt = "Do two things at once using two separate ESubAgent toolcalls in one response: (1) Spawn a sub-agent to create a file called sub_a.txt with content 'agent A', and (2) Spawn a sub-agent to create a file called sub_b.txt with content 'agent B'. Use two separate toolcall blocks.",
+            TimeoutSeconds = 300,
+            ExpectedStatus = OrchestratorStatus.GoalAchieved,
+            MinToolCalls = 1,
+            Assertions = new()
+            {
+                (result, ctx) =>
+                {
+                    var a = Path.Combine(ctx.WorkingDir, "sub_a.txt");
+                    var b = Path.Combine(ctx.WorkingDir, "sub_b.txt");
+                    if (!File.Exists(a) || !File.Exists(b)) return false;
+                    return File.ReadAllText(a).Contains("agent A") && File.ReadAllText(b).Contains("agent B");
+                }
+            },
+        },
     };
 
     /// <summary>Get a subset of tests by name prefix.</summary>
@@ -482,4 +515,8 @@ public static class EcaTests
     /// <summary>Get only the error recovery tests.</summary>
     public static List<TestScenario> ErrorRecoveryTests
         => ByNamePrefix("error_").Concat(ByNamePrefix("resilience_")).ToList();
+
+    /// <summary>Get only the sub-agent tests.</summary>
+    public static List<TestScenario> SubAgentTests
+        => ByNamePrefix("subagent_");
 }

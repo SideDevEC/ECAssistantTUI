@@ -67,10 +67,24 @@ public abstract class EGuiBase
     // ─── Internal Diagnostics ────────────────────────
 
     /// <summary>Internal debug / diagnostic logging. Never shown to end user in normal runs.</summary>
-    public virtual void LogInternal(string text) => Console.WriteLine(text);
+    public virtual void LogInternal(string text)
+    {
+        // Default: no-op. UI implementations override to route through their output system.
+        // This prevents direct Console.WriteLine calls in the abstract base.
+    }
 
     // ─── Low-level raw access (for streaming inference, etc.) ──
 
     /// <summary>Direct raw write — caller must include their own ANSI escapes or newlines.</summary>
     public abstract void WriteRawDirect(string text);
+
+    // ─── Input Events (non-blocking) ────────────────
+
+    /// <summary>
+    /// Check if the user pressed ESC (non-blocking). Returns true if ESC was pressed.
+    /// Used by the engine during token streaming to allow mid-stream stop.
+    /// UI implementations should check for ESC key without blocking.
+    /// Default: returns false (no console available).
+    /// </summary>
+    public virtual bool IsEscapePressed() => false;
 }

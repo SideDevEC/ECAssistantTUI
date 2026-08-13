@@ -1214,19 +1214,14 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                     var tokenCount = 0;
                     await foreach (var token in _executor.InferAsync(incrementalInput, _inferenceParams, cts.Token))
                          {
-                          // v10.9: Check for ESC key press to stop generation
-                          // v10.16.1: Guard Console.KeyAvailable — throws when no real console (test mode, redirected input)
-                          try
+                          // v10.21.2: ESC detection via UI layer (no direct Console calls in engine)
+                          if (Program.Gui.IsEscapePressed())
                           {
-                              if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape)
-                              {
-                                  _escPressed = true;
-                                  _out?.BlankLine();
-                                  _out?.WriteError("[Stop] Generation stopped by user (ESC).");
-                                  goto inferenceDone;
-                              }
+                              _escPressed = true;
+                              _out?.BlankLine();
+                              _out?.WriteError("[Stop] Generation stopped by user (ESC).");
+                              goto inferenceDone;
                           }
-                          catch (InvalidOperationException) { /* No console available — skip ESC detection */ }
                           // v10.9: Check cancellation token from orchestrator
                           if (ExecutionToken.IsCancellationRequested)
                           {

@@ -169,6 +169,22 @@ public sealed class EGuiConsole : EGuiBase
     public override void WriteRawDirect(string text) => WriteOutput(text);
     public override void LogInternal(string text) => WriteOutputLine(text);
 
+    /// <summary>
+    /// Check if ESC was pressed (non-blocking). Checks Console.KeyAvailable + ReadKey.
+    /// Returns false if no real console (redirected/piped) or no key available.
+    /// </summary>
+    public override bool IsEscapePressed()
+    {
+        try
+        {
+            return Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Escape;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;  // No real console (test mode, redirected input)
+        }
+    }
+
     // ── User Input ──
 
     public override string? PromptColored(string labelAndText) => ReadInputLine(labelAndText);

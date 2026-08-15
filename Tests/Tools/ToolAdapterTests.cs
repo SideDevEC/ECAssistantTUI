@@ -136,7 +136,7 @@ public class ToolAdapterTests
         await adapter.ExecuteAsync(args);
 
         // null value means only the key is appended (with trailing space), then Trim() removes it
-        mockTool.Verify(t => t.ExecuteAsync("key", It.IsAny<CancellationToken>()), Times.Once);
+        mockTool.Verify(t => t.ExecuteAsync("<key>", It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -152,7 +152,7 @@ public class ToolAdapterTests
 
         await adapter.ExecuteAsync(args);
 
-        mockTool.Verify(t => t.ExecuteAsync(It.Is<string>(s => s.Contains("a=\"1\"") && s.Contains("b=\"2\"")), It.IsAny<CancellationToken>()), Times.Once);
+        mockTool.Verify(t => t.ExecuteAsync(It.Is<string>(s => s.Contains("<a>1</a>") && s.Contains("<b>2</b>")), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

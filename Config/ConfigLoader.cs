@@ -25,7 +25,7 @@ public class ConfigLoader
             if (_fileSystem.FileExists(filePath))
             {
                 var json = _fileSystem.ReadFile(filePath);
-                var config = JsonSerializer.Deserialize<EAgentConfig>(json);
+                var config = JsonSerializer.Deserialize<EAgentConfig>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                 if (config != null) return config;
             }
         }

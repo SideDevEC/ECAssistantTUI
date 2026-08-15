@@ -19,8 +19,6 @@ public class EDotnetBuildToolTests
     private ProcessResult FailureResult(string stdout = "", string stderr = "") =>
         new(1, stdout, stderr, false);
 
-    // ── Name / Description / GetPolicy ──
-
     [Fact]
     public void Name_ReturnsDotnetBuild()
     {
@@ -40,12 +38,9 @@ public class EDotnetBuildToolTests
     {
         var tool = CreateTool();
         var policy = tool.GetPolicy();
-
         Assert.Equal("DotnetBuild", policy.ToolName);
         Assert.Equal("Allowed", policy.Level);
     }
-
-    // ── ExecuteAsync — success ──
 
     [Fact]
     public async Task ExecuteAsync_BuildSucceeded_ReturnsSuccessMessage()
@@ -57,8 +52,8 @@ public class EDotnetBuildToolTests
 
         var result = await tool.ExecuteAsync("build");
 
-        Assert.Contains("SUCCEEDED", result);
-        Assert.Contains("no errors or warnings", result);
+        Assert.Contains("[Build Success]", result);
+        Assert.Contains("0 warning(s)", result);
     }
 
     [Fact]
@@ -71,7 +66,7 @@ public class EDotnetBuildToolTests
 
         var result = await tool.ExecuteAsync("");
 
-        Assert.Contains("SUCCEEDED", result);
+        Assert.Contains("[Build Success]", result);
         _processRunner.Verify(p => p.ExecuteAsync("dotnet build", It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -85,7 +80,7 @@ public class EDotnetBuildToolTests
 
         var result = await tool.ExecuteAsync("build|/path/to/proj.csproj");
 
-        Assert.Contains("SUCCEEDED", result);
+        Assert.Contains("[Build Success]", result);
         _processRunner.Verify(p => p.ExecuteAsync("dotnet build /path/to/proj.csproj", It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -99,11 +94,9 @@ public class EDotnetBuildToolTests
 
         var result = await tool.ExecuteAsync("restore");
 
-        Assert.Contains("SUCCEEDED", result);
+        Assert.Contains("[Build Success]", result);
         _processRunner.Verify(p => p.ExecuteAsync("dotnet restore", It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
-
-    // ── ExecuteAsync — failure with errors ──
 
     [Fact]
     public async Task ExecuteAsync_BuildFailed_ReturnsFailedMessage()
@@ -116,8 +109,7 @@ public class EDotnetBuildToolTests
 
         var result = await tool.ExecuteAsync("build");
 
-        Assert.Contains("FAILED", result);
-        Assert.Contains("ERRORS", result);
+        Assert.Contains("[Build Failed", result);
         Assert.Contains("CS1002", result);
         Assert.Contains("Program.cs", result);
     }
@@ -133,7 +125,7 @@ public class EDotnetBuildToolTests
 
         var result = await tool.ExecuteAsync("build");
 
-        Assert.Contains("WARNINGS", result);
+        Assert.Contains("warning", result);
         Assert.Contains("CS0219", result);
     }
 
@@ -157,8 +149,6 @@ public class EDotnetBuildToolTests
         Assert.Contains("error two", result);
     }
 
-    // ── ExecuteAsync — timeout ──
-
     [Fact]
     public async Task ExecuteAsync_TimedOut_ReturnsTimeoutMessage()
     {
@@ -171,8 +161,6 @@ public class EDotnetBuildToolTests
 
         Assert.Contains("TIMEOUT", result);
     }
-
-    // ── ExecuteAsync — CancellationToken ──
 
     [Fact]
     public async Task ExecuteAsync_PassesCancellationToken()
@@ -188,8 +176,6 @@ public class EDotnetBuildToolTests
 
         _processRunner.Verify(p => p.ExecuteAsync(It.IsAny<string>(), It.IsAny<string?>(), token), Times.Once);
     }
-
-    // ── Build with no errors/warnings shows last 5 lines ──
 
     [Fact]
     public async Task ExecuteAsync_SuccessWithOutput_ShowsLastLines()

@@ -1,47 +1,51 @@
+using System.IO;
+using System.Text.Json;
 using ECAssistant.Config;
+using ECAssistant.Services;
 
 namespace ECAssistant;
 
 /// <summary>
 /// Fluent config builder for library consumers.
 ///
-/// Provides a simple API to configure ECAssistant.Core without needing
-/// appsettings.json or knowing the full EAgentConfig structure.
+/// On first run, generates appsettings.json in the working directory with
+/// the configured defaults. On subsequent runs, loads the existing JSON
+/// and applies any code-level overrides on top.
 ///
-/// Usage:
+/// Usage (simplest — just create with defaults, JSON is auto-generated):
 ///   var config = AgentConfigBuilder.Create()
 ///       .WithModel("/path/to/model.gguf")
-///       .ContextSize(16384)
-///       .GpuLayers(15)
-///       .Temperature(0.3)
-///       .EnableSubAgents(true)
 ///       .Build();
-///   // WorkingDirectory defaults to .eca-data next to the app executable
+///   // Creates .eca-data/appsettings.json on first run
+///   // Loads it on subsequent runs
 ///
-///   var sessionManager = new SessionManager(config, config.Llm.ModelPath, workingDir, logger);
-///   var session = sessionManager.Main;
-///   var builder = new SessionBuilder(config, workingDir, userConfigDir, logger);
-///   await builder.BuildAsync(session);
+/// Usage (with overrides — code wins over JSON):
+///   var config = AgentConfigBuilder.Create()
+///       .WithModel("/path/to/model.gguf")
+///       .ContextSize(32768)    // overrides JSON value
+///       .GpuLayers(15)         // overrides JSON value
+///       .Build();
 ///
-/// Only the essential settings are exposed. The full EAgentConfig is still
-/// available for advanced users who need every knob.
+/// End users can edit .eca-data/appsettings.json to tweak settings
+/// (model path, temperature, context size, etc.) without touching code.
 /// </summary>
 public class AgentConfigBuilder
 {
     private string _modelPath = "";
-    private uint _contextSize = 16384;
-    private int _gpuLayers = 0;
-    private int _threads = -1;
-    private int _maxTokens = 2048;
-    private float _temperature = 0.3f;
-    private float _topP = 0.9f;
-    private int _topK = 40;
-    private float _repeatPenalty = 1.1f;
-    private string? _workingDir = null;  // null = auto: AppContext.BaseDirectory/.eca-data
-    private bool _enableVectorMemory = false;
-    private bool _enableSubAgents = false;
-    private bool _enableSecondaryModel = false;
+    private uint? _contextSize = null;
+    private int? _gpuLayers = null;
+    private int? _threads = null;
+    private int? _maxTokens = null;
+    private float? _temperature = null;
+    private float? _topP = null;
+    private int? _topK = null;
+    private float? _repeatPenalty = null;
+    private string? _workingDir = null;
+    private bool? _enableVectorMemory = null;
+    private bool? _enableSubAgents = null;
+    private bool? _enableSecondaryModel = null;
     private string? _secondaryModelPath = null;
+    private bool _autoSaveJson = true;
 
     private AgentConfigBuilder() { }
 
@@ -77,8 +81,7 @@ public class AgentConfigBuilder
 
     /// <summary>
     /// Working directory for agent data (sessions, memory, vector store, transcripts).
-    /// Default: <c>AppContext.BaseDirectory/.eca-data</c> — a hidden folder next to the app executable.
-    /// Override if you want data elsewhere (e.g. alongside your app's data folder).
+    /// Default: <c>AppContext.BaseDirectory/.eca-data</c>.
     /// </summary>
     public AgentConfigBuilder WorkingDirectory(string dir) { _workingDir = dir; return this; }
 
@@ -94,59 +97,78 @@ public class AgentConfigBuilder
     /// <summary>Path to secondary model GGUF (requires EnableSecondaryModel).</summary>
     public AgentConfigBuilder WithSecondaryModel(string path) { _secondaryModelPath = path; return this; }
 
-    /// <summary>Build the EAgentConfig.</summary>
+    /// <summary>
+    /// Disable auto-generating appsettings.json on first run.
+    /// By default, Build() creates the JSON file if it doesn't exist.
+    /// Set to false if you want config purely in code (no JSON file).
+    /// </summary>
+    public AgentConfigBuilder WithoutJsonFile() { _autoSaveJson = false; return this; }
+
+    /// <summary>
+    /// Build the EAgentConfig.
+    ///
+    /// Flow:
+    /// 1. Resolve working directory (default: .eca-data next to executable)
+    /// 2. If appsettings.json exists in working dir → load it
+    /// 3. Apply code-level overrides (any WithX() calls) on top of JSON values
+    /// 4. If no JSON exists and auto-save is on → generate it
+    /// </summary>
     public EAgentConfig Build()
     {
-        // Resolve working directory: explicit > default (.eca-data next to executable)
+        // 1. Resolve working directory
         var workingDir = _workingDir ?? Path.Combine(AppContext.BaseDirectory, ".eca-data");
+        Directory.CreateDirectory(workingDir);
 
-        return new EAgentConfig
+        var jsonPath = Path.Combine(workingDir, "appsettings.json");
+
+        // 2. Load existing JSON if it exists
+        EAgentConfig config;
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, PropertyNameCaseInsensitive = true };
+
+        if (File.Exists(jsonPath))
         {
-            RootPath = workingDir,
-            AgentSettings = new AgentConfig { WorkingDirectory = workingDir },
-            Llm = new LlmConfig
+            try
             {
-                ModelPath = _modelPath,
-                ContextSize = _contextSize,
-                GpuLayers = _gpuLayers,
-                Threads = _threads,
-            },
-            Inference = new InferenceConfig
+                var json = File.ReadAllText(jsonPath);
+                config = JsonSerializer.Deserialize<EAgentConfig>(json, jsonOptions) ?? new EAgentConfig();
+            }
+            catch
             {
-                MaxTokens = _maxTokens,
-                AntiPrompts = new[] { "User:", "\n```\n", "Question:", "### User", "<user>" },
-            },
-            Sampling = new SamplingConfig
-            {
-                Temperature = _temperature,
-                TopP = _topP,
-                TopK = _topK,
-                RepeatPenalty = _repeatPenalty,
-            },
-            VectorMemory = new VectorMemoryConfig
-            {
-                Enabled = _enableVectorMemory,
-                Directory = "vecmem",
-                MaxResults = 5,
-                AutoIndex = true,
-            },
-            SubAgent = new SubAgentConfig
-            {
-                Enabled = _enableSubAgents,
-            },
-            SecondaryModel = new SecondaryModelConfig
-            {
-                Enabled = _enableSecondaryModel && !string.IsNullOrEmpty(_secondaryModelPath),
-                ModelPath = _secondaryModelPath ?? "",
-                ContextSize = 4096,
-                GpuLayers = 0,
-                Temperature = 0.1f,
-                TopP = 0.8f,
-                TopK = 40,
-                RepeatPenalty = 1.1f,
-                MaxTokens = 512,
-                AntiPrompts = new[] { "User:", "\n```\n", "Question:", "Assistant:", "###", "<user>", "<tooloutput>", "### User" },
-            },
-        };
+                // Corrupt JSON → start fresh with defaults
+                config = new EAgentConfig();
+            }
+        }
+        else
+        {
+            config = new EAgentConfig();
+        }
+
+        // 3. Apply code-level overrides (code wins over JSON)
+        config.RootPath = workingDir;
+        if (config.AgentSettings == null) config.AgentSettings = new AgentConfig();
+        config.AgentSettings.WorkingDirectory = workingDir;
+
+        if (!string.IsNullOrEmpty(_modelPath)) config.Llm.ModelPath = _modelPath;
+        if (_contextSize.HasValue) config.Llm.ContextSize = _contextSize.Value;
+        if (_gpuLayers.HasValue) config.Llm.GpuLayers = _gpuLayers.Value;
+        if (_threads.HasValue) config.Llm.Threads = _threads.Value;
+        if (_maxTokens.HasValue) config.Inference.MaxTokens = _maxTokens.Value;
+        if (_temperature.HasValue) config.Sampling.Temperature = _temperature.Value;
+        if (_topP.HasValue) config.Sampling.TopP = _topP.Value;
+        if (_topK.HasValue) config.Sampling.TopK = _topK.Value;
+        if (_repeatPenalty.HasValue) config.Sampling.RepeatPenalty = _repeatPenalty.Value;
+        if (_enableVectorMemory.HasValue) config.VectorMemory.Enabled = _enableVectorMemory.Value;
+        if (_enableSubAgents.HasValue) config.SubAgent.Enabled = _enableSubAgents.Value;
+        if (_enableSecondaryModel.HasValue) config.SecondaryModel.Enabled = _enableSecondaryModel.Value;
+        if (!string.IsNullOrEmpty(_secondaryModelPath)) config.SecondaryModel.ModelPath = _secondaryModelPath;
+
+        // 4. Auto-generate JSON on first run
+        if (_autoSaveJson && !File.Exists(jsonPath))
+        {
+            var json = JsonSerializer.Serialize(config, jsonOptions);
+            File.WriteAllText(jsonPath, json);
+        }
+
+        return config;
     }
 }

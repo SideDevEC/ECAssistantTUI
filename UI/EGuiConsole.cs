@@ -114,6 +114,9 @@ public sealed class EGuiConsole : EGuiBase
 
         // Start background resize watcher
         StartResizeWatcher();
+
+        // Push session layer as the base layer (layer 1)
+        _layerStack.Push(new SessionLayer());
     }
 
     /// <summary>Flush buffered startup output to the terminal (non-ANSI path).</summary>
@@ -672,6 +675,18 @@ public sealed class EGuiConsole : EGuiBase
     //  LAYER STACK
     // ════════════════════════════════════════════════════════
 
+    /// <summary>Trigger a full repaint of the session view. Used by SessionLayer.</summary>
+    public void TriggerFullRepaint()
+    {
+        lock (_writeLock)
+        {
+            _fullRepaint = true;
+            Repaint();
+            PositionCursorAtInput();
+            Console.Out.Flush();
+        }
+    }
+
     /// <summary>Push a new layer onto the view stack. The layer takes over the screen.</summary>
     public void PushLayer(IGuiLayer layer)
     {
@@ -696,13 +711,6 @@ public sealed class EGuiConsole : EGuiBase
             if (_layerStack.Count > 0)
             {
                 _layerStack.Peek().OnActivate(this);
-            }
-            else
-            {
-                // Back to session view — full repaint
-                _fullRepaint = true;
-                Repaint();
-                PositionCursorAtInput();
             }
             Console.Out.Flush();
         }

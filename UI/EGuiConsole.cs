@@ -109,17 +109,17 @@ public sealed class EGuiConsole : EGuiBase
                 return;
             }
 
-            // Clear input line
-            Console.Write("\r\x1b[2K");
-            // Move up one line
-            Console.Write("\x1b[A");
-            // Newline: creates a fresh line below the last output
-            Console.Write("\n");
-            // Write the output (scrolls up)
-            Console.Write(text);
+            // Clear input line, write output on it.
+            // The trailing \n in text scrolls everything up.
+            // Then reprint prompt on the new line.
+            //
+            // We do NOT move cursor up — that overwrites the last output line.
+            // Instead: clear input line, write output here, the \n scrolls it up.
+            Console.Write("\r\x1b[2K");       // clear input line
+            Console.Write(text);                // write output (replaces the cleared line)
             if (!text.EndsWith("\n"))
-                Console.Write("\n");
-            // Reprint prompt + partial input
+                Console.Write("\n");           // ensure newline — scrolls up
+            // Reprint prompt + partial input on the new bottom line
             ReprintPrompt();
         }
     }
@@ -170,14 +170,12 @@ public sealed class EGuiConsole : EGuiBase
                     var result = _inputBuffer.ToString();
                     _inputBuffer.Clear();
 
-                    // Put the typed command into the scrollback:
-                    // clear line, move up, newline, write "> text"
-                    Console.Write("\r\x1b[2K");
-                    Console.Write("\x1b[A");
-                    Console.Write("\n");
-                    Console.Write(PromptStr);
+                    // Clear input line, write '> text' on it, newline scrolls it up.
+                    // Then reprint '> ' for next input.
+                    Console.Write("\r\x1b[2K");       // clear input line
+                    Console.Write(PromptStr);             // write '> text'
                     Console.Write(result);
-                    Console.Write("\n");
+                    Console.Write("\n");                // newline — scrolls up
 
                     // Reprint "> " for next input
                     ReprintPrompt();

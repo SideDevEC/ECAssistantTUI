@@ -828,9 +828,12 @@ public sealed class EGuiConsole : EGuiBase
                     }
                 }
 
-                // v10.24.3: Use blocking ReadKey instead of KeyAvailable poll
-                // The KeyAvailable + Thread.Sleep poll was unreliable on macOS Terminal.app
-                key = Console.ReadKey(true); // blocks until key is pressed
+                if (!Console.KeyAvailable)
+                {
+                    Thread.Sleep(10);
+                    continue;
+                }
+                key = Console.ReadKey(true); // intercept: don't auto-echo
             }
             catch (InvalidOperationException)
             {

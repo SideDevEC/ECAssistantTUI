@@ -8,7 +8,9 @@
 
 A local, offline AI coding assistant built in C# .NET 8 using LLamaSharp. Loads GGUF models from disk — no API calls, no cloud. Cross-platform (macOS + Windows). Uses `<lm>` container tag for response parsing with XML-style tool calling. Multi-step autonomous loops, dual memory, sliding context windows, self-correction, sub-agents, parallel tool execution.
 
-## Architecture (v11.2 — 2026-08-15)
+## Architecture (v11.3 — 2026-08-15)
+
+Full-screen alternate-buffer TUI (like nano/vim). `EGuiConsole` enters the terminal alternate screen buffer on startup, renders a fixed layout (output region / status bar / input line), and exits on shutdown — preserving the user's original terminal. All output is stored in an internal buffer and scrollable with ↑/↓/PageUp/PageDown/Home/End. Dirty rendering only repaints changed regions. No more prompt disappearing, input/output interleaving, or flashing.
 
 Clean separation: **Program.cs** (binder) creates **Session** (headless) and **GUI** (presentation). Everything inside the session communicates via `ISessionOutput` with `OutputState` enums. Zero UI/color/Console references in engine, tools, memory, or services. Only `EGuiConsole` touches the terminal.
 
@@ -35,16 +37,18 @@ Memory/                 — EMemoryManager (persistent context cards)
 Services/               — Logger, LlamaInferenceEngine, InMemoryVectorStore, adapters
 Session/                — AgentSession, ISessionOutput, IOutputListener, OutputTypes, ConsoleUiRenderer
 Tools/                   — 10 tools across subfolders
-UI/                     — EGuiConsole, EGuiBase (only terminal I/O)
+UI/                     — EGuiConsole (full-screen TUI), EGuiBase (abstract base)
 Tests/                  — unit + integration tests
 SystemPrompt.md         — main system prompt
 SystemPrompt.Mac.md     — macOS-specific prompt
 SystemPrompt.Windows.md — Windows-specific prompt
 ```
 
-## Recent Refactors (2026-08-15)
-- **Session/UI rewrite:** ISessionOutput with StartStream/Write/StopStream, RequestApproval (blocks until listener responds), IOutputListener, always-visible `>` prompt
-- **Headless engine:** Removed ALL IColorFormatter/EColor/EGuiBase/Console deps from engine, tools, memory, config, logger. Everything communicates via ISessionOutput states only
-- **Warning cleanup:** 21 build warnings → 0 (null dereferences, unused vars, unawaited async, OSPlatform comparison)
-- **Test fixes:** All 12 pre-existing test failures fixed (EDotnetBuildTool assertions, ToolAdapter XML format, ConfigLoader case-insensitive JSON)
-- **Deleted:** IColorFormatter.cs, ColorFormatter.cs, ColorFormatterTests.cs, 7 outdated .md files
+## Recent Changes (2026-08-15)
+- **Full-screen TUI rewrite:** EGuiConsole now uses alternate screen buffer with fixed layout — output region, status bar, input line at fixed rows. No more clear/reprint prompt gymnastics.
+- **Scrollback navigation:** All output stored in `_outputLines`, scrollable with ↑/↓/PageUp/PageDown/Home/End. Status bar shows scroll position. Long lines wrapped not truncated.
+- **ClearCanvas():** Added to EGuiBase + EGuiConsole + EGuiTestHarness. `clear` command wired up in Program.cs.
+- **Dirty rendering:** Only repaints changed regions (_outputDirty, _statusDirty, _inputDirty, _fullRepaint).
+- **Resize handling:** CheckResize() detects terminal size changes, triggers full repaint.
+- **ShutdownConsole():** Called on exit to leave alternate buffer and restore terminal.
+- **Previous:** Session/UI rewrite with ISessionOutput, headless engine (removed ALL UI/color deps), warning cleanup (21→0), test fixes (12→0), deleted IColorFormatter/ColorFormatter

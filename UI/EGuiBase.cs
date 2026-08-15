@@ -81,6 +81,9 @@ public abstract class EGuiBase
 
     // ─── Input Events (non-blocking) ────────────────
 
+    /// <summary>Clear the console screen and reprint the prompt. Removes all visible output.</summary>
+    public abstract void ClearCanvas();
+
     /// <summary>
     /// Check if the user pressed ESC (non-blocking). Returns true if ESC was pressed.
     /// Used by the engine during token streaming to allow mid-stream stop.

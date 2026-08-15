@@ -88,6 +88,11 @@ public sealed class EGuiTestHarness : EGuiBase
         lock (_lock) _log.Append(text);
     }
 
+    public override void ClearCanvas()
+    {
+        lock (_lock) _log.AppendLine("[CLEAR]");
+    }
+
     // ── Helpers ──────────────────────────────────
 
     /// <summary>Check if captured output contains a string (case-insensitive).</summary>

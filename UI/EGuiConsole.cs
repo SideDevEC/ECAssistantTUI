@@ -3,19 +3,22 @@ using System.Text;
 namespace ECAssistant.UI;
 
 /// <summary>
-/// Console-based EGuiBase with always-visible input prompt and silent buffering.
+/// Full-screen alternate-buffer TUI for ECAssistant.
 ///
-/// Design:
-///   - "> " is ALWAYS shown at the bottom of the terminal.
-///   - When the session is running (silent mode):
-///     * Typed characters are buffered but NOT shown on screen
-///     * "> " stays visible — never disappears
-///     * On Enter, the buffered input is submitted
-///     * Buffer is never written to the output stream
-///   - When the session is idle (normal mode):
-///     * "> " + typed characters are visible
-///     * Standard interactive input
-///   - Output always writes ABOVE the prompt line, then reprints "> "
+/// Layout (fixed, no scrollback — like nano/vim):
+/// ┌─────────────────────────────────────┐  row 0
+/// │ Output region (scrolls internally)   │
+/// │ ...                                  │
+/// │                                      │
+/// ├─────────────────────────────────────┤  row (height-2)
+/// │ Status bar                           │
+/// ├─────────────────────────────────────┤  row (height-1)
+/// │ > user input here                    │
+/// └─────────────────────────────────────┘
+///
+/// Uses the terminal alternate screen buffer (\x1b[?1049h).
+/// No scrollback — we maintain our own output line history.
+/// Input is always at the bottom row — never moves, never gets overwritten.
 ///
 /// Thread safety: all console writes go through _writeLock.
 /// </summary>
@@ -28,24 +31,61 @@ public sealed class EGuiConsole : EGuiBase
     private volatile bool _escPressed;
     private Action? _onEscape;
 
-    private volatile bool _promptActive;
-
     // Silent mode: typed characters are buffered but not echoed.
-    // Set by the main loop when the session is running.
     private volatile bool _silentInput;
-
-    // Callback to check if silent mode should still be active.
     private Func<bool>? _silentInputCheck;
+
+    // ── Screen model ──
+    // Output lines stored with ANSI color codes already embedded.
+    private readonly List<string> _outputLines = new();
+    private string _statusBar = "";
+
+    // Scroll position: 0 = bottom (newest), N = scrolled up N lines from bottom
+    private int _scrollOffset;
+    private bool _isScrolledUp => _scrollOffset > 0;
+
+    // Screen dimensions (recalculated on resize)
+    private int _screenWidth;
+    private int _screenHeight;
+    private int _outputRegionStart; // usually 0
+    private int _outputRegionEnd;   // screenHeight - 3 (inclusive)
+    private int _statusRow;         // screenHeight - 2
+    private int _inputRow;          // screenHeight - 1
+
+    // Dirty tracking
+    private bool _outputDirty;
+    private bool _statusDirty;
+    private bool _inputDirty;
+    private bool _fullRepaint;
+
+    // Track what's currently on screen to avoid redundant writes
+    private string?[] _screenRows = Array.Empty<string?>();
+
+    // ═══════════════════════════════════════════════════
+    //  INIT / SHUTDOWN
+    // ═══════════════════════════════════════════════════
 
     public void InitConsole()
     {
         _ansiSupported = DetectAnsiSupport();
-        if (_ansiSupported) { try { Console.CursorVisible = true; } catch { } }
+        if (!_ansiSupported) return;
+
+        // Enter alternate screen buffer + hide cursor
+        Console.Write("\x1b[?1049h\x1b[?25l");
+        Console.Out.Flush();
+
+        UpdateDimensions();
+        _fullRepaint = true;
+        Repaint();
     }
 
     public void ShutdownConsole()
     {
-        try { Console.CursorVisible = true; } catch { }
+        if (!_ansiSupported) return;
+
+        // Leave alternate screen buffer + show cursor
+        Console.Write("\x1b[?25h\x1b[?1049l");
+        Console.Out.Flush();
     }
 
     public void SetHandlers(Func<string, Task>? onSubmit, Action? onEscape)
@@ -58,11 +98,15 @@ public sealed class EGuiConsole : EGuiBase
         _silentInputCheck = check;
     }
 
-    /// <summary>Set the initial silent state at the start of ReadInputLine.</summary>
     public void SetSilentInputInitial(bool silent)
     {
         _silentInput = silent;
+        _inputDirty = true;
     }
+
+    // ═══════════════════════════════════════════════════
+    //  ANSI / PLATFORM
+    // ═══════════════════════════════════════════════════
 
     private bool DetectAnsiSupport()
     {
@@ -99,20 +143,236 @@ public sealed class EGuiConsole : EGuiBase
     }
 
     // ═══════════════════════════════════════════════════
-    //  PROMPT RENDER
+    //  SCREEN DIMENSIONS
+    // ═══════════════════════════════════════════════════
+
+    private void UpdateDimensions()
+    {
+        try
+        {
+            _screenWidth = Console.WindowWidth;
+            _screenHeight = Console.WindowHeight;
+        }
+        catch
+        {
+            _screenWidth = 80;
+            _screenHeight = 24;
+        }
+
+        if (_screenWidth < 10) _screenWidth = 10;
+        if (_screenHeight < 5) _screenHeight = 5;
+
+        _outputRegionStart = 0;
+        _outputRegionEnd = _screenHeight - 3;
+        _statusRow = _screenHeight - 2;
+        _inputRow = _screenHeight - 1;
+
+        _screenRows = new string?[_screenHeight];
+        _fullRepaint = true;
+    }
+
+    private bool CheckResize()
+    {
+        try
+        {
+            int w = Console.WindowWidth;
+            int h = Console.WindowHeight;
+            if (w != _screenWidth || h != _screenHeight)
+            {
+                UpdateDimensions();
+                return true;
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  RENDER ENGINE
     // ═══════════════════════════════════════════════════
 
     /// <summary>
-    /// Render the prompt line. In silent mode: just "> ".
-    /// In normal mode: "> " + buffer. Must be inside _writeLock.
+    /// Repaint dirty regions to the terminal. Only writes what changed.
+    /// Must be called inside _writeLock.
     /// </summary>
-    private void RenderPrompt()
+    private void Repaint()
     {
-        Console.Write("\r\x1b[2K");
+        if (!_ansiSupported) return;
+
+        if (_fullRepaint)
+        {
+            // Full repaint: clear screen, draw everything
+            Console.Write("\x1b[2J");
+
+            // Paint output region
+            PaintOutputRegion();
+            // Paint status bar
+            PaintStatusBar();
+            // Paint input line
+            PaintInputLine();
+
+            _fullRepaint = false;
+            _outputDirty = false;
+            _statusDirty = false;
+            _inputDirty = false;
+            return;
+        }
+
+        if (_outputDirty)
+        {
+            PaintOutputRegion();
+            _outputDirty = false;
+        }
+
+        if (_statusDirty)
+        {
+            PaintStatusBar();
+            _statusDirty = false;
+        }
+
+        if (_inputDirty)
+        {
+            PaintInputLine();
+            _inputDirty = false;
+        }
+
+        Console.Out.Flush();
+    }
+
+    /// <summary>
+    /// Paint the output region (rows 0 to _outputRegionEnd).
+    /// Shows lines from _outputLines based on _scrollOffset.
+    /// 0 = bottom (newest lines visible), N = scrolled up N lines.
+    /// Long lines are wrapped to fit screen width.
+    /// </summary>
+    private void PaintOutputRegion()
+    {
+        int regionHeight = _outputRegionEnd - _outputRegionStart + 1;
+
+        // Clear the output region
+        for (int row = _outputRegionStart; row <= _outputRegionEnd; row++)
+            Console.Write($"\x1b[{row + 1};1H\x1b[2K");
+
+        // Build the list of wrapped visible lines (bottom-up, then reverse)
+        // Start from the bottom of the output and work upward
+        var visibleRows = new List<string>();
+        int linesUsed = 0;
+        int maxVisibleLine = _outputLines.Count - 1 - _scrollOffset;
+
+        for (int i = maxVisibleLine; i >= 0 && linesUsed < regionHeight; i--)
+        {
+            string line = _outputLines[i];
+            int visibleLen = StripAnsi(line).Length;
+            if (visibleLen <= _screenWidth)
+            {
+                visibleRows.Insert(0, line);
+                linesUsed++;
+            }
+            else
+            {
+                // Wrap long line into multiple rows
+                var wrapped = WrapLine(line, _screenWidth);
+                for (int w = wrapped.Count - 1; w >= 0; w--)
+                {
+                    if (linesUsed >= regionHeight) break;
+                    visibleRows.Insert(0, wrapped[w]);
+                    linesUsed++;
+                }
+            }
+        }
+
+        // Write visible rows to screen
+        for (int i = 0; i < visibleRows.Count; i++)
+        {
+            int row = _outputRegionStart + i;
+            Console.Write($"\x1b[{row + 1};1H{visibleRows[i]}");
+        }
+    }
+
+    /// <summary>
+    /// Paint the status bar row.
+    /// </summary>
+    private void PaintStatusBar()
+    {
+        Console.Write($"\x1b[{_statusRow + 1};1H\x1b[2K");
+        if (!string.IsNullOrEmpty(_statusBar))
+        {
+            string bar = _statusBar;
+            int visibleLen = StripAnsi(bar).Length;
+            if (visibleLen > _screenWidth)
+                bar = TruncateAnsi(bar, _screenWidth);
+            Console.Write(bar);
+        }
+    }
+
+    /// <summary>
+    /// Paint the input row: "> " + buffer (or just "> " in silent mode).
+    /// </summary>
+    private void PaintInputLine()
+    {
+        Console.Write($"\x1b[{_inputRow + 1};1H\x1b[2K");
         Console.Write(PromptStr);
         if (!_silentInput)
             Console.Write(_inputBuffer.ToString());
-        Console.Out.Flush();
+    }
+
+    /// <summary>
+    /// Move cursor to the input row, just after the prompt + typed text.
+    /// </summary>
+    private void PositionCursorAtInput()
+    {
+        int col = PromptStr.Length + (_silentInput ? 0 : _inputBuffer.Length);
+        Console.Write($"\x1b[{_inputRow + 1};{col + 1}H");
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  ANSI HELPERS
+    // ═══════════════════════════════════════════════════
+
+    /// <summary>Remove ANSI escape sequences from a string to get visible length.</summary>
+    private static string StripAnsi(string text)
+    {
+        var sb = new StringBuilder();
+        bool inEscape = false;
+        foreach (char c in text)
+        {
+            if (c == '\x1b') { inEscape = true; continue; }
+            if (inEscape)
+            {
+                if (c >= 0x40 && c <= 0x7E) inEscape = false;
+                continue;
+            }
+            sb.Append(c);
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>Truncate a string with ANSI codes to a max visible width.</summary>
+    private static string TruncateAnsi(string text, int maxWidth)
+    {
+        var visible = StripAnsi(text);
+        if (visible.Length <= maxWidth) return text;
+        // Simple approach: find the cut point in the original string
+        int visibleCount = 0;
+        int cutIdx = 0;
+        bool inEscape = false;
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (c == '\x1b') { inEscape = true; continue; }
+            if (inEscape)
+            {
+                if (c >= 0x40 && c <= 0x7E) inEscape = false;
+                continue;
+            }
+            visibleCount++;
+            if (visibleCount > maxWidth)
+            {
+                cutIdx = i;
+                break;
+            }
+        }
+        return text.Substring(0, cutIdx) + "\x1b[0m [...]\x1b[0m";
     }
 
     // ═══════════════════════════════════════════════════
@@ -120,16 +380,48 @@ public sealed class EGuiConsole : EGuiBase
     // ═══════════════════════════════════════════════════
 
     /// <summary>
-    /// Write output above the prompt line, then reprint "> ".
-    ///
-    /// 1. Clear current line (removes "> " from screen)
-    /// 2. Write output text (scrolls up)
-    /// 3. Ensure newline at end
-    /// 4. Reprint "> " (or "> " + buffer in normal mode)
-    ///
-    /// The prompt is ALWAYS reprinted after output — it never disappears.
-    /// In silent mode, the buffer is NOT shown (just "> ").
+    /// Add a line to the output buffer and mark the output region dirty.
+    /// Lines are stored with ANSI color codes intact.
     /// </summary>
+    /// <summary>Wrap a line with ANSI codes into multiple rows, each ≤ maxCols visible width.</summary>
+    private static List<string> WrapLine(string text, int maxCols)
+    {
+        var result = new List<string>();
+        var visible = StripAnsi(text);
+        if (visible.Length <= maxCols)
+        {
+            result.Add(text);
+            return result;
+        }
+
+        // Simple wrapping: split visible text into chunks, preserving ANSI by re-scanning
+        // For simplicity, strip ANSI, chunk, and re-add reset after each chunk
+        int idx = 0;
+        while (idx < visible.Length)
+        {
+            int len = Math.Min(maxCols, visible.Length - idx);
+            string chunk = visible.Substring(idx, len);
+            result.Add(chunk);
+            idx += len;
+        }
+        return result;
+    }
+
+    private void AddOutputLine(string text)
+    {
+        // Split multi-line text into individual lines
+        var lines = text.Split('\n');
+        foreach (var line in lines)
+        {
+            // Remove trailing \r if present (Windows line endings)
+            string clean = line.EndsWith('\r') ? line[..^1] : line;
+            _outputLines.Add(clean);
+        }
+        // New output = snap to bottom
+        _scrollOffset = 0;
+        _outputDirty = true;
+    }
+
     private void WriteOutput(string text)
     {
         if (!_ansiSupported)
@@ -140,27 +432,12 @@ public sealed class EGuiConsole : EGuiBase
 
         lock (_writeLock)
         {
-            if (!_promptActive)
-            {
-                Console.Write(text);
-                Console.Out.Flush();
-                return;
-            }
-
-            // Clear current line (where "> " is)
-            Console.Write("\r\x1b[2K");
-
-            // Write the output
-            Console.Write(text);
-
-            // Ensure we end on a newline
-            if (!text.EndsWith("\n"))
-                Console.Write("\n");
-
-            // Reprint the prompt — ALWAYS "> " visible
-            // In silent mode: just "> " (no buffer shown)
-            // In normal mode: "> " + buffer
-            RenderPrompt();
+            if (CheckResize()) _fullRepaint = true;
+            AddOutputLine(text);
+            UpdateScrollStatus();
+            Repaint();
+            PositionCursorAtInput();
+            Console.Out.Flush();
         }
     }
 
@@ -171,6 +448,112 @@ public sealed class EGuiConsole : EGuiBase
     public override void InfoColored(string coloredText) => WriteOutput(coloredText + "\n");
     public override void WarningColored(string coloredText) => WriteOutput(coloredText + "\n");
     public override void WriteRawDirect(string text) => WriteOutput(text);
+
+    // ═══════════════════════════════════════════════════
+    //  SCROLL NAVIGATION
+    // ═══════════════════════════════════════════════════
+
+    private void ScrollUp(int lines)
+    {
+        int regionHeight = _outputRegionEnd - _outputRegionStart + 1;
+        int maxScroll = Math.Max(0, _outputLines.Count - regionHeight);
+        int newOffset = Math.Min(maxScroll, _scrollOffset + lines);
+        if (newOffset == _scrollOffset) return;
+        _scrollOffset = newOffset;
+        _outputDirty = true;
+        UpdateScrollStatus();
+        Repaint();
+        PositionCursorAtInput();
+        Console.Out.Flush();
+    }
+
+    private void ScrollDown(int lines)
+    {
+        int newOffset = Math.Max(0, _scrollOffset - lines);
+        if (newOffset == _scrollOffset) return;
+        _scrollOffset = newOffset;
+        _outputDirty = true;
+        UpdateScrollStatus();
+        Repaint();
+        PositionCursorAtInput();
+        Console.Out.Flush();
+    }
+
+    private void ScrollToBottom()
+    {
+        if (_scrollOffset == 0) return;
+        _scrollOffset = 0;
+        _outputDirty = true;
+        UpdateScrollStatus();
+        Repaint();
+        PositionCursorAtInput();
+        Console.Out.Flush();
+    }
+
+    private void UpdateScrollStatus()
+    {
+        if (_scrollOffset > 0)
+        {
+            int totalLines = _outputLines.Count;
+            _statusBar = $"\x1b[2m\x1b[36m↑ Scrolled up {_scrollOffset} line(s) — PageDown to return ({totalLines} total lines)\x1b[0m";
+            _statusDirty = true;
+        }
+        else if (!string.IsNullOrEmpty(_statusBar) && _statusBar.StartsWith("\x1b[2m\x1b[36m↑"))
+        {
+            _statusBar = "";
+            _statusDirty = true;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  STATUS BAR
+    // ═══════════════════════════════════════════════════
+
+    /// <summary>Update the status bar content. Pass empty string to clear.</summary>
+    public void SetStatusBar(string text)
+    {
+        lock (_writeLock)
+        {
+            _statusBar = text;
+            _statusDirty = true;
+            if (_ansiSupported)
+            {
+                if (CheckResize()) _fullRepaint = true;
+                Repaint();
+                PositionCursorAtInput();
+                Console.Out.Flush();
+            }
+        }
+    }
+
+    // ════════════════════════════════════════════════════════
+    //  CLEAR CANVAS
+    // ════════════════════════════════════════════════════════
+
+    public override void ClearCanvas()
+    {
+        if (!_ansiSupported)
+        {
+            lock (_writeLock)
+            {
+                try { Console.Clear(); } catch { }
+                Console.Out.Flush();
+            }
+            return;
+        }
+
+        lock (_writeLock)
+        {
+            _outputLines.Clear();
+            _scrollOffset = 0;
+            UpdateScrollStatus();
+            _fullRepaint = true;
+            Repaint();
+            PositionCursorAtInput();
+            Console.Out.Flush();
+        }
+    }
+
     public override void LogInternal(string text) => WriteOutput(text + "\n");
 
     // ═══════════════════════════════════════════════════
@@ -184,10 +567,16 @@ public sealed class EGuiConsole : EGuiBase
     {
         _inputBuffer.Clear();
 
-        lock (_writeLock)
+        if (_ansiSupported)
         {
-            _promptActive = true;
-            RenderPrompt();
+            lock (_writeLock)
+            {
+                if (CheckResize()) _fullRepaint = true;
+                _inputDirty = true;
+                Repaint();
+                PositionCursorAtInput();
+                Console.Out.Flush();
+            }
         }
 
         while (true)
@@ -196,11 +585,19 @@ public sealed class EGuiConsole : EGuiBase
             try
             {
                 // Poll: check if silent mode should turn off
-                // (session finished while we're waiting for input)
                 if (_silentInput && _silentInputCheck != null && !_silentInputCheck())
                 {
                     _silentInput = false;
-                    lock (_writeLock) { RenderPrompt(); }
+                    if (_ansiSupported)
+                    {
+                        lock (_writeLock)
+                        {
+                            _inputDirty = true;
+                            Repaint();
+                            PositionCursorAtInput();
+                            Console.Out.Flush();
+                        }
+                    }
                 }
 
                 if (!Console.KeyAvailable)
@@ -215,33 +612,71 @@ public sealed class EGuiConsole : EGuiBase
                 return Console.ReadLine();
             }
 
+            if (!_ansiSupported)
+            {
+                // Fallback: old behavior for non-ANSI terminals
+                return ReadInputLineFallback(key);
+            }
+
             lock (_writeLock)
             {
+                if (CheckResize()) _fullRepaint = true;
+
                 if (key.Key == ConsoleKey.Enter)
                 {
                     var result = _inputBuffer.ToString();
                     _inputBuffer.Clear();
 
-                    // Print the submitted input: "> text\n"
-                    // This shows what was entered even in silent mode
-                    Console.Write("\r\x1b[2K");
-                    Console.Write(PromptStr);
-                    Console.Write(result);
-                    Console.Write("\n");
+                    // Add the submitted input as an output line: "> text"
+                    AddOutputLine(PromptStr + result);
+                    _outputDirty = true;
+
+                    // Reset silent mode for next input
+                    _silentInput = false;
+
+                    Repaint();
+                    PositionCursorAtInput();
                     Console.Out.Flush();
 
-                    // Reprint "> " for next input
-                    RenderPrompt();
-
                     return result;
+                }
+                else if (key.Key == ConsoleKey.PageUp)
+                {
+                    int regionHeight = _outputRegionEnd - _outputRegionStart + 1;
+                    ScrollUp(regionHeight);
+                }
+                else if (key.Key == ConsoleKey.PageDown)
+                {
+                    int regionHeight = _outputRegionEnd - _outputRegionStart + 1;
+                    ScrollDown(regionHeight);
+                }
+                else if (key.Key == ConsoleKey.UpArrow)
+                {
+                    ScrollUp(1);
+                }
+                else if (key.Key == ConsoleKey.DownArrow)
+                {
+                    ScrollDown(1);
+                }
+                else if (key.Key == ConsoleKey.Home)
+                {
+                    int regionHeight = _outputRegionEnd - _outputRegionStart + 1;
+                    int maxScroll = Math.Max(0, _outputLines.Count - regionHeight);
+                    ScrollUp(maxScroll - _scrollOffset);
+                }
+                else if (key.Key == ConsoleKey.End)
+                {
+                    ScrollToBottom();
                 }
                 else if (key.Key == ConsoleKey.Backspace)
                 {
                     if (_inputBuffer.Length > 0)
                     {
                         _inputBuffer.Remove(_inputBuffer.Length - 1, 1);
-                        if (!_silentInput)
-                            RenderPrompt();
+                        _inputDirty = true;
+                        Repaint();
+                        PositionCursorAtInput();
+                        Console.Out.Flush();
                     }
                 }
                 else if (key.Key == ConsoleKey.Escape)
@@ -249,8 +684,10 @@ public sealed class EGuiConsole : EGuiBase
                     if (_inputBuffer.Length > 0)
                     {
                         _inputBuffer.Clear();
-                        if (!_silentInput)
-                            RenderPrompt();
+                        _inputDirty = true;
+                        Repaint();
+                        PositionCursorAtInput();
+                        Console.Out.Flush();
                     }
                     else
                     {
@@ -261,20 +698,65 @@ public sealed class EGuiConsole : EGuiBase
                 else if (key.Key == ConsoleKey.Tab)
                 {
                     _inputBuffer.Append("    ");
-                    if (!_silentInput)
-                        RenderPrompt();
+                    _inputDirty = true;
+                    Repaint();
+                    PositionCursorAtInput();
+                    Console.Out.Flush();
                 }
                 else if (key.KeyChar != '\0' && !char.IsControl(key.KeyChar))
                 {
                     _inputBuffer.Append(key.KeyChar);
-                    // Silent mode: don't echo, just buffer
-                    // Normal mode: echo at cursor
                     if (!_silentInput)
                     {
-                        Console.Write(key.KeyChar);
+                        _inputDirty = true;
+                        Repaint();
+                        PositionCursorAtInput();
                         Console.Out.Flush();
                     }
                 }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Fallback input for non-ANSI terminals. Uses the old scroll-based approach.
+    /// </summary>
+    private string? ReadInputLineFallback(ConsoleKeyInfo firstKey)
+    {
+        // For non-ANSI, just do simple line reading
+        if (firstKey.Key == ConsoleKey.Enter)
+        {
+            Console.WriteLine();
+            return "";
+        }
+        var sb = new StringBuilder();
+        sb.Append(firstKey.KeyChar);
+        Console.Write(firstKey.KeyChar);
+        while (true)
+        {
+            try
+            {
+                if (!Console.KeyAvailable) { Thread.Sleep(10); continue; }
+                var key = Console.ReadKey(true);
+                if (key.Key == ConsoleKey.Enter)
+                {
+                    Console.WriteLine();
+                    return sb.ToString();
+                }
+                if (key.Key == ConsoleKey.Backspace && sb.Length > 0)
+                {
+                    sb.Remove(sb.Length - 1, 1);
+                    Console.Write("\b \b");
+                }
+                else if (key.KeyChar != '\0' && !char.IsControl(key.KeyChar))
+                {
+                    sb.Append(key.KeyChar);
+                    Console.Write(key.KeyChar);
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                return Console.ReadLine();
             }
         }
     }

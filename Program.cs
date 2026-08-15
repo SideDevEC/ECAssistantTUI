@@ -41,9 +41,10 @@ public class Program
                  }
 
                  // ── UI initialisation — single line, swap anywhere ──
-            // v10.21.2: EGuiConsole with ANSI scroll region — output scrolls above, input fixed at bottom
-            new EGuiConsole().InitConsole();
-            Gui = new EGuiConsole();
+            // v10.21.2: EGuiConsole with full-screen alternate buffer TUI
+            var guiConsole = new EGuiConsole();
+            guiConsole.InitConsole();
+            Gui = guiConsole;
             _color = new EColor();
             // Route EColor output through Gui for scroll region cursor management
             // Set static handlers so ALL EColor instances (SubAgentManager, EMemoryManager, etc.) route through Gui
@@ -184,6 +185,7 @@ public class Program
             else
                      {
                     Gui.WriteLineColored(_color.Red + "[Error] No model loaded. Use --model or update appsettings.json." + _color.Reset);
+                    if (Gui is EGuiConsole gc1) gc1.ShutdownConsole();
                   return 1;
                      }
 
@@ -194,6 +196,10 @@ public class Program
                 // Transcript already auto-saved in loop via "save-context" command
                  Gui.WriteLineColored(_color.Cyan + _color.Bold + "[Context] " + ($"Transcript saved at: {transPath}") + _color.Reset);
                 }
+
+            // Shutdown TUI — leave alternate buffer, restore terminal
+            if (Gui is EGuiConsole gc)
+                gc.ShutdownConsole();
 
             return 0;
              }
@@ -425,6 +431,7 @@ public class Program
                 await sessionManager.StopAllAsync();
                 _quitRequested = true;
                 return;
+            case "clear": Gui.ClearCanvas(); return;
             case "help": await PrintHelp(); return;
             case "tools": ListTools(agent); return;
             case "clear-history": agent.ClearHistory(); return;
@@ -744,6 +751,7 @@ public class Program
         Gui.WriteLineColored(_color.Yellow + _color.Bold + "  <type request>       Multi-step agent execution" + _color.Reset);
         Gui.WriteLineColored(_color.Yellow + _color.Bold + "  stop                 Stop the running session (keeps app alive)" + _color.Reset);
         Gui.WriteLineColored(_color.Yellow + _color.Bold + "  ESC                  Stop generation mid-stream (during token output)" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  clear                Clear console output" + _color.Reset);
         Gui.WriteLineColored(_color.Yellow + _color.Bold + "  quit / exit          Stop all sessions and exit the application" + _color.Reset);
         Gui.WriteLineColored(_color.Yellow + _color.Bold + "  help                 Show this help" + _color.Reset);
         Gui.WriteLineColored(_color.Yellow + _color.Bold + "  tools                List registered tools" + _color.Reset);

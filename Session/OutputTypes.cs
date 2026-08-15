@@ -53,6 +53,9 @@ public interface IUiRenderer
     /// <summary>Called when a new output entry is flushed/written by the session.</summary>
     void OnOutput(OutputEntry entry);
 
+    /// <summary>Called for raw token streaming — bypasses cursor tracking.</summary>
+    void OnRawDirect(string token);
+
     /// <summary>Called when the prompt queue changes (add/remove/clear).</summary>
     void OnQueueChanged(List<string> queue);
 

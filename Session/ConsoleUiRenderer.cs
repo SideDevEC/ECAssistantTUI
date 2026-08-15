@@ -49,6 +49,11 @@ public class ConsoleUiRenderer : IUiRenderer
         _ => null
     };
 
+    public void OnRawDirect(string token)
+    {
+        _gui.WriteRawDirect(token);
+    }
+
     public void OnOutput(OutputEntry entry)
     {
         switch (entry.Type)

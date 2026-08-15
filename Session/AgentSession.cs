@@ -282,10 +282,10 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
     {
         lock (_bufferLock)
         {
-            // Flush any buffered content first, then write directly
+            // Flush any buffered content first, then write directly through UI renderer
             if (_streamBuffer.Length > 0)
                 FlushBuffer();
-            Program.Gui?.WriteRawDirect(token);
+            _attachedUi?.OnRawDirect(token);
         }
     }
 

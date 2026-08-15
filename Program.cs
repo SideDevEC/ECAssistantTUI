@@ -672,6 +672,19 @@ public class Program
         _color.TagBold(_color.Cyan, "Mode", "The agent decides tools automatically.");
         Gui.BlankLine();
 
+        // Set ESC handler — stops the active session
+        if (Gui is EGuiConsole console)
+        {
+            console.SetHandlers(onSubmit: null, onEscape: () =>
+            {
+                var stopSession = sessionManager.ActiveSession;
+                if (stopSession != null && stopSession.RunState == SessionRunState.Running)
+                {
+                    stopSession.Stop();
+                }
+            });
+        }
+
         while (true)
         {
             var input = Gui.PromptRaw(_color.Cyan + "> " + _color.Reset)?.Trim();

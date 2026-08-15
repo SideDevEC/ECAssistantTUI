@@ -2,6 +2,7 @@ using System.Text.Json;
 using ECAssistant.Config;
 using ECAssistant.Engine;
 using ECAssistant.Services;
+using ECAssistant.Interfaces;
 using LLama;
 using LLama.Common;
 using LLama.Native;
@@ -26,7 +27,7 @@ public class SessionManager : IAsyncDisposable
     private readonly InferenceParams _inferenceParams;
     private readonly string _workingDir;
     private readonly SubAgentConfig _subAgentConfig;
-    private readonly SemaphoreSlim _inferenceLock = new(1, 1);
+    private readonly SemaphoreSlim _inferenceLock = new(1, 1); private readonly SessionDiscovery _sessionDiscovery = new();
 
     /// <summary>Shared model weights — loaded ONCE, shared across all sessions.</summary>
     private readonly LLamaWeights _sharedWeights;
@@ -41,6 +42,7 @@ public class SessionManager : IAsyncDisposable
     private readonly EAgentConfig _config;
 
     private int _sessionCounter = 0;
+    private readonly ILogger _logger;
 
     // ── Callbacks for startup loading (v10.21) ──
 
@@ -54,8 +56,9 @@ public class SessionManager : IAsyncDisposable
     /// Create session manager. Loads model weights ONCE (does NOT create sessions yet).
     /// Call LoadSessionsFromDiskAsync() or CreateSession() afterwards.
     /// </summary>
-    public SessionManager(EAgentConfig config, string resolvedModelPath, string workingDir)
+    public SessionManager(EAgentConfig config, string resolvedModelPath, string workingDir, ILogger? logger = null)
     {
+        _logger = logger ?? new Logger();
         _config = config;
         _modelPath = resolvedModelPath;
         _workingDir = workingDir;
@@ -91,12 +94,12 @@ public class SessionManager : IAsyncDisposable
             LLama.Native.NativeLogConfig.llama_log_set(delegate (LLamaLogLevel level, string message)
             {
                 if (level == LLamaLogLevel.Error)
-                    Logger.Error("LLAMA", message);
+                    _logger.Error("LLAMA", message);
                 else if (level == LLamaLogLevel.Warning)
-                    Logger.Warn("LLAMA", message);
+                    _logger.Warn("LLAMA", message);
                 // Info/Debug → file only via Logger, never console
                 else
-                    Logger.Info("LLAMA", message);
+                    _logger.Info("LLAMA", message);
             });
         }
         catch { /* native lib may not be loaded yet — ignore */ }
@@ -149,11 +152,11 @@ public class SessionManager : IAsyncDisposable
         Func<AgentSession, Task> initSessionAsync)
     {
         // Migrate legacy transcript if needed
-        SessionDiscovery.MigrateLegacyTranscript(_workingDir);
-        SessionDiscovery.EnsureSessionsDir(_workingDir);
+        _sessionDiscovery.MigrateLegacyTranscript(_workingDir);
+        _sessionDiscovery.EnsureSessionsDir(_workingDir);
 
         // Discover existing sessions
-        var discovered = SessionDiscovery.DiscoverSessions(_workingDir);
+        var discovered = _sessionDiscovery.DiscoverSessions(_workingDir);
         string activeKey;
 
         if (discovered.Count == 0)
@@ -193,7 +196,7 @@ public class SessionManager : IAsyncDisposable
         // Set active session
         var activeSession = Get(activeKey) ?? Main;
         ActiveSession = activeSession;
-        SessionDiscovery.TouchSessionMeta(_workingDir, activeKey);
+        _sessionDiscovery.TouchSessionMeta(_workingDir, activeKey);
 
         return activeKey;
     }
@@ -216,7 +219,8 @@ public class SessionManager : IAsyncDisposable
             workingDir: _workingDir,
             inferenceLock: _inferenceLock,
             subAgentConfig: _subAgentConfig,
-            label: label);
+            label: label,
+            logger: _logger);
 
         _sessions[key] = session;
         _sessionCounter++;
@@ -235,7 +239,7 @@ public class SessionManager : IAsyncDisposable
     {
         if (!_sessions.TryGetValue(key, out var session)) return false;
         ActiveSession = session;
-        SessionDiscovery.TouchSessionMeta(_workingDir, key);
+        _sessionDiscovery.TouchSessionMeta(_workingDir, key);
         return true;
     }
 
@@ -245,7 +249,7 @@ public class SessionManager : IAsyncDisposable
         var list = _sessions.Values.ToList();
         if (index < 1 || index > list.Count) return false;
         ActiveSession = list[index - 1];
-        SessionDiscovery.TouchSessionMeta(_workingDir, ActiveSession.Key);
+        _sessionDiscovery.TouchSessionMeta(_workingDir, ActiveSession.Key);
         return true;
     }
 

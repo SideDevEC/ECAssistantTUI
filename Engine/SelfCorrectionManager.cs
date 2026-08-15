@@ -1,5 +1,6 @@
 using System.Text.Json;
 using ECAssistant.Services;
+using ECAssistant.Interfaces;
 
 namespace ECAssistant.Engine;
 
@@ -19,9 +20,11 @@ public class SelfCorrectionManager : IDisposable
     private readonly List<FileSnapshot> _snapshots = new();
     private readonly string _snapshotDir;
     private int _maxHistory = 20;
+    private readonly ILogger _logger;
 
-    public SelfCorrectionManager(string workingDir)
+    public SelfCorrectionManager(string workingDir, ILogger? logger = null)
     {
+        _logger = logger ?? new Logger();
         _snapshotDir = Path.Combine(workingDir, ".snapshots");
         if (!Directory.Exists(_snapshotDir)) Directory.CreateDirectory(_snapshotDir);
     }
@@ -123,12 +126,12 @@ public class SelfCorrectionManager : IDisposable
                 Timestamp = DateTime.UtcNow
             };
             _snapshots.Add(snapshot);
-            Logger.Info("SelfCorrect", $"Snapshotted: {filePath} → {snapshotId}");
+            _logger.Info("SelfCorrect", $"Snapshotted: {filePath} → {snapshotId}");
             return snapshotId;
         }
         catch (Exception ex)
         {
-            Logger.Error("SelfCorrect", $"Snapshot failed: {ex.Message}");
+            _logger.Error("SelfCorrect", $"Snapshot failed: {ex.Message}");
             return null;
         }
     }
@@ -139,19 +142,19 @@ public class SelfCorrectionManager : IDisposable
         var snapshot = _snapshots.LastOrDefault(s => s.OriginalPath == filePath);
         if (snapshot == null)
         {
-            Logger.Warn("SelfCorrect", $"No snapshot found for: {filePath}");
+            _logger.Warn("SelfCorrect", $"No snapshot found for: {filePath}");
             return false;
         }
 
         try
         {
             await File.WriteAllTextAsync(snapshot.OriginalPath, snapshot.Content);
-            Logger.Info("SelfCorrect", $"Rolled back: {filePath}");
+            _logger.Info("SelfCorrect", $"Rolled back: {filePath}");
             return true;
         }
         catch (Exception ex)
         {
-            Logger.Error("SelfCorrect", $"Rollback failed: {ex.Message}");
+            _logger.Error("SelfCorrect", $"Rollback failed: {ex.Message}");
             return false;
         }
     }
@@ -161,7 +164,7 @@ public class SelfCorrectionManager : IDisposable
     {
         _failures.Clear();
         _snapshots.Clear();
-        Logger.Debug("SelfCorrect", "History cleared.");
+        _logger.Debug("SelfCorrect", "History cleared.");
     }
 
     /// <summary>Get failure count for current task.</summary>
@@ -193,35 +196,3 @@ public class SelfCorrectionManager : IDisposable
 }
 
 // ─── Data Structures ──────────────────────────────
-
-public class FailureEntry
-{
-    public string ToolName { get; set; } = "";
-    public string ErrorMessage { get; set; } = "";
-    public string Command { get; set; } = "";
-    public DateTime Timestamp { get; set; }
-}
-
-public class FileSnapshot
-{
-    public string SnapshotId { get; set; } = "";
-    public string OriginalPath { get; set; } = "";
-    public string Content { get; set; } = "";
-    public DateTime Timestamp { get; set; }
-}
-
-public class FailureAnalysis
-{
-    public FailurePattern Pattern { get; set; }
-    public string Recommendation { get; set; } = "";
-    public bool ShouldEscalate { get; set; }
-}
-
-public enum FailurePattern
-{
-    None,
-    Isolated,       // single failure, normal
-    RepeatedError,  // same error 3+ times
-    ToolLoop,       // same tool failing 3+ times
-    Alternating     // fix A breaks B pattern
-}

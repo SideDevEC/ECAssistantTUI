@@ -1,5 +1,5 @@
-using static ECAssistant.EColor;
 using ECAssistant.UI;
+using ECAssistant.Interfaces;
 
 namespace ECAssistant.Session;
 
@@ -13,28 +13,30 @@ namespace ECAssistant.Session;
 public class ConsoleUiRenderer : IUiRenderer
 {
     private readonly EGuiBase _gui;
+    private readonly IColorFormatter _color;
 
-    public ConsoleUiRenderer(EGuiBase gui)
+    public ConsoleUiRenderer(EGuiBase gui, IColorFormatter color)
     {
         _gui = gui;
+        _color = color;
     }
 
     /// <summary>Map output states to ANSI color codes for the console.</summary>
-    private static string StateToColor(OutputState state) => state switch
+    private string StateToColor(OutputState state) => state switch
     {
-        OutputState.Info    => Cyan,
-        OutputState.Success => Success(),
-        OutputState.Warning => Warn(),
-        OutputState.Error   => Error(),
-        OutputState.Dim     => Dim,
-        OutputState.Bold    => Bold,
-        OutputState.Raw     => Reset,
-        OutputState.System  => Magenta,
-        _ => Reset
+        OutputState.Info    => _color.Cyan,
+        OutputState.Success => _color.Green,
+        OutputState.Warning => _color.Yellow,
+        OutputState.Error   => _color.Red,
+        OutputState.Dim     => _color.Dim,
+        OutputState.Bold    => _color.Bold,
+        OutputState.Raw     => _color.Reset,
+        OutputState.System  => _color.Magenta,
+        _ => _color.Reset
     };
 
     /// <summary>Map output states to a tag prefix for display.</summary>
-    private static string? StateToTag(OutputState state) => state switch
+    private string? StateToTag(OutputState state) => state switch
     {
         OutputState.Info    => null,
         OutputState.Success => "OK",
@@ -62,7 +64,7 @@ public class ConsoleUiRenderer : IUiRenderer
                 if (!string.IsNullOrEmpty(entry.Text))
                 {
                     var color = StateToColor(entry.State);
-                    _gui.WriteLineColored(color + entry.Text + Reset);
+                    _gui.WriteLineColored(color + entry.Text + _color.Reset);
                 }
                 break;
 
@@ -70,7 +72,7 @@ public class ConsoleUiRenderer : IUiRenderer
                 // v10.22: Tool results in dim gray for visual distinction
                 if (!string.IsNullOrEmpty(entry.Text))
                 {
-                    _gui.WriteLineColored(Dim + entry.Text + Reset);
+                    _gui.WriteLineColored(_color.Dim + entry.Text + _color.Reset);
                 }
                 break;
 
@@ -78,7 +80,7 @@ public class ConsoleUiRenderer : IUiRenderer
                 // v10.22: LLM thinking in italic/dim
                 if (!string.IsNullOrEmpty(entry.Text))
                 {
-                    _gui.WriteLineColored(Dim + "💭 " + entry.Text + Reset);
+                    _gui.WriteLineColored(_color.Dim + "💭 " + entry.Text + _color.Reset);
                 }
                 break;
 
@@ -93,9 +95,9 @@ public class ConsoleUiRenderer : IUiRenderer
                     var color = StateToColor(entry.State);
                     var tag = StateToTag(entry.State);
                     if (tag != null)
-                        _gui.WriteLineColored($"{color}[{tag}] {entry.Text}{Reset}");
+                        _gui.WriteLineColored($"{color}[{tag}] {entry.Text}{_color.Reset}");
                     else
-                        _gui.WriteLineColored($"{color}{entry.Text}{Reset}");
+                        _gui.WriteLineColored($"{color}{entry.Text}{_color.Reset}");
                 }
                 break;
         }
@@ -115,7 +117,7 @@ public class ConsoleUiRenderer : IUiRenderer
     /// Render a full output history (from JSONL file) to the console.
     /// Used when switching to a session to display its complete history.
     /// </summary>
-    public static void RenderHistory(EGuiBase gui, List<OutputEntry> entries)
+    public void RenderHistory(EGuiBase gui, List<OutputEntry> entries, IColorFormatter color)
     {
         foreach (var entry in entries)
         {
@@ -124,8 +126,19 @@ public class ConsoleUiRenderer : IUiRenderer
                 case "stream":
                     if (!string.IsNullOrEmpty(entry.Text))
                     {
-                        var color = StateToColor(entry.State);
-                        gui.WriteLineColored(color + entry.Text + Reset);
+                        var c = entry.State switch
+                        {
+                            OutputState.Info    => color.Cyan,
+                            OutputState.Success => color.Green,
+                            OutputState.Warning => color.Yellow,
+                            OutputState.Error   => color.Red,
+                            OutputState.Dim     => color.Dim,
+                            OutputState.Bold    => color.Bold,
+                            OutputState.Raw     => color.Reset,
+                            OutputState.System  => color.Magenta,
+                            _ => color.Reset
+                        };
+                        gui.WriteLineColored(c + entry.Text + color.Reset);
                     }
                     break;
 
@@ -134,12 +147,30 @@ public class ConsoleUiRenderer : IUiRenderer
                         gui.BlankLine();
                     else
                     {
-                        var color = StateToColor(entry.State);
-                        var tag = StateToTag(entry.State);
+                        var c = entry.State switch
+                        {
+                            OutputState.Info    => color.Cyan,
+                            OutputState.Success => color.Green,
+                            OutputState.Warning => color.Yellow,
+                            OutputState.Error   => color.Red,
+                            OutputState.Dim     => color.Dim,
+                            OutputState.Bold    => color.Bold,
+                            OutputState.Raw     => color.Reset,
+                            OutputState.System  => color.Magenta,
+                            _ => color.Reset
+                        };
+                        var tag = entry.State switch
+                        {
+                            OutputState.Success => "OK",
+                            OutputState.Warning => "WARN",
+                            OutputState.Error   => "ERR",
+                            OutputState.System  => "SYS",
+                            _ => null
+                        };
                         if (tag != null)
-                            gui.WriteLineColored($"{color}[{tag}] {entry.Text}{Reset}");
+                            gui.WriteLineColored($"{c}[{tag}] {entry.Text}{color.Reset}");
                         else
-                            gui.WriteLineColored($"{color}{entry.Text}{Reset}");
+                            gui.WriteLineColored($"{c}{entry.Text}{color.Reset}");
                     }
                     break;
 

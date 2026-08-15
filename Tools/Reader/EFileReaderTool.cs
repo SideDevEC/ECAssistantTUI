@@ -1,6 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
-using ECAssistant.Session;
+using ECAssistant.Interfaces;
 
 namespace ECAssistant.Tools.Reader;
 
@@ -15,47 +15,38 @@ namespace ECAssistant.Tools.Reader;
 /// Returns the file content with line numbers, plus metadata about total lines
 /// so the LLM knows if there's more to read.
 /// </summary>
-public class EFileReaderTool : EToolBase
+public class EFileReaderTool : ITool
 {
+    private readonly IFileSystem _fileSystem;
+    private readonly IColorFormatter _color;
     private readonly string _workingDir;
 
-    public EFileReaderTool(string workingDir)
+    public EFileReaderTool(IFileSystem fileSystem, IConfigProvider configProvider, IColorFormatter color)
     {
-        _workingDir = workingDir;
+        _fileSystem = fileSystem;
+        _color = color;
+        _workingDir = configProvider.GetValue("workingDir", Directory.GetCurrentDirectory());
     }
 
-    public override string Name => "EFileReader";
+    public string Name => "EFileReader";
 
-    public override string Description =>
+    public string Description =>
         "Read a file's contents with line numbers, offset, and limit. " +
         "Prevents context blowups on large files by controlling how much is read. " +
         "Returns line-numbered content plus total line count so you know if there's more.";
 
-    public override string UsageExample =>
-        "<toolcall>EFileReader<file>src/Program.cs</file></toolcall>\n" +
-        "<toolcall>EFileReader<file>src/Program.cs</file><offset>50</offset><limit>30</limit></toolcall>\n" +
-        "<toolcall>EFileReader<file>large.log</file><offset>1</offset><limit>100</limit><maxchars>4000</maxchars></toolcall>";
+    public Task<string> ExecuteAsync(string input, CancellationToken ct = default)
+    {
+        return ExecuteCore(ParseInput(input));
+    }
 
-    public override string GetToolRules() =>
-        "Rules:\n" +
-        "1. file (required): path to the file to read (relative to working dir or absolute)\n" +
-        "2. offset (optional): line number to start from (1-based, default 1)\n" +
-        "3. limit (optional): max lines to read (default 100)\n" +
-        "4. maxchars (optional): max total chars to read (default 4000)\n" +
-        "5. Always check TotalLines in the result — if offset+limit < TotalLines, there's more to read\n" +
-        "6. Prefer EFileReader over EShellAgent `cat` for reading files — controlled, no context blowup";
+    public Interfaces.ToolPolicy GetPolicy() => Interfaces.ToolPolicy.Allowed(Name);
 
-    public override string GetToolExample() =>
-        "Examples:\n" +
-        "Read first 100 lines: <toolcall>EFileReader<file>src/Program.cs</file></toolcall>\n" +
-        "Read lines 50-80: <toolcall>EFileReader<file>src/Program.cs</file><offset>50</offset><limit>30</limit></toolcall>\n" +
-        "Read with char budget: <toolcall>EFileReader<file>big.log</file><maxchars>2000</maxchars></toolcall>";
-
-    public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments, CancellationToken cancellationToken = default)
+    private async Task<string> ExecuteCore(Dictionary<string, string?> arguments)
     {
         var filePath = arguments.GetValueOrDefault("file")?.Trim();
         if (string.IsNullOrEmpty(filePath))
-            return EToolResult.Failure(Name, "Missing required argument: file");
+            return $"EFileReader: Missing required argument: file";
 
         // Parse optional args
         var offset = 1;
@@ -72,19 +63,19 @@ public class EFileReaderTool : EToolBase
 
         // Resolve path
         var fullPath = ResolvePath(filePath);
-        if (!File.Exists(fullPath))
-            return EToolResult.Failure(Name, $"File not found: {filePath}");
+        if (!_fileSystem.FileExists(fullPath))
+            return $"EFileReader: File not found: {filePath}";
 
         try
         {
-            var lines = await File.ReadAllLinesAsync(fullPath, cancellationToken);
+            var content = _fileSystem.ReadFile(fullPath);
+            var lines = content.Split('\n');
             var totalLines = lines.Length;
 
             // Apply offset (1-based to 0-based)
             var startIndex = Math.Max(0, offset - 1);
             if (startIndex >= totalLines)
-                return EToolResult.Success(Name,
-                    $"File: {filePath}\nTotalLines: {totalLines}\n[Offset {offset} is beyond end of file]");
+                return $"File: {filePath}\nTotalLines: {totalLines}\n[Offset {offset} is beyond end of file]";
 
             // Take lines within limit
             var available = totalLines - startIndex;
@@ -115,19 +106,11 @@ public class EFileReaderTool : EToolBase
             if (offset + linesShown < totalLines)
                 sb.AppendLine($"\n[More available: {totalLines - offset - linesShown + 1} lines remaining. Use offset={offset + linesShown} to read more.]");
 
-            var metadata = new Dictionary<string, string>
-            {
-                { "totalLines", totalLines.ToString() },
-                { "linesShown", linesShown.ToString() },
-                { "offset", offset.ToString() },
-                { "file", filePath }
-            };
-
-            return EToolResult.Success(Name, sb.ToString(), metadata);
+            return sb.ToString();
         }
         catch (Exception ex)
         {
-            return EToolResult.Failure(Name, $"Error reading file: {ex.Message}");
+            return $"EFileReader: Error reading file: {ex.Message}";
         }
     }
 
@@ -136,5 +119,14 @@ public class EFileReaderTool : EToolBase
         if (Path.IsPathRooted(path))
             return path;
         return Path.Combine(_workingDir, path);
+    }
+
+    private Dictionary<string, string?> ParseInput(string input)
+    {
+        var args = new Dictionary<string, string?>();
+        var matches = Regex.Matches(input, @"<(\w+)>(.*?)</\1>");
+        foreach (Match match in matches)
+            args[match.Groups[1].Value] = match.Groups[2].Value;
+        return args;
     }
 }

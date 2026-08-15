@@ -1,9 +1,9 @@
-using static ECAssistant.EColor;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Globalization;
 using System.Linq;
+using ECAssistant.Interfaces;
 
 namespace ECAssistant.Memory;
 
@@ -28,10 +28,12 @@ public class EMemoryManager : IDisposable
     private readonly List<MemoryEntry> _loadedMemories = new();
     private bool _dirty = false;    // True when memory has unsaved changes
     private int _entryCounter = 0;
+    private readonly IColorFormatter _color;
 
     /// <summary>Create memory manager with custom or default directory</summary>
-    public EMemoryManager(string? dataPath = null)
+    public EMemoryManager(string? dataPath = null, IColorFormatter? color = null)
     {
+        _color = color ?? new EColor();
         var basePath = !string.IsNullOrWhiteSpace(dataPath)
             ? dataPath
             : "Memory";
@@ -66,11 +68,11 @@ public class EMemoryManager : IDisposable
             }
             catch (Exception ex)
             {
-                EColor.Tag(Error(), "Memory", $"Failed to load {Path.GetFileName(file)}: {ex.Message}");
+                _color.Tag(_color.Red, "Memory", $"Failed to load {Path.GetFileName(file)}: {ex.Message}");
             }
         }
 
-        EColor.TagBold(Success(), "Memory", $"Loaded {_loadedMemories.Count} entries from disk.");
+        _color.TagBold(_color.Green, "Memory", $"Loaded {_loadedMemories.Count} entries from disk.");
     }
 
     /// <summary>Save any unsaved changes back to disk</summary>
@@ -94,12 +96,12 @@ public class EMemoryManager : IDisposable
             }
             catch (Exception ex)
             {
-                EColor.Tag(Error(), "Memory", $"Save failed for '{entry.Key}': {ex.Message}");
+                _color.Tag(_color.Red, "Memory", $"Save failed for '{entry.Key}': {ex.Message}");
             }
         }
 
         _dirty = false;
-        EColor.TagBold(Success(), "Memory", "All changes saved to disk.");
+        _color.TagBold(_color.Green, "Memory", "All changes saved to disk.");
     }
 
     /// <summary>Add a memory entry - key facts, decisions, or lessons learned</summary>
@@ -119,7 +121,7 @@ public class EMemoryManager : IDisposable
         _loadedMemories.Add(entry);
         _dirty = true;
 
-        EColor.Tag(Success(), "Memory", $"Saved: {key} (category: {category})");
+        _color.Tag(_color.Green, "Memory", $"Saved: {key} (category: {category})");
     }
 
     /// <summary>Query memory by keyword or category - returns matching entries</summary>
@@ -223,7 +225,7 @@ public class EMemoryManager : IDisposable
     {
         _loadedMemories.Clear();
         _dirty = true;
-        EColor.TagBold(Info(), "Memory", "All memories cleared. Save to persist deletion.");
+        _color.TagBold(_color.Cyan, "Memory", "All memories cleared. Save to persist deletion.");
     }
 
     /// <summary>Delete a specific entry by key</summary>
@@ -234,11 +236,11 @@ public class EMemoryManager : IDisposable
         {
             _loadedMemories.Remove(entry);
             _dirty = true;
-            EColor.Tag(Info(), "Memory", $"Deleted: {key}");
+            _color.Tag(_color.Cyan, "Memory", $"Deleted: {key}");
         }
         else
         {
-            EColor.Tag(Error(), "Memory", $"Entry not found: {key}");
+            _color.Tag(_color.Red, "Memory", $"Entry not found: {key}");
         }
     }
 
@@ -262,7 +264,7 @@ public class EMemoryManager : IDisposable
     }
 
     /// <summary>Sanitize filename to remove invalid characters</summary>
-    private static string SanitizeFilename(string text)
+    private string SanitizeFilename(string text)
     {
         var sb = new StringBuilder();
         foreach (var c in text.ToCharArray())
@@ -281,7 +283,7 @@ public class EMemoryManager : IDisposable
     public void Dispose()
     {
         Save();
-        EColor.TagBold(Info(), "Memory", "Memory manager disposed.");
+        _color.TagBold(_color.Cyan, "Memory", "Memory manager disposed.");
     }
 }
 

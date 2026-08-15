@@ -1,5 +1,6 @@
 using System.Text.Json;
 using ECAssistant.Services;
+using ECAssistant.Interfaces;
 
 namespace ECAssistant.Engine;
 
@@ -21,9 +22,11 @@ public class ProjectContextManager : IDisposable
     private readonly string _contextFile;
     private ProjectContext _context = new();
     private DateTime _lastScan = DateTime.MinValue;
+    private readonly ILogger _logger;
 
-    public ProjectContextManager(string workingDir)
+    public ProjectContextManager(string workingDir, ILogger? logger = null)
     {
+        _logger = logger ?? new Logger();
         _workingDir = workingDir;
         _contextFile = Path.Combine(workingDir, ".project_context.json");
     }
@@ -36,7 +39,7 @@ public class ProjectContextManager : IDisposable
         {
             await ScanProjectAsync();
         }
-        Logger.Info("ProjectCtx", $"Initialized: {_context.Files.Count} files, {_context.Relationships.Count} relationships, last scan: {_context.LastScan}");
+        _logger.Info("ProjectCtx", $"Initialized: {_context.Files.Count} files, {_context.Relationships.Count} relationships, last scan: {_context.LastScan}");
     }
 
     /// <summary>Scan the project directory and build context.</summary>
@@ -99,7 +102,7 @@ public class ProjectContextManager : IDisposable
         _context.EntryPoint = FindEntryPoint();
 
         await SaveAsync();
-        Logger.Info("ProjectCtx", $"Scan complete: {_context.Files.Count} files, {_context.Relationships.Count} relationships");
+        _logger.Info("ProjectCtx", $"Scan complete: {_context.Files.Count} files, {_context.Relationships.Count} relationships");
     }
 
     /// <summary>Get a compact project summary for prompt injection.</summary>
@@ -184,7 +187,7 @@ public class ProjectContextManager : IDisposable
             var json = JsonSerializer.Serialize(_context, new JsonSerializerOptions { WriteIndented = true });
             await File.WriteAllTextAsync(_contextFile, json);
         }
-        catch (Exception ex) { Logger.Error("ProjectCtx", $"Save failed: {ex.Message}"); }
+        catch (Exception ex) { _logger.Error("ProjectCtx", $"Save failed: {ex.Message}"); }
     }
 
     private async Task LoadAsync()
@@ -195,7 +198,7 @@ public class ProjectContextManager : IDisposable
             var json = await File.ReadAllTextAsync(_contextFile);
             _context = JsonSerializer.Deserialize<ProjectContext>(json) ?? new ProjectContext();
         }
-        catch (Exception ex) { Logger.Error("ProjectCtx", $"Load failed: {ex.Message}"); }
+        catch (Exception ex) { _logger.Error("ProjectCtx", $"Load failed: {ex.Message}"); }
     }
 
     // ─── Helpers ──────────────────────────────────────────────────
@@ -206,7 +209,7 @@ public class ProjectContextManager : IDisposable
         return Path.Combine(_workingDir, file);
     }
 
-    private static List<string> ParseImports(string content, string ext)
+    private List<string> ParseImports(string content, string ext)
     {
         var imports = new List<string>();
         foreach (var line in content.Split('\n'))
@@ -222,13 +225,13 @@ public class ProjectContextManager : IDisposable
         return imports;
     }
 
-    private static int CountClasses(string content)
+    private int CountClasses(string content)
         => System.Text.RegularExpressions.Regex.Matches(content, @"(?i)\b(class|interface|struct|enum|record)\s+\w+").Count;
 
-    private static int CountMethods(string content)
+    private int CountMethods(string content)
         => System.Text.RegularExpressions.Regex.Matches(content, @"(?i)\b(public|private|protected|internal)\s+(static\s+)?(async\s+)?\w+\s+\w+\s*\(").Count;
 
-    private static string? FindFileByImport(string import, List<string> allFiles, string workingDir)
+    private string? FindFileByImport(string import, List<string> allFiles, string workingDir)
     {
         var parts = import.Split('.');
         if (parts.Length == 0) return null;

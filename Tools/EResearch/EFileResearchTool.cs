@@ -1,44 +1,61 @@
-using static ECAssistant.EColor;
 using System.Text;
-using ECAssistant.Tools;
-using ECAssistant;
+using System.Text.RegularExpressions;
+using ECAssistant.Interfaces;
 
 namespace ECAssistant.Tools.Research;
 
-public class EFileResearchTool : EToolBase
+/// <summary>
+/// EFileResearchTool — scan project files, read content for LLM analysis.
+/// Use for: finding code patterns, checking file structure, reading source code,
+/// researching project dependencies.
+/// </summary>
+public class EFileResearchTool : ITool
 {
+    private readonly IFileSystem _fileSystem;
+    private readonly IColorFormatter _color;
     private readonly string _searchRoot;
-    private readonly HashSet<string> _defaultExtensions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _defaultExtensions;
     private readonly int _maxCharsPerFile;
 
-    public EFileResearchTool(string searchRoot, HashSet<string>? defaultExtensions = null, int maxCharsPerFile = 10000)
+    public EFileResearchTool(IFileSystem fileSystem, IConfigProvider configProvider, IColorFormatter color)
     {
-        _searchRoot = Path.GetFullPath(searchRoot);
-        _defaultExtensions = defaultExtensions ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        _maxCharsPerFile = maxCharsPerFile;
+        _fileSystem = fileSystem;
+        _color = color;
+        _searchRoot = Path.GetFullPath(configProvider.GetValue("searchRoot", Directory.GetCurrentDirectory()));
+        _defaultExtensions = new HashSet<string>(
+            configProvider.GetValue("researchExtensions", ".cs,.md,.json,.xml,.yml,.yaml,.txt,.sh,.ps1,.py,.js,.ts").Split(','),
+            StringComparer.OrdinalIgnoreCase);
+        _maxCharsPerFile = configProvider.GetInt("maxCharsPerFile", 10000);
     }
 
-    public override string Name => "EFileResearchTool";
+    public string Name => "EFileResearchTool";
 
-    public override string Description =>
+    public string Description =>
         "Scan project files, read content for LLM analysis. Use for: finding code patterns, checking file structure, reading source code, researching project dependencies.";
 
-    public override string UsageExample => "EFileResearchTool.Research(query=\"find all async methods\", extensions=[\".cs\",\".md\"])";
+    public Task<string> ExecuteAsync(string input, CancellationToken ct = default)
+    {
+        return ExecuteCore(ParseInput(input), ct);
+    }
 
-    public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments, CancellationToken cancellationToken = default)
+    public Interfaces.ToolPolicy GetPolicy() => Interfaces.ToolPolicy.Allowed(Name);
+
+    private async Task<string> ExecuteCore(Dictionary<string, string?> arguments, CancellationToken ct)
     {
         try
         {
             var query = arguments.GetValueOrDefault("query") ?? "";
-            var maxFiles = arguments.TryGetValue("max_files", out var mf) && int.TryParse(mf, out int n) ? n : 20;
+            var maxFiles = arguments.TryGetValue("max_files", out var mf) && int.TryParse(arguments["max_files"], out int n) ? n : 20;
             var extensionsList = arguments.TryGetValue("extensions", out var exStr)
                 ? new HashSet<string>(exStr!.Split(',', StringSplitOptions.RemoveEmptyEntries), StringComparer.OrdinalIgnoreCase)
                 : _defaultExtensions;
 
-            // v10.9.3: Cancellation support
-            if (cancellationToken.IsCancellationRequested)
-                return EToolResult.Failure(Name, "[CANCELLED] File research was cancelled by user.");
-            var allFiles = Directory.GetFiles(_searchRoot, "*.*", SearchOption.AllDirectories);
+            // Cancellation support
+            if (ct.IsCancellationRequested)
+                return "[CANCELLED] File research was cancelled by user.";
+
+            // IFileSystem.ListFiles is not recursive, so we do a recursive scan manually
+            var allFiles = ListFilesRecursive(_searchRoot);
             var filtered = allFiles.Where(f =>
                 extensionsList.Any(ext => Path.GetExtension(f).Equals(ext, StringComparison.OrdinalIgnoreCase)))
                 .Take(maxFiles).ToList();
@@ -51,16 +68,16 @@ public class EFileResearchTool : EToolBase
                 try
                 {
                     var relativePath = Path.GetRelativePath(_searchRoot, filePath);
-                                        if (cancellationToken.IsCancellationRequested)
+                    if (ct.IsCancellationRequested)
                     {
-                        EColor.TagBold(EColor.Warn(), "FileResearch", "Cancelled mid-scan.");
+                        sb.AppendLine("FileResearch: Cancelled mid-scan.");
                         break;
                     }
-                    var content = await File.ReadAllTextAsync(filePath, cancellationToken);
+                    var content = _fileSystem.ReadFile(filePath);
                     if (content.Length > _maxCharsPerFile)
                         content = content.Substring(0, _maxCharsPerFile) + "\n... [truncated]";
                     // Escape angle brackets to prevent XML tag confusion in LLM history
-                    content = content.Replace("\u003c", "&lt;").Replace("\u003e", "&gt;");
+                    content = content.Replace("\u003c", "<").Replace("\u003e", ">");
 
                     sb.AppendLine($"## {relativePath} ({content.Length} chars)");
                     sb.AppendLine(content);
@@ -72,19 +89,42 @@ public class EFileResearchTool : EToolBase
                 }
             }
 
-            return EToolResult.Success(Name,
-                $"Research results for: {query}\n{sb}\nFiles scanned: {filtered.Count}");
+            return $"Research results for: {query}\n{sb}\nFiles scanned: {filtered.Count}";
         }
         catch (UnauthorizedAccessException ex)
         {
-            return EToolResult.Failure(Name, $"Access denied: {ex.Message}");
+            return $"Access denied: {ex.Message}";
         }
         catch (Exception ex)
         {
-            return EToolResult.Failure(Name, $"Error: {ex.Message}");
+            return $"Error: {ex.Message}";
         }
     }
 
-    public override string GetToolExample()
-        => "<toolcall>EFileResearchTool<files>.cs .md</files></toolcall>";
+    /// <summary>
+    /// Recursively list all files under a directory (IFileSystem.ListFiles is not recursive).
+    /// </summary>
+    private List<string> ListFilesRecursive(string directory)
+    {
+        var result = new List<string>();
+        var files = _fileSystem.ListFiles(directory, "*");
+        result.AddRange(files);
+
+        var subDirs = Directory.GetDirectories(directory);
+        foreach (var subDir in subDirs)
+        {
+            result.AddRange(ListFilesRecursive(subDir));
+        }
+
+        return result;
+    }
+
+    private Dictionary<string, string?> ParseInput(string input)
+    {
+        var args = new Dictionary<string, string?>();
+        var matches = Regex.Matches(input, @"<(\w+)>(.*?)</\1>");
+        foreach (Match match in matches)
+            args[match.Groups[1].Value] = match.Groups[2].Value;
+        return args;
+    }
 }

@@ -1,4 +1,5 @@
 using System.IO;
+using ECAssistant.Interfaces;
 
 namespace ECAssistant.Services;
 
@@ -25,14 +26,16 @@ public class FileWatcherService : IDisposable
     private readonly Queue<FileChange> _recentChanges = new();
     private readonly object _changeLock = new();
     private const int MaxQueueSize = 50;
+    private readonly ILogger _logger;
 
-    public FileWatcherService(string watchPath, string filter = "*.*")
+    public FileWatcherService(string watchPath, string filter = "*.*", ILogger? logger = null)
     {
+        _logger = logger ?? new Logger();
         _watchPath = watchPath;
 
         if (!Directory.Exists(watchPath))
         {
-            Logger.Warn("FileWatcher", $"Directory not found: {watchPath}");
+            _logger.Warn("FileWatcher", $"Directory not found: {watchPath}");
             return;
         }
 
@@ -55,7 +58,7 @@ public class FileWatcherService : IDisposable
         if (_watcher == null) return;
         _watcher.EnableRaisingEvents = true;
         _running = true;
-        Logger.Info("FileWatcher", $"Watching: {_watchPath}");
+        _logger.Info("FileWatcher", $"Watching: {_watchPath}");
     }
 
     /// <summary>Stop watching.</summary>
@@ -64,7 +67,7 @@ public class FileWatcherService : IDisposable
         if (_watcher == null) return;
         _watcher.EnableRaisingEvents = false;
         _running = false;
-        Logger.Info("FileWatcher", "Stopped.");
+        _logger.Info("FileWatcher", "Stopped.");
     }
 
     /// <summary>Get and clear recent changes (for polling).</summary>

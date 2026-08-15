@@ -36,6 +36,7 @@ public abstract class EGuiBase
     }
 
     /// <summary>Truncate text to maxChars and append [...] if truncated. Returns the truncated string.</summary>
+   // Stateless utility — no mutable state
     public static string Truncate(string text, int maxChars)
     {
         if (string.IsNullOrEmpty(text) || text.Length <= maxChars) return text ?? "";

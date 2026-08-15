@@ -1,7 +1,6 @@
-using static ECAssistant.EColor;
-
 using System.Text;
 using ECAssistant.Memory;
+using ECAssistant.Interfaces;
 
 namespace ECAssistant.Engine;
 
@@ -19,12 +18,14 @@ namespace ECAssistant.Engine;
 public class EDecisionLoop : IDisposable
 {
     private readonly EAgentEngine _engine;
+    private readonly IColorFormatter _color;
     private bool _running = false;
 
     /// <summary>Create decision loop with engine reference.</summary>
-    public EDecisionLoop(EAgentEngine engine)
+    public EDecisionLoop(EAgentEngine engine, IColorFormatter color)
     {
         _engine = engine;
+        _color = color;
     }
 
     /// <summary>
@@ -33,7 +34,7 @@ public class EDecisionLoop : IDisposable
     /// </summary>
     public async Task<DecisionResult> ExecuteInteractiveLoop(string taskDescription)
     {
-        EColor.TagBold(Cyan, "Decision", $"Interactive loop for: {taskDescription}");
+        _color.TagBold(_color.Cyan, "Decision", $"Interactive loop for: {taskDescription}");
         Program.Gui.BlankLine();
 
         _running = true;
@@ -41,7 +42,7 @@ public class EDecisionLoop : IDisposable
 
         for (int round = 1; round <= maxRounds && _running; round++)
         {
-            EColor.TagBold(Info(), "Round", $"{round}/{maxRounds}");
+            _color.TagBold(_color.Cyan, "Round", $"{round}/{maxRounds}");
             
             // Ask the LLM to process the task (or continue from user's answer)
             var llmResponse = await _engine.GenerateAsync(taskDescription);
@@ -53,7 +54,7 @@ public class EDecisionLoop : IDisposable
             {
                 // Extract the answer
                 var answer = ExtractOutputContent(llmResponse);
-                EColor.TagBold(Success(), "Decision", "Final answer received.");
+                _color.TagBold(_color.Green, "Decision", "Final answer received.");
                 Program.Gui.WriteLineColored(answer);
                 
                 return new DecisionResult
@@ -71,12 +72,12 @@ public class EDecisionLoop : IDisposable
 
             if (round < maxRounds)
             {
-                Program.Gui.WriteRaw($"{Yellow}Your response (or 'cancel'): {Reset}");
+                Program.Gui.WriteRaw($"{_color.Yellow}Your response (or 'cancel'): {_color.Reset}");
                 var userInput = Program.Gui.PromptRaw("")?.Trim();
 
                 if (string.IsNullOrEmpty(userInput) || userInput.Equals("cancel", StringComparison.OrdinalIgnoreCase))
                 {
-                    EColor.Tag(Info(), "Decision", "Cancelled by user.");
+                    _color.Tag(_color.Cyan, "Decision", "Cancelled by user.");
                     _running = false;
                     return new DecisionResult
                     {
@@ -91,7 +92,7 @@ public class EDecisionLoop : IDisposable
             }
         }
 
-        EColor.Tag(Info(), "Decision", "Max rounds reached.");
+        _color.Tag(_color.Cyan, "Decision", "Max rounds reached.");
         return new DecisionResult
         {
             Success = false,
@@ -101,7 +102,7 @@ public class EDecisionLoop : IDisposable
     }
 
     /// <summary>Extract content between <output> and </output> tags.</summary>
-    private static string ExtractOutputContent(string response)
+    private string ExtractOutputContent(string response)
     {
         var startIdx = response.IndexOf("<output>", StringComparison.OrdinalIgnoreCase);
         if (startIdx < 0) return response;
@@ -117,7 +118,7 @@ public class EDecisionLoop : IDisposable
     public void ProcessFeedback(string userFeedback)
     {
         _engine.SaveMemory("feedback", userFeedback, "decision_loop");
-        EColor.Tag(Info(), "Feedback", $"Saved: {userFeedback.Substring(0, Math.Min(userFeedback.Length, 100))}");
+        _color.Tag(_color.Cyan, "Feedback", $"Saved: {userFeedback.Substring(0, Math.Min(userFeedback.Length, 100))}");
     }
 
     public void Dispose()

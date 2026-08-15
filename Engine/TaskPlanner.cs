@@ -1,4 +1,5 @@
 using ECAssistant.Services;
+using ECAssistant.Interfaces;
 
 namespace ECAssistant.Engine;
 
@@ -16,6 +17,12 @@ public class TaskPlanner
 {
     private readonly List<SubTask> _subTasks = new();
     private int _currentSubTask = 0;
+    private readonly ILogger _logger;
+
+    public TaskPlanner(ILogger? logger = null)
+    {
+        _logger = logger ?? new Logger();
+    }
 
     /// <summary>Analyze a user request and decompose into sub-tasks if complex.</summary>
     public List<SubTask> Decompose(string request)
@@ -48,7 +55,7 @@ public class TaskPlanner
         if (_subTasks.Count == 0)
             _subTasks.Add(new SubTask { Description = request, Status = SubTaskStatus.Pending });
 
-        Logger.Info("TaskPlanner", $"Decomposed into {_subTasks.Count} sub-task(s)");
+        _logger.Info("TaskPlanner", $"Decomposed into {_subTasks.Count} sub-task(s)");
         return _subTasks;
     }
 
@@ -63,7 +70,7 @@ public class TaskPlanner
             _subTasks[_currentSubTask].Status = SubTaskStatus.Completed;
             _subTasks[_currentSubTask].CompletedAt = DateTime.UtcNow;
             _currentSubTask++;
-            Logger.Info("TaskPlanner", $"Sub-task {_currentSubTask} completed");
+            _logger.Info("TaskPlanner", $"Sub-task {_currentSubTask} completed");
         }
     }
 
@@ -75,7 +82,7 @@ public class TaskPlanner
             _subTasks[_currentSubTask].Status = SubTaskStatus.Failed;
             _subTasks[_currentSubTask].FailureReason = reason;
             _currentSubTask++;
-            Logger.Warn("TaskPlanner", $"Sub-task {_currentSubTask} failed: {reason}");
+            _logger.Warn("TaskPlanner", $"Sub-task {_currentSubTask} failed: {reason}");
         }
     }
 
@@ -114,14 +121,14 @@ public class TaskPlanner
 
     // ─── Helpers ──────────────────────────────────────────────────
 
-    private static bool ContainsAny(string text, string[] patterns)
+    private bool ContainsAny(string text, string[] patterns)
     {
         foreach (var p in patterns)
             if (text.Contains(p, StringComparison.OrdinalIgnoreCase)) return true;
         return false;
     }
 
-    private static int CountActions(string request)
+    private int CountActions(string request)
     {
         var actionWords = new[] { "build", "create", "add", "remove", "update", "fix", "replace", "refactor", "test", "delete", "move", "copy" };
         var count = 0;
@@ -130,7 +137,7 @@ public class TaskPlanner
         return count;
     }
 
-    private static List<string> SplitOnSteps(string request)
+    private List<string> SplitOnSteps(string request)
     {
         var separators = new[] { " and then ", " then ", " after that ", " also ", " finally ", " next " };
         var result = new List<string> { request };

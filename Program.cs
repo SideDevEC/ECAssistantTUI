@@ -1,4 +1,3 @@
-using static ECAssistant.EColor;
 
 using ECAssistant.Config;
 using ECAssistant.Engine;
@@ -16,6 +15,7 @@ using ECAssistant.Analysis;
 using ECAssistant.UI;
 using ECAssistant.Session;
 using ECAssistant.Services;
+using ECAssistant.Interfaces;
 using ECAssistant.Testing;
 using LLama.Common;
 using LLama.Sampling;
@@ -25,7 +25,9 @@ namespace ECAssistant;
 public class Program
 {
     private static EAgentConfig _config = null!;
+    private static ILogger _logger = null!;
     public static EGuiBase Gui = null!;   // the UI instance, set once in Main()
+    private static EColor _color = null!;  // color formatter instance
     private static bool _quitRequested;   // set by quit/exit command
 
 [System.STAThread]
@@ -39,17 +41,18 @@ public class Program
 
                  // ── UI initialisation — single line, swap anywhere ──
             // v10.21.2: EGuiConsole with ANSI scroll region — output scrolls above, input fixed at bottom
-            EGuiConsole.InitConsole();
+            new EGuiConsole().InitConsole();
             Gui = new EGuiConsole();
+            _color = new EColor();
             // Route EColor output through Gui for scroll region cursor management
-            EColor.WriteLineHandler = (s) => Gui.WriteLineColored(s);
-            EColor.WriteHandler = (s) => Gui.WriteRaw(s);
+            _color.WriteLineHandler = (s) => Gui.WriteLineColored(s);
+            _color.WriteHandler = (s) => Gui.WriteRaw(s);
 
             // ── Initialize structured logging (P2) ──
             var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "ECAssistant.log");
-            Logger.Initialize(logPath, (EGuiBase)Gui, LogLevel.Info);
+            _logger = new Logger(logPath, (EGuiBase)Gui, LogLevel.Info);
 
-            EColor.TagBold(Cyan, "ECAssistant", "v10.12 — llama-sharp 0.27.0");
+            _color.TagBold(_color.Cyan, "ECAssistant", "v10.12 — llama-sharp 0.27.0");
 
                  // Always use user's home directory for ECAssistant
             var userConfigDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant");
@@ -62,20 +65,20 @@ public class Program
             {
                 if (File.Exists(bundledConfigPath))
                 {
-                    EColor.Tag(EColor.Success(), "Setup", $"Copying default config to: {userConfigDir}");
+                    _color.Tag(_color.Green, "Setup", $"Copying default config to: {userConfigDir}");
                     File.Copy(bundledConfigPath, configPath, overwrite: false);
                 }
                 else
                 {
-                    EColor.Tag(EColor.Info(), "Setup", "No appsettings.json found. Creating default.");
+                    _color.Tag(_color.Cyan, "Setup", "No appsettings.json found. Creating default.");
                     var defaults = new EAgentConfig();
                     File.WriteAllText(configPath, System.Text.Json.JsonSerializer.Serialize(
                         defaults, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
                 }
             }
 
-                 _config = EAgentConfig.Load(configPath);
-              EColor.Tag(EColor.Success(), "Config", $"Loaded from: {Path.GetFullPath(configPath)}");
+                 { var fs = new Services.FileSystemAdapter(); var loader = new Config.ConfigLoader(fs); _config = loader.Load(configPath); }
+              _color.Tag(_color.Green, "Config", $"Loaded from: {Path.GetFullPath(configPath)}");
             ApplyCommandLineArgs(ref _config, args);
 
              Gui.BlankLine();
@@ -98,8 +101,8 @@ public class Program
             }
            if (!File.Exists(effectiveModelPath))
                       {
-                    EColor.TagBold(EColor.Error(), "Error", $"Model not found: {effectiveModelPath}");
-                      EColor.Tag(EColor.Info(), "Hint", $"Put your .gguf model in: {userConfigDir} or set full path in appsettings.json");
+                    _color.TagBold(_color.Red, "Error", $"Model not found: {effectiveModelPath}");
+                      _color.Tag(_color.Cyan, "Hint", $"Put your .gguf model in: {userConfigDir} or set full path in appsettings.json");
                      }
 
             // v9.14: Default working dir to ~/ECAssistant if set to "."
@@ -107,13 +110,13 @@ public class Program
                 ? userConfigDir
                 : Path.GetFullPath(_config.AgentSettings.WorkingDirectory);
               Directory.CreateDirectory(effectiveDir);
-            EColor.TagBold(EColor.Info(), "WorkDir", effectiveDir);
+            _color.TagBold(_color.Cyan, "WorkDir", effectiveDir);
 
            var rootDir = Path.GetFullPath(_config.RootPath);
             Directory.CreateDirectory(rootDir);
                Directory.CreateDirectory(Path.Combine(rootDir, _config.Memory.DataPath));
             Directory.CreateDirectory(Path.Combine(rootDir, _config.Workspace.Path));
-              EColor.TagBold(EColor.Info(), "Root", $"{rootDir}");
+              _color.TagBold(_color.Cyan, "Root", $"{rootDir}");
               Gui.BlankLine();
 
                 // Build inference params from config — ALL values come from appsettings.json
@@ -136,30 +139,30 @@ public class Program
 
             if (File.Exists(effectiveModelPath))
                        {
-                    EColor.TagBold(EColor.Success(), "Model", "Found at: " + effectiveModelPath);
+                    _color.TagBold(_color.Green, "Model", "Found at: " + effectiveModelPath);
 
                      // ── Background Process Manager (must be before tool registration) ──
                     var bgMgr = new BackgroundProcessManager();
-                    EColor.TagBold(EColor.Info(), "Background", "Process manager ready.");
+                    _color.TagBold(_color.Cyan, "Background", "Process manager ready.");
 
                     // ── File Watcher (v9.7: workspace monitoring) ──
-                    var fileWatcher = new FileWatcherService(effectiveDir);
+                    var fileWatcher = new FileWatcherService(effectiveDir, logger: _logger);
                     fileWatcher.Start();
 
                     // ── Session Manager (v10.21: shared weights, session discovery) ──
                     // Loads model weights ONCE. Sessions are loaded from disk afterwards.
-                    var sessionManager = new SessionManager(_config, effectiveModelPath, effectiveDir);
+                    var sessionManager = new SessionManager(_config, effectiveModelPath, effectiveDir, _logger);
 
                     // ── Loading phase: animated dots while sessions init ──
-                    EColor.TagBold(Cyan, "Sessions", "Discovering sessions...");
+                    _color.TagBold(_color.Cyan, "Sessions", "Discovering sessions...");
 
-                    var discovered = SessionDiscovery.DiscoverSessions(effectiveDir);
+                    var discovered = new SessionDiscovery().DiscoverSessions(effectiveDir);
                     if (discovered.Count > 0)
-                        EColor.Tag(EColor.Info(), "Sessions", $"Found {discovered.Count} session(s): {string.Join(", ", discovered)}");
+                        _color.Tag(_color.Cyan, "Sessions", $"Found {discovered.Count} session(s): {string.Join(", ", discovered)}");
                     else
-                        EColor.Tag(EColor.Info(), "Sessions", "No existing sessions found — creating new 'main' session.");
+                        _color.Tag(_color.Cyan, "Sessions", "No existing sessions found — creating new 'main' session.");
 
-                    var loading = new LoadingIndicator(Gui);
+                    var loading = new LoadingIndicator(Gui, _color);
                     loading.Start("Loading model weights");
 
                     string activeKey = await sessionManager.LoadSessionsFromDiskAsync(async (session) =>
@@ -172,7 +175,7 @@ public class Program
 
                     var mainSession = sessionManager.Main;
                     var activeSession = sessionManager.ActiveSession ?? mainSession;
-                    EColor.TagBold(EColor.Success(), "Ready", $"Active session: {activeKey} ({sessionManager.List().Count} total)");
+                    _color.TagBold(_color.Green, "Ready", $"Active session: {activeKey} ({sessionManager.List().Count} total)");
                     Gui.BlankLine();
 
                    // v10.21.1: Simple console input loop — PromptRaw uses ReadKey (non-blocking)
@@ -180,7 +183,7 @@ public class Program
                         }
             else
                      {
-                    EColor.Tag(EColor.Error(), "Error", "No model loaded. Use --model or update appsettings.json.");
+                    _color.Tag(_color.Red, "Error", "No model loaded. Use --model or update appsettings.json.");
                   return 1;
                      }
 
@@ -238,7 +241,7 @@ public class Program
         var modelPath = "";
         if (File.Exists(configPath))
         {
-            var config = EAgentConfig.Load(configPath);
+            var fs2 = new Services.FileSystemAdapter(); var loader2 = new Config.ConfigLoader(fs2); var config = loader2.Load(configPath);
             modelPath = config.Llm.ModelPath;
         }
 
@@ -325,7 +328,7 @@ public class Program
         BackgroundProcessManager bgMgr, string userConfigDir)
     {
         // ── Attach UI renderer to the session ──
-        var uiRenderer = new ConsoleUiRenderer(Gui);
+        var uiRenderer = new ConsoleUiRenderer(Gui, _color);
         session.AttachUi(uiRenderer);
 
         // v10.22: Start timer-based stream flushing for real-time token output
@@ -342,33 +345,30 @@ public class Program
         await session.InitializeProjectContextAsync();
 
         // ── Register tools on the session's engine ──
-        var psAgent = new EShellAgent(workingDir);
+        var fileSystem = new FileSystemAdapter();
+        var processRunner = new ProcessRunner();
+        var configPath = Path.Combine(userConfigDir, "appsettings.json");
+        var configProvider = new ConfigProvider(fileSystem, configPath);
+        var colorFormatter = new ColorFormatter();
+        var httpClient = new HttpClientAdapter();
+
+        var psAgent = new EShellAgent(processRunner, configProvider, colorFormatter, workingDir);
         session.RegisterTool(psAgent);
-        session.RegisterTool(new EBackgroundExecTool(bgMgr, workingDir));
-        session.RegisterTool(new EWebSearchTool());
-        session.RegisterTool(new EDotnetBuildTool(workingDir));
-        session.RegisterTool(new EGitTool(workingDir));
-        session.RegisterTool(new ECodeEditorTool(workingDir));
+        session.RegisterTool(new EBackgroundExecTool(bgMgr, processRunner, fileSystem, configProvider, colorFormatter));
+        session.RegisterTool(new EWebSearchTool(httpClient, configProvider, colorFormatter));
+        session.RegisterTool(new EDotnetBuildTool(processRunner, configProvider, colorFormatter));
+        session.RegisterTool(new EGitTool(processRunner, fileSystem, configProvider, colorFormatter));
+        session.RegisterTool(new ECodeEditorTool(fileSystem, configProvider, colorFormatter));
 
         // v10.22: EFileReader — controlled file reading with offset/limit/token budget
-        session.RegisterTool(new EFileReaderTool(workingDir));
+        session.RegisterTool(new EFileReaderTool(fileSystem, configProvider, colorFormatter));
 
         // v10.22: EWebFetch — fetch URL content as plain text
-        session.RegisterTool(new EWebFetchTool());
+        session.RegisterTool(new EWebFetchTool(httpClient, configProvider, colorFormatter));
 
         // EFileResearchTool
         {
-            var researchExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-               { ".cs", ".md", ".json", ".txt", ".xml", ".ps1", ".sln",
-                ".csproj", ".config", ".sql", ".html", ".css", ".js" };
-
-            var toolConfig = _config.Tools.EFileResearchTool;
-            foreach (var ext in toolConfig.DefaultExtensions)
-                researchExtensions.Add(ext);
-
-            session.RegisterTool(new EFileResearchTool(
-                workingDir, defaultExtensions: researchExtensions,
-                maxCharsPerFile: toolConfig.MaxCharsPerFile));
+            session.RegisterTool(new EFileResearchTool(fileSystem, configProvider, colorFormatter));
         }
 
         // ── Secondary Model (optional) ──
@@ -389,7 +389,7 @@ public class Program
                 topK: _config.SecondaryModel.TopK,
                 repeatPenalty: _config.SecondaryModel.RepeatPenalty,
                 maxTokens: _config.SecondaryModel.MaxTokens,
-                antiPrompts: _config.SecondaryModel.AntiPrompts);
+                antiPrompts: _config.SecondaryModel.AntiPrompts, logger: _logger);
             if (secondary != null)
             {
                 session.SetSecondaryModel(secondary);
@@ -424,7 +424,7 @@ public class Program
         switch (input.ToLower())
         {
             case "quit": case "exit":
-                EColor.TagBold(EColor.Info(), "Bye", "Goodbye.");
+                _color.TagBold(_color.Cyan, "Bye", "Goodbye.");
                 Gui.BlankLine();
                 await sessionManager.StopAllAsync();
                 _quitRequested = true;
@@ -440,7 +440,7 @@ public class Program
                 return;
             }
             case "single":
-                EColor.Tag(Info(), "Mode", "Single-turn mode reset.");
+                _color.Tag(_color.Cyan, "Mode", "Single-turn mode reset.");
                 orchestrator.Reset();
                 return;
             case "stop":
@@ -449,9 +449,9 @@ public class Program
                 if (stopSession != null && stopSession.RunState == SessionRunState.Running)
                 {
                     stopSession.Stop();
-                    EColor.TagBold(EColor.Error(), "Stop", "Cancelling active session...");
+                    _color.TagBold(_color.Red, "Stop", "Cancelling active session...");
                 }
-                else { EColor.Tag(Info(), "Stop", "Nothing is running."); }
+                else { _color.Tag(_color.Cyan, "Stop", "Nothing is running."); }
                 return;
             }
             case "context-status":
@@ -460,7 +460,7 @@ public class Program
                 if (s != null)
                 {
                     Gui.BlankLine();
-                    EColor.TagBold(Cyan, "Context", s.Engine.ContextStatusSummary);
+                    _color.TagBold(_color.Cyan, "Context", s.Engine.ContextStatusSummary);
                     Gui.BlankLine();
                 }
                 return;
@@ -489,7 +489,7 @@ public class Program
                 // session <n> — switch to session by index or key
                 if (string.IsNullOrEmpty(arg))
                 {
-                    EColor.Tag(Info(), "Session", "Usage: session <n> | session <key>");
+                    _color.Tag(_color.Cyan, "Session", "Usage: session <n> | session <key>");
                     return;
                 }
                 if (int.TryParse(arg, out var idx))
@@ -500,26 +500,26 @@ public class Program
                         // Re-attach UI
                         foreach (var s in sessionManager.List())
                             if (s != newActive) s.DetachUi();
-                        var ui = new ConsoleUiRenderer(Gui);
+                        var ui = new ConsoleUiRenderer(Gui, _color);
                         newActive.AttachUi(ui);
                         Gui.BlankLine();
-                        EColor.TagBold(EColor.Success(), "Session", $"Switched to [{newActive.Key}] {newActive.GetStatusSummary()}");
+                        _color.TagBold(_color.Green, "Session", $"Switched to [{newActive.Key}] {newActive.GetStatusSummary()}");
                         Gui.BlankLine();
                     }
-                    else EColor.TagBold(EColor.Error(), "Session", $"No session at index {idx}");
+                    else _color.TagBold(_color.Red, "Session", $"No session at index {idx}");
                 }
                 else if (sessionManager.SwitchTo(arg))
                 {
                     var newActive = sessionManager.ActiveSession!;
                     foreach (var s in sessionManager.List())
                         if (s != newActive) s.DetachUi();
-                    var ui = new ConsoleUiRenderer(Gui);
+                    var ui = new ConsoleUiRenderer(Gui, _color);
                     newActive.AttachUi(ui);
                     Gui.BlankLine();
-                    EColor.TagBold(EColor.Success(), "Session", $"Switched to [{newActive.Key}]");
+                    _color.TagBold(_color.Green, "Session", $"Switched to [{newActive.Key}]");
                     Gui.BlankLine();
                 }
-                else EColor.TagBold(EColor.Error(), "Session", $"No session with key '{arg}'");
+                else _color.TagBold(_color.Red, "Session", $"No session with key '{arg}'");
                 return;
             }
             case "session-new":
@@ -530,12 +530,12 @@ public class Program
                     var newSession = sessionManager.CreateSession(name, label: arg);
                     await InitSessionAsync(newSession, workingDir, bgMgr, userConfigDir);
                     Gui.BlankLine();
-                    EColor.TagBold(EColor.Success(), "Session", $"Created [{name}]. Use 'session <index>' to switch.");
+                    _color.TagBold(_color.Green, "Session", $"Created [{name}]. Use 'session <index>' to switch.");
                     Gui.BlankLine();
                 }
                 catch (Exception ex)
                 {
-                    EColor.TagBold(EColor.Error(), "Session", $"Failed: {ex.Message}");
+                    _color.TagBold(_color.Red, "Session", $"Failed: {ex.Message}");
                 }
                 return;
             }
@@ -544,8 +544,8 @@ public class Program
                 if (int.TryParse(arg, out var stopIdx))
                 {
                     var s = sessionManager.GetByIndex(stopIdx);
-                    if (s != null) { s.Stop(); EColor.TagBold(EColor.Warn(), "Session", $"Stopped [{s.Key}]."); }
-                    else EColor.TagBold(EColor.Error(), "Session", $"No session at index {stopIdx}");
+                    if (s != null) { s.Stop(); _color.TagBold(_color.Yellow, "Session", $"Stopped [{s.Key}]."); }
+                    else _color.TagBold(_color.Red, "Session", $"No session at index {stopIdx}");
                 }
                 return;
             }
@@ -556,9 +556,9 @@ public class Program
                     try
                     {
                         await sessionManager.CloseSessionAsync(sessionManager.GetByIndex(closeIdx)?.Key ?? "");
-                        EColor.TagBold(EColor.Success(), "Session", $"Closed session {closeIdx}.");
+                        _color.TagBold(_color.Green, "Session", $"Closed session {closeIdx}.");
                     }
-                    catch (Exception ex) { EColor.TagBold(EColor.Error(), "Session", $"Failed: {ex.Message}"); }
+                    catch (Exception ex) { _color.TagBold(_color.Red, "Session", $"Failed: {ex.Message}"); }
                 }
                 return;
             }
@@ -570,7 +570,7 @@ public class Program
                     if (s != null)
                     {
                         Gui.BlankLine();
-                        EColor.TagBold(Cyan, "Peek", $"[{s.Key}] last 5 lines:");
+                        _color.TagBold(_color.Cyan, "Peek", $"[{s.Key}] last 5 lines:");
                         var history = s.ReadOutputHistory(5);
                         foreach (var e in history)
                             Gui.WriteLineColored($"  {e.Text}");
@@ -586,13 +586,13 @@ public class Program
                 if (renameParts.Length == 2 && int.TryParse(renameParts[0], out var renameIdx))
                 {
                     if (sessionManager.RenameSession(renameIdx, renameParts[1]))
-                        EColor.TagBold(EColor.Success(), "Session", $"Renamed session {renameIdx} to '{renameParts[1]}'");
+                        _color.TagBold(_color.Green, "Session", $"Renamed session {renameIdx} to '{renameParts[1]}'");
                     else
-                        EColor.TagBold(EColor.Error(), "Session", $"No session at index {renameIdx}");
+                        _color.TagBold(_color.Red, "Session", $"No session at index {renameIdx}");
                 }
                 else
                 {
-                    EColor.Tag(Info(), "Session", "Usage: session-rename <n> <label>");
+                    _color.Tag(_color.Cyan, "Session", "Usage: session-rename <n> <label>");
                 }
                 return;
             }
@@ -610,7 +610,7 @@ public class Program
                     Gui.WriteLineColored(infoSession.GetDetailedInfo());
                     Gui.BlankLine();
                 }
-                else EColor.Tag(Info(), "Session", "No active session.");
+                else _color.Tag(_color.Cyan, "Session", "No active session.");
                 return;
             }
             case "session-queue":
@@ -618,10 +618,10 @@ public class Program
                 var q = sessionManager.ActiveSession?.GetQueue() ?? new List<string>();
                 Gui.BlankLine();
                 if (q.Count == 0)
-                    EColor.Tag(Info(), "Queue", "Empty");
+                    _color.Tag(_color.Cyan, "Queue", "Empty");
                 else
                 {
-                    EColor.TagBold(Cyan, "Queue", $"{q.Count} pending:");
+                    _color.TagBold(_color.Cyan, "Queue", $"{q.Count} pending:");
                     for (int i = 0; i < q.Count; i++)
                         Gui.WriteLineColored($"  {i}: {TruncatePrompt(q[i])}");
                 }
@@ -633,15 +633,15 @@ public class Program
                 if (int.TryParse(arg, out var qi))
                 {
                     if (sessionManager.ActiveSession?.RemoveFromQueue(qi) == true)
-                        EColor.TagBold(EColor.Success(), "Queue", $"Removed prompt {qi}");
-                    else EColor.TagBold(EColor.Error(), "Queue", $"No prompt at index {qi}");
+                        _color.TagBold(_color.Green, "Queue", $"Removed prompt {qi}");
+                    else _color.TagBold(_color.Red, "Queue", $"No prompt at index {qi}");
                 }
                 return;
             }
             case "session-queue-clear":
             {
                 sessionManager.ActiveSession?.ClearQueue();
-                EColor.Tag(EColor.Success(), "Queue", "Cleared.");
+                _color.Tag(_color.Green, "Queue", "Cleared.");
                 return;
             }
         }
@@ -669,14 +669,14 @@ public class Program
         string userConfigDir)
     {
         Gui.BlankLine();
-        EColor.TagBold(Cyan, "ECLoop", "Type your request (help | quit)");
+        _color.TagBold(_color.Cyan, "ECLoop", "Type your request (help | quit)");
         Gui.WriteLine("===========================================");
-        EColor.TagBold(EColor.Info(), "Mode", "The agent decides tools automatically.");
+        _color.TagBold(_color.Cyan, "Mode", "The agent decides tools automatically.");
         Gui.BlankLine();
 
         while (true)
         {
-            var input = Gui.PromptRaw(Cyan + "> " + Reset)?.Trim();
+            var input = Gui.PromptRaw(_color.Cyan + "> " + _color.Reset)?.Trim();
             if (string.IsNullOrEmpty(input)) continue;
 
             await ProcessInputAsync(input, activeSession, sessionManager, workingDir, bgMgr, fileWatcher, userConfigDir);
@@ -703,13 +703,13 @@ public class Program
     private static void ListTools(EAgentEngine agent)
     {
         Gui.BlankLine();
-        EColor.TagBold(Cyan, "Tools", $"{agent.Tools.Count} registered:");
+        _color.TagBold(_color.Cyan, "Tools", $"{agent.Tools.Count} registered:");
         Gui.BlankLine();
         foreach (var t in agent.Tools)
         {
-            EColor.WriteLine(Yellow + Bold, $"  {t.Name}");
-            EColor.WriteLine(EColor.Dim, $"    {t.Description}");
-            EColor.WriteLine(EColor.Dim, $"    Example: {t.UsageExample}");
+            _color.WriteLine(_color.Yellow + _color.Bold, $"  {t.Name}");
+            _color.WriteLine(_color.Dim, $"    {t.Description}");
+            _color.WriteLine(_color.Dim, $"    Example: {t.UsageExample}");
             Gui.BlankLine();
         }
     }
@@ -717,63 +717,63 @@ public class Program
     private static async Task PrintHelp()
     {
         Gui.BlankLine();
-        EColor.TagBold(Cyan, "Commands", "");
+        _color.TagBold(_color.Cyan, "Commands", "");
         Gui.BlankLine();
-        EColor.WriteLine(Yellow + Bold, "  <type request>       Multi-step agent execution");
-        EColor.WriteLine(Yellow + Bold, "  stop                 Stop the running session (keeps app alive)");
-        EColor.WriteLine(Yellow + Bold, "  ESC                  Stop generation mid-stream (during token output)");
-        EColor.WriteLine(Yellow + Bold, "  quit / exit          Stop all sessions and exit the application");
-        EColor.WriteLine(Yellow + Bold, "  help                 Show this help");
-        EColor.WriteLine(Yellow + Bold, "  tools                List registered tools");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  <type request>       Multi-step agent execution");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  stop                 Stop the running session (keeps app alive)");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  ESC                  Stop generation mid-stream (during token output)");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  quit / exit          Stop all sessions and exit the application");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  help                 Show this help");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  tools                List registered tools");
         Gui.BlankLine();
-        EColor.WriteLine(EColor.Dim, "  Context:");
-        EColor.WriteLine(Yellow + Bold, "  clear-history        Clear conversation history");
-        EColor.WriteLine(Yellow + Bold, "  save-context         Save transcript to disk");
-        EColor.WriteLine(Yellow + Bold, "  file-pick            Open file picker, send to LLM");
+        _color.WriteLine(_color.Dim, "  Context:");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  clear-history        Clear conversation history");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  save-context         Save transcript to disk");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  file-pick            Open file picker, send to LLM");
         Gui.BlankLine();
-        EColor.WriteLine(EColor.Dim, "  Memory:");
-        EColor.WriteLine(Yellow + Bold, "  memory-save          Save a memory entry");
-        EColor.WriteLine(Yellow + Bold, "  memory-query         Search memory");
-        EColor.WriteLine(Yellow + Bold, "  memory-stats         Memory statistics");
-        EColor.WriteLine(Yellow + Bold, "  vecmem-stats         Vector memory statistics");
-        EColor.WriteLine(Yellow + Bold, "  vecmem-search        Semantic memory search");
-        EColor.WriteLine(Yellow + Bold, "  vecmem-add           Add vector memory entry");
+        _color.WriteLine(_color.Dim, "  Memory:");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  memory-save          Save a memory entry");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  memory-query         Search memory");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  memory-stats         Memory statistics");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  vecmem-stats         Vector memory statistics");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  vecmem-search        Semantic memory search");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  vecmem-add           Add vector memory entry");
         Gui.BlankLine();
-        EColor.WriteLine(EColor.Dim, "  Sessions (v10.20):");
-        EColor.WriteLine(Yellow + Bold, "  sessions             List all sessions with status");
-        EColor.WriteLine(Yellow + Bold, "  session <n>          Switch to session n (render history + live)");
-        EColor.WriteLine(Yellow + Bold, "  session-new <name>   Create a new session");
-        EColor.WriteLine(Yellow + Bold, "  session-stop <n>     Stop session n's execution");
-        EColor.WriteLine(Yellow + Bold, "  session-close <n>    Close and delete session n");
-        EColor.WriteLine(Yellow + Bold, "  session-peek <n>     Quick glance at session n's output");
-        EColor.WriteLine(Yellow + Bold, "  session-rename <n> <label>  Rename session n");
-        EColor.WriteLine(Yellow + Bold, "  session-info [n]     Detailed session info (KV cache, context, tools)");
-        EColor.WriteLine(Yellow + Bold, "  session-queue         Show active session's prompt queue");
-        EColor.WriteLine(Yellow + Bold, "  session-queue-remove <i>  Remove prompt i from queue");
-        EColor.WriteLine(Yellow + Bold, "  session-queue-clear  Clear active session's queue");
+        _color.WriteLine(_color.Dim, "  Sessions (v10.20):");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  sessions             List all sessions with status");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  session <n>          Switch to session n (render history + live)");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  session-new <name>   Create a new session");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  session-stop <n>     Stop session n's execution");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  session-close <n>    Close and delete session n");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  session-peek <n>     Quick glance at session n's output");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  session-rename <n> <label>  Rename session n");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  session-info [n]     Detailed session info (KV cache, context, tools)");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  session-queue         Show active session's prompt queue");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  session-queue-remove <i>  Remove prompt i from queue");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  session-queue-clear  Clear active session's queue");
         Gui.BlankLine();
-        EColor.WriteLine(EColor.Dim, "  Context:");
-        EColor.WriteLine(Yellow + Bold, "  context-status       Show context window usage and summarize threshold");;
+        _color.WriteLine(_color.Dim, "  Context:");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  context-status       Show context window usage and summarize threshold");;
         Gui.BlankLine();
-        EColor.WriteLine(EColor.Dim, "  Background:");
-        EColor.WriteLine(Yellow + Bold, "  bg-run <cmd>         Start a background process");
-        EColor.WriteLine(Yellow + Bold, "  bg-status            List background processes");
-        EColor.WriteLine(Yellow + Bold, "  bg-output <id>       Get output from a process");
-        EColor.WriteLine(Yellow + Bold, "  bg-kill <id>         Kill a background process");
-        EColor.WriteLine(Yellow + Bold, "  bg-cleanup           Remove finished processes");
+        _color.WriteLine(_color.Dim, "  Background:");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  bg-run <cmd>         Start a background process");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  bg-status            List background processes");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  bg-output <id>       Get output from a process");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  bg-kill <id>         Kill a background process");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  bg-cleanup           Remove finished processes");
         Gui.BlankLine();
-        EColor.WriteLine(EColor.Dim, "  Files & Watch:");
-        EColor.WriteLine(Yellow + Bold, "  watch                Show recent file changes");
-        EColor.WriteLine(Yellow + Bold, "  watch-start          Start watching for changes");
-        EColor.WriteLine(Yellow + Bold, "  watch-stop           Stop watching");
+        _color.WriteLine(_color.Dim, "  Files & Watch:");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  watch                Show recent file changes");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  watch-start          Start watching for changes");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  watch-stop           Stop watching");
         Gui.BlankLine();
-        EColor.WriteLine(EColor.Dim, "  System:");
-        EColor.WriteLine(Yellow + Bold, "  reload-config        Reload appsettings.json");
-        EColor.WriteLine(Yellow + Bold, "  swap-model           Switch GGUF model at runtime");
-        EColor.WriteLine(Yellow + Bold, "  clipboard-read       Read from Windows clipboard");
-        EColor.WriteLine(Yellow + Bold, "  clipboard-write      Write to Windows clipboard");
-        EColor.WriteLine(Yellow + Bold, "  log                  Show recent log entries");
-        EColor.WriteLine(Yellow + Bold, "  log-level            Set log level (debug/info/warn/error)");
+        _color.WriteLine(_color.Dim, "  System:");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  reload-config        Reload appsettings.json");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  swap-model           Switch GGUF model at runtime");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  clipboard-read       Read from Windows clipboard");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  clipboard-write      Write to Windows clipboard");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  log                  Show recent log entries");
+        _color.WriteLine(_color.Yellow + _color.Bold, "  log-level            Set log level (debug/info/warn/error)");
         Gui.BlankLine();
         await Task.CompletedTask;
     }

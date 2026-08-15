@@ -1,4 +1,3 @@
-using static ECAssistant.EColor;
 using System.Text;
 using LLama;
 using LLama.Common;
@@ -15,7 +14,7 @@ using ECAssistant.Session;
 
 namespace ECAssistant.Engine;
 
-internal sealed class NullLogger : ILogger
+internal sealed class NullLogger : Microsoft.Extensions.Logging.ILogger
 {
     public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null!;
     public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => false;
@@ -37,17 +36,21 @@ public class EAgentEngine : IAsyncDisposable
     private ModelParams? _modelParams;
     private bool _sharesWeights = false; // v10.20: if true, don't dispose _weights in DisposeAsync
     // v10.22: Mock mode flag — when true, skip all LLama native initialization
-    internal static bool MockMode = false;
+    internal bool MockMode = false;
+
+    /// <summary>Internal flag set by MockEngine to skip model loading in the base constructor.</summary>
+    internal static bool _sForceMockMode = false;
     // v10.5: Switched to InteractiveExecutor for KV cache reuse.
     // Static prefix (system prompt + tools) is prefilled once at session start.
     // Only new tokens (user msg, tool output, directives) are fed per turn.
     // KV cache persists across turns — major performance improvement.
     private InteractiveExecutor? _executor;
-    private readonly List<EToolBase> _tools = new();
+    private readonly List<EToolBase> _tools = new(); private readonly TokenCounter _tokenCounter = new();
     private EMemoryManager? _memoryManager = null;
     private VectorMemoryStore? _vectorMemory = null;
     private SelfCorrectionManager? _selfCorrection = null;
     private ProjectContextManager? _projectContext = null;
+    private readonly ECAssistant.Interfaces.ILogger? _logger;
     private TaskPlanner? _taskPlanner = null;
     private SecondaryModelLoader? _secondaryModel = null;  // v10.7: for LLM-based decomposition + summarization
 
@@ -55,7 +58,7 @@ public class EAgentEngine : IAsyncDisposable
     private readonly ContextWindow _contextWindow;
     private readonly ConversationTranscript _transcript;
     private readonly InferenceParams _inferenceParams;
-    private static bool _nativeLibConfigured = false;  // v10.16.1: Guard NativeLibraryConfig — one-time init
+    private bool _nativeLibConfigured = false;  // v10.16.1: Guard NativeLibraryConfig — one-time init
     private int _turnCount = 0;
     private string? _systemPromptText;
 
@@ -192,14 +195,14 @@ public class EAgentEngine : IAsyncDisposable
     /// <summary>Initialize self-correction manager.</summary>
     public void InitializeSelfCorrection(string workingDir)
     {
-        _selfCorrection = new SelfCorrectionManager(workingDir);
+        _selfCorrection = new SelfCorrectionManager(workingDir, _logger);
         _out?.WriteSuccess("[SelfCorrect] Self-correction manager ready.");
     }
 
     /// <summary>Initialize project context manager and scan project.</summary>
     public async Task InitializeProjectContextAsync(string workingDir)
     {
-        _projectContext = new ProjectContextManager(workingDir);
+        _projectContext = new ProjectContextManager(workingDir, _logger);
         await _projectContext.InitializeAsync();
         _out?.WriteSuccess($"[ProjectCtx] Project context loaded: {_projectContext.FileCount} files.");
     }
@@ -207,7 +210,7 @@ public class EAgentEngine : IAsyncDisposable
     /// <summary>Initialize task planner for this session.</summary>
     public void InitializeTaskPlanner()
     {
-        _taskPlanner = new TaskPlanner();
+        _taskPlanner = new TaskPlanner(_logger);
     }
 
     /// <summary>Set the secondary model for decomposition + summarization (v10.7).</summary>
@@ -249,7 +252,7 @@ public class EAgentEngine : IAsyncDisposable
     /// <summary>Initialize vector memory store with TF-IDF embeddings (no external deps).</summary>
     public async Task InitializeVectorMemoryAsync(string storeDir)
     {
-        _vectorMemory = new VectorMemoryStore(storeDir);
+        _vectorMemory = new VectorMemoryStore(storeDir, _logger);
         
         Func<string, Task<float[]>> embeddingGenerator = async (text) =>
         {
@@ -262,7 +265,7 @@ public class EAgentEngine : IAsyncDisposable
     }
 
     /// <summary>Simple TF-IDF style embedding — no external dependencies.</summary>
-    private static float[] TfidfEmbed(string text)
+    private float[] TfidfEmbed(string text)
     {
         var tokens = System.Text.RegularExpressions.Regex.Matches(text.ToLower(), @"[a-z0-9]{2,}")
             .Select(m => m.Value)
@@ -367,8 +370,8 @@ public class EAgentEngine : IAsyncDisposable
      private string _workingDir = "";
 
 /// <summary>Original constructor — loads GGUF from disk. Use this for standalone engines.</summary>
-public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threadCount, InferenceParams inferenceParams, string workingDir = "")
-          : this(modelPath, contextSize, gpuLayers, threadCount, inferenceParams, workingDir, sharedWeights: null, sharedModelParams: null)
+public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threadCount, InferenceParams inferenceParams, string workingDir = "", ECAssistant.Interfaces.ILogger? logger = null)
+          : this(modelPath, contextSize, gpuLayers, threadCount, inferenceParams, workingDir, sharedWeights: null, sharedModelParams: null, logger)
     {
     }
 
@@ -386,8 +389,10 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
     /// <param name="inferenceParams">Inference params for THIS engine</param>
     /// <param name="workingDir">Working directory</param>
     public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threadCount, InferenceParams inferenceParams, string workingDir,
-        LLamaWeights? sharedWeights = null, ModelParams? sharedModelParams = null)
+        LLamaWeights? sharedWeights = null, ModelParams? sharedModelParams = null, ECAssistant.Interfaces.ILogger? logger = null)
           {
+               _logger = logger ?? new Logger();
+
                // Enable native library logging — only once (LLamaSharp throws on second config)
                if (!_nativeLibConfigured)
                {
@@ -402,8 +407,10 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                }
 
            // v10.22: Mock mode — skip all LLama native initialization, just set basic fields
-           if (MockMode)
+           if (MockMode || _sForceMockMode)
            {
+               if (_sForceMockMode) MockMode = true; // promote static flag to instance
+               _sForceMockMode = false; // reset static flag
                _contextSize = contextSize;
                _gpuLayers = gpuLayers;
                _threads = threadCount;
@@ -422,14 +429,14 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                 {
                 var cudaVer = sysInfo.CudaMajorVersion;
                   if (cudaVer == -1)
-                      Logger.Info("CUDA", "No CUDA detected — will run on CPU");
+                      _logger.Info("CUDA", "No CUDA detected — will run on CPU");
                      else
-                        Logger.Info("CUDA", $"Detected: CUDA {cudaVer}");
+                        _logger.Info("CUDA", $"Detected: CUDA {cudaVer}");
                         }
 
                // Report which GPU backends are available
            // v9.4: Suppress SystemInfo dump on startup
-           try { Logger.Debug("System", SystemInfo.Get().ToString()); } catch { }
+           try { _logger.Debug("System", SystemInfo.Get().ToString()); } catch { }
 
               _contextSize = contextSize;
                _gpuLayers = gpuLayers;
@@ -474,7 +481,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
             _executor = new InteractiveExecutor(_context, nullLog);
 
              // ── Initialize tokenizer for accurate token counting ───
-           if (_context != null) TokenCounter.Initialize(_context);
+           if (_context != null) _tokenCounter.Initialize(_context);
 
           // ── Load memory manager (not lazy — eager on startup) ───
               _memoryManager = new EMemoryManager();
@@ -512,7 +519,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                     }
 
              _out?.WriteInfo($"[Engine] Model loaded: {modelPath}");
-            Logger.Info("Engine", $"Model loaded: {modelPath} | Context: {contextSize} | GPU: {gpuLayers} | Threads: {threadCount}");
+            _logger.Info("Engine", $"Model loaded: {modelPath} | Context: {contextSize} | GPU: {gpuLayers} | Threads: {threadCount}");
               _out?.WriteInfo($"[Config] ContextSize: {contextSize} tokens | GPU Layers: {_gpuLayers}");
 
            // Load memory and show how many entries are active
@@ -745,8 +752,8 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
 
            // v9.3: Hard cap on history — leave room for system prompt + memory + new user message + max_tokens
            // Reserve: systemBlock tokens + memory tokens + max_tokens (2048) + buffer (2048)
-           var systemTokens = TokenCounter.Count(systemBlock);
-           var memoryTokens = string.IsNullOrEmpty(memoryInject) ? 0 : TokenCounter.Count(memoryInject);
+           var systemTokens = _tokenCounter.Count(systemBlock);
+           var memoryTokens = string.IsNullOrEmpty(memoryInject) ? 0 : _tokenCounter.Count(memoryInject);
            var reserveTokens = systemTokens + memoryTokens + 2048 + 2048; // system + memory + max_tokens + buffer
            var historyBudget = (int)_contextSize - reserveTokens;
            if (historyBudget < 500) historyBudget = 500; // minimum history
@@ -755,11 +762,11 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
            while (windowMessages.Count > 2)
            {
                var histTokens = 0;
-               foreach (var m in windowMessages) histTokens += TokenCounter.Count(m.Content);
+               foreach (var m in windowMessages) histTokens += _tokenCounter.Count(m.Content);
                if (histTokens <= historyBudget) break;
                windowMessages.RemoveAt(0); // remove oldest
            }
-           Logger.Debug("Context", $"Prompt budget: system={systemTokens}, memory={memoryTokens}, history_budget={historyBudget}, msgs={windowMessages.Count}");
+           _logger.Debug("Context", $"Prompt budget: system={systemTokens}, memory={memoryTokens}, history_budget={historyBudget}, msgs={windowMessages.Count}");
 
              // ── Step 4: Build the final prompt text ────────────────
              var sb = new StringBuilder();
@@ -906,6 +913,14 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
              _out?.WriteInfo($"[Tool] Registered: {tool.Name}");
                 }
 
+   /// <summary>Register an ITool implementation (wrapped via ToolAdapter).</summary>
+   public void RegisterTool(ECAssistant.Interfaces.ITool tool)
+   {
+       var adapter = new ToolAdapter(tool);
+       _tools.Add(adapter);
+       _out?.WriteInfo($"[Tool] Registered: {tool.Name}");
+   }
+
       /// <summary>Add tool result to both transcript and context window.</summary>
       public virtual void AddToolResult(string toolName, string output)
         {
@@ -929,7 +944,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
 
       /// <summary>Escape < and > in tool output to prevent fake XML tags in history.
       /// Safety net — ensures all tool output is escaped even if a tool forgets.</summary>
-    private static string EscapeToolOutput(string text)
+    private string EscapeToolOutput(string text)
     {
         if (string.IsNullOrEmpty(text)) return text;
         return text.Replace("<", "&lt;").Replace(">", "&gt;");
@@ -1041,7 +1056,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
              catch (Exception ex)
              {
                  _consecutiveRewindFailures++;
-                 Logger.Warn("KVCache", $"LoadState rewind failed (attempt {_consecutiveRewindFailures}/{MaxRewindFailures}): {ex.Message}");
+                 _logger.Warn("KVCache", $"LoadState rewind failed (attempt {_consecutiveRewindFailures}/{MaxRewindFailures}): {ex.Message}");
              }
          }
 
@@ -1181,7 +1196,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
         _isPrefilled = false;
         
         // Re-initialize tokenizer
-        TokenCounter.Initialize(_context);
+        _tokenCounter.Initialize(_context);
         
         // Re-prefill the static prefix (await!)
         await PrefillStaticPrefix();
@@ -1204,7 +1219,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                 _contextWindow.AddUserMessage(userPrompt);
             }
 
-             Logger.Debug("Context", $"Turn {_turnCount} | Budget: {_contextWindow.GetTotalTokens()}/{_contextWindow.MaxTokens} tokens");
+             _logger.Debug("Context", $"Turn {_turnCount} | Budget: {_contextWindow.GetTotalTokens()}/{_contextWindow.MaxTokens} tokens");
 
             // v10.8: KV cache overflow handling — if context is >80% full, rebuild cache
             // with summarized conversation to prevent garbage/crashes on long sessions
@@ -1271,13 +1286,13 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
 
             try
               {
-              Logger.Debug("Engine", $"Incremental input: {incrementalInput.Length} chars, Turn: {_turnCount}");
+              _logger.Debug("Engine", $"Incremental input: {incrementalInput.Length} chars, Turn: {_turnCount}");
               
               // v10.5: Dump incremental input to debug file
               var promptDumpPath = Path.Combine(_workingDir, "last_prompt.txt");
               try { File.WriteAllText(promptDumpPath, $"=== INCREMENTAL INPUT (Turn {_turnCount}) ===\n{incrementalInput}\n\n=== STATIC PREFIX (cached) ===\n{_cachedStaticPrefix ?? "(not prefilled)"}"); } catch { }
               
-              if (Logger.IsDebugEnabled)
+              if (_logger.IsDebugEnabled)
               {
                    _out?.WriteInfo($"[IncrementalInput] Turn {_turnCount} — {incrementalInput.Length} chars");
                   _out?.WriteDim(new string('=', 60));
@@ -1374,7 +1389,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                          }
                          catch (Exception ex)
                          {
-                             Logger.Warn("KVCache", $"Failed to rewind after stop: {ex.Message}");
+                             _logger.Warn("KVCache", $"Failed to rewind after stop: {ex.Message}");
                          }
                      }
                      return "(Stopped by user)";
@@ -1387,7 +1402,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                            }
 
                  _out?.BlankLine();
-                  Logger.Info("Engine", $"Response: {cleanResponse.Length} chars");
+                  _logger.Info("Engine", $"Response: {cleanResponse.Length} chars");
                   return cleanResponse;
                     }
               catch (Exception ex)
@@ -1398,7 +1413,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                  }
 
        /// <summary>Extract clean LLM response by stripping hallucination noise after </s> or trailing garbage.</summary>
-    private static string ExtractCleanResponse(string raw)
+    private string ExtractCleanResponse(string raw)
         {
            if (string.IsNullOrEmpty(raw)) return "";
 
@@ -1415,13 +1430,13 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
          {
              // Extract content between <lm> and </lm>
              content = raw.Substring(llmStart + 4, llmEnd - llmStart - 4).Trim();  // <lm> is 4 chars
-             Logger.Debug("Extract", $"Extracted from <lm> container: {content.Length} chars (noise stripped: {raw.Length - content.Length - 9} chars)");  // <lm>+</lm> = 9 chars
+             _logger.Debug("Extract", $"Extracted from <lm> container: {content.Length} chars (noise stripped: {raw.Length - content.Length - 9} chars)");  // <lm>+</lm> = 9 chars
          }
          else if (llmStart >= 0 && llmEnd < 0)
          {
              // <lm> opened but never closed — take everything after <lm>
              content = raw.Substring(llmStart + 4).Trim();  // <lm> is 4 chars
-             Logger.Debug("Extract", $"<lm> opened but not closed — taking rest: {content.Length} chars");
+             _logger.Debug("Extract", $"<lm> opened but not closed — taking rest: {content.Length} chars");
          }
          else
          {
@@ -1435,13 +1450,13 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                  // Also try to strip a malformed closing tag
                  var closeRegex = new System.Text.RegularExpressions.Regex(@"</?l?m[^>]*>?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                  content = closeRegex.Replace(content, "").Trim();
-                 Logger.Debug("Extract", $"Fallback regex found malformed <lm> tag at {lmMatch.Index}: extracted {content.Length} chars");
+                 _logger.Debug("Extract", $"Fallback regex found malformed <lm> tag at {lmMatch.Index}: extracted {content.Length} chars");
              }
              else
              {
                  // No <lm> container — fall back to raw (format retry / backwards compat)
                  content = raw.Trim();
-                 Logger.Debug("Extract", $"No <lm> container found — using raw: {content.Length} chars");
+                 _logger.Debug("Extract", $"No <lm> container found — using raw: {content.Length} chars");
              }
          }
 
@@ -1449,7 +1464,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
          // The model can batch multiple toolcalls in one response for parallel execution.
          // We preserve the <lm> inner content structure for the orchestrator to parse.
 
-         Logger.Debug("Extract", $"Content length: {content.Length}");
+         _logger.Debug("Extract", $"Content length: {content.Length}");
 
          // Find the first <thinking> block
          var thinkStart = content.IndexOf("<thinking>", StringComparison.OrdinalIgnoreCase);
@@ -1513,7 +1528,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                  var blockContent = content.Substring(tcS, tcE - tcS).Trim();
                  sb.AppendLine(blockContent);
              }
-             Logger.Debug("Extract", $"Extracted {toolcallBlocks.Count} <toolcall> blocks");
+             _logger.Debug("Extract", $"Extracted {toolcallBlocks.Count} <toolcall> blocks");
          }
          else if (outputStart >= 0)
          {
@@ -1528,7 +1543,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
          }
 
          var result = sb.ToString().Trim();
-         Logger.Debug("Extract", $"Output: {result.Length} chars, starts with: {EGuiBase.Truncate(result, 80)}");
+         _logger.Debug("Extract", $"Output: {result.Length} chars, starts with: {EGuiBase.Truncate(result, 80)}");
          return result;
            }
 

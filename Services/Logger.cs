@@ -1,3 +1,4 @@
+using ECAssistant.Interfaces;
 using ECAssistant.UI;
 
 namespace ECAssistant.Services;
@@ -7,25 +8,41 @@ namespace ECAssistant.Services;
 /// No external dependencies. Rotates log files daily.
 /// 
 /// Usage:
-///   Logger.Initialize("ECAssistant.log", Gui);
-///   Logger.Info("Engine", "Model loaded successfully");
-///   Logger.Error("Orchestrator", $"Tool failed: {ex.Message}");
-///   Logger.Debug("Context", $"Token budget: {tokens}/{max}");
+///   var logger = new Logger();
+///   logger.Initialize("ECAssistant.log", Gui);
+///   logger.Info("Engine", "Model loaded successfully");
+///   logger.Error("Orchestrator", $"Tool failed: {ex.Message}");
+///   logger.Debug("Context", $"Token budget: {tokens}/{max}");
 /// 
 /// Levels (controlled by config or compile-time):
 ///   Debug < Info < Warn < Error
 ///   Default: Info (Debug suppressed unless enabled)
 /// </summary>
-public static class Logger
+public class Logger : ILogger
 {
-    private static string _logFilePath = "ECAssistant.log";
-    private static EGuiBase? _gui;
-    private static LogLevel _minLevel = LogLevel.Info;
-    private static readonly object _lock = new();
-    private static bool _initialized = false;
+    // ANSI color codes (avoids dependency on EColor)
+    private const string AnsiYellow = "\x1b[33m";
+    private const string AnsiRed = "\x1b[31m";
+    private const string AnsiDim = "\x1b[2m";
+    private const string AnsiReset = "\x1b[0m";
+
+    private string _logFilePath = "ECAssistant.log";
+    private EGuiBase? _gui;
+    private LogLevel _minLevel = LogLevel.Info;
+    private readonly object _lock = new();
+    private bool _initialized = false;
+
+    /// <summary>Create a new logger instance. Call Initialize() before use.</summary>
+    public Logger() { }
+
+    /// <summary>Create and initialize a logger in one step.</summary>
+    public Logger(string logFilePath, EGuiBase gui, LogLevel minLevel = LogLevel.Info)
+    {
+        Initialize(logFilePath, gui, minLevel);
+    }
 
     /// <summary>Initialize the logger with file path and GUI reference.</summary>
-    public static void Initialize(string logFilePath, EGuiBase gui, LogLevel minLevel = LogLevel.Info)
+    public void Initialize(string logFilePath, EGuiBase gui, LogLevel minLevel)
     {
         _logFilePath = Path.GetFullPath(logFilePath);
         _gui = gui;
@@ -41,25 +58,25 @@ public static class Logger
     }
 
     /// <summary>Set the minimum log level at runtime.</summary>
-    public static void SetLevel(LogLevel level) => _minLevel = level;
+    public void SetLevel(LogLevel level) => _minLevel = level;
 
     /// <summary>Check if debug logging is currently enabled.</summary>
-    public static bool IsDebugEnabled => _minLevel <= LogLevel.Debug;
+    public bool IsDebugEnabled => _minLevel <= LogLevel.Debug;
 
     /// <summary>Debug log (suppressed unless level is Debug).</summary>
-    public static void Debug(string tag, string message) => Log(LogLevel.Debug, tag, message);
+    public void Debug(string tag, string message) => Log(LogLevel.Debug, tag, message);
 
     /// <summary>Info log.</summary>
-    public static void Info(string tag, string message) => Log(LogLevel.Info, tag, message);
+    public void Info(string tag, string message) => Log(LogLevel.Info, tag, message);
 
     /// <summary>Warning log.</summary>
-    public static void Warn(string tag, string message) => Log(LogLevel.Warn, tag, message);
+    public void Warn(string tag, string message) => Log(LogLevel.Warn, tag, message);
 
     /// <summary>Error log.</summary>
-    public static void Error(string tag, string message) => Log(LogLevel.Error, tag, message);
+    public void Error(string tag, string message) => Log(LogLevel.Error, tag, message);
 
     /// <summary>Error log with exception details.</summary>
-    public static void Error(string tag, string message, Exception ex)
+    public void Error(string tag, string message, Exception ex)
     {
         Log(LogLevel.Error, tag, $"{message} | {ex.GetType().Name}: {ex.Message}");
         if (ex.InnerException != null)
@@ -67,7 +84,7 @@ public static class Logger
     }
 
     /// <summary>Core log method — writes to file and optionally to console.</summary>
-    private static void Log(LogLevel level, string tag, string message)
+    private void Log(LogLevel level, string tag, string message)
     {
         if (!_initialized) return;
         if (level < _minLevel) return;
@@ -93,22 +110,22 @@ public static class Logger
             catch { /* Don't crash on log write failure */ }
 
             // Write to console via GUI (only for Warn/Error to avoid spam)
-            // v10.21: Skip console output for LLAMA native logs (they go to file only)
+            // Skip console output for LLAMA native logs (they go to file only)
             if (_gui != null && level >= LogLevel.Warn && !tag.Equals("LLAMA", StringComparison.OrdinalIgnoreCase))
             {
                 var color = level switch
                 {
-                    LogLevel.Warn => EColor.Yellow,
-                    LogLevel.Error => EColor.Red,
-                    _ => EColor.Dim
+                    LogLevel.Warn => AnsiYellow,
+                    LogLevel.Error => AnsiRed,
+                    _ => AnsiDim
                 };
-                _gui.LogInternal($"{color}{line}{EColor.Reset}");
+                _gui.LogInternal($"{color}{line}{AnsiReset}");
             }
         }
     }
 
     /// <summary>Read recent log lines (for diagnostics command).</summary>
-    public static string GetRecentLines(int count = 50)
+    public string GetRecentLines(int count = 50)
     {
         if (!File.Exists(_logFilePath)) return "(No log file found.)";
         try
@@ -124,17 +141,8 @@ public static class Logger
     }
 
     /// <summary>Get log file path.</summary>
-    public static string LogFilePath => _logFilePath;
+    public string LogFilePath => _logFilePath;
 
     /// <summary>Get log file size in bytes.</summary>
-    public static long LogFileSize => File.Exists(_logFilePath) ? new FileInfo(_logFilePath).Length : 0;
-}
-
-/// <summary>Log severity levels (ordered low to high).</summary>
-public enum LogLevel
-{
-    Debug = 0,
-    Info = 1,
-    Warn = 2,
-    Error = 3
+    public long LogFileSize => File.Exists(_logFilePath) ? new FileInfo(_logFilePath).Length : 0;
 }

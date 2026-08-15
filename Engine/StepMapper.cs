@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using ECAssistant.Tools;
 using ECAssistant.Services;
+using ECAssistant.Interfaces;
 
 namespace ECAssistant.Engine;
 
@@ -79,10 +80,12 @@ public class ExecutionPlan
 public class StepMapper
 {
     private readonly EAgentEngine _engine;
+    private readonly ILogger _logger;
 
-    public StepMapper(EAgentEngine engine)
+    public StepMapper(EAgentEngine engine, ILogger? logger = null)
     {
         _engine = engine;
+        _logger = logger ?? new Logger();
     }
 
     /// <summary>
@@ -248,7 +251,7 @@ Combine steps into one call when possible (e.g., batch shell commands).
         }
         if (deduped.Count < plan.Calls.Count)
         {
-            Logger.Info("StepMapper", $"Deduplicated: {plan.Calls.Count} → {deduped.Count} calls");
+            _logger.Info("StepMapper", $"Deduplicated: {plan.Calls.Count} → {deduped.Count} calls");
             plan.Calls = deduped;
         }
 
@@ -266,7 +269,7 @@ Combine steps into one call when possible (e.g., batch shell commands).
                 && cmd.Contains("\"") && cmd.IndexOf("(") > 0
                 && char.IsLetterOrDigit(cmd[cmd.IndexOf("(") - 1]))
             {
-                Logger.Warn("StepMapper", $"Invalid shell syntax in plan (method-call notation), falling back to ad-hoc");
+                _logger.Warn("StepMapper", $"Invalid shell syntax in plan (method-call notation), falling back to ad-hoc");
                 plan.IsValid = false;
                 plan.Error = "Plan contains invalid shell syntax (method-call notation)";
                 plan.Calls.Clear();
@@ -285,14 +288,14 @@ Combine steps into one call when possible (e.g., batch shell commands).
         if (uncovered.Count > 0)
         {
             // Not all steps are covered — that's OK, the LLM will handle them ad-hoc
-            Logger.Warn("StepMapper", $"Steps not covered by plan: {string.Join(", ", uncovered.Select(s => s + 1))} — LLM will handle ad-hoc");
+            _logger.Warn("StepMapper", $"Steps not covered by plan: {string.Join(", ", uncovered.Select(s => s + 1))} — LLM will handle ad-hoc");
         }
 
         plan.IsValid = plan.Calls.Count > 0;
 
         if (plan.IsValid)
         {
-            Logger.Info("StepMapper", $"Plan: {plan.Calls.Count} call(s) covering {plan.Calls.SelectMany(c => c.CoversSubTasks).Distinct().Count()}/{subTasks.Count} steps");
+            _logger.Info("StepMapper", $"Plan: {plan.Calls.Count} call(s) covering {plan.Calls.SelectMany(c => c.CoversSubTasks).Distinct().Count()}/{subTasks.Count} steps");
         }
         else
         {

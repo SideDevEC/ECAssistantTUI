@@ -1,5 +1,6 @@
-using static ECAssistant.EColor;
-
+using System.Text;
+using System.Text.Json;
+using ECAssistant.Interfaces;
 using ECAssistant.Services;
 
 namespace ECAssistant.Tools.Background;
@@ -7,104 +8,136 @@ namespace ECAssistant.Tools.Background;
 /// <summary>
 /// Background Exec Tool — lets the LLM start long-running processes
 /// without blocking the agent loop.
-/// 
+///
 /// The LLM can:
-///   - Start a build in background: <toolcall>EBackgroundExec<command>dotnet build</command><action>start</action></toolcall>
-///   - Check status: <toolcall>EBackgroundExec<action>status</action></toolcall>
-///   - Get output: <toolcall>EBackgroundExec<id>bg-1</id><action>output</action></toolcall>
-///   - Kill: <toolcall>EBackgroundExec<id>bg-1</id><action>kill</action></toolcall>
+///   - Start a build in background: EBackgroundExec(action="start", command="dotnet build")
+///   - Check status: EBackgroundExec(action="status")
+///   - Get output: EBackgroundExec(action="output", id="bg-1")
+///   - Kill: EBackgroundExec(action="kill", id="bg-1")
 /// </summary>
-public class EBackgroundExecTool : EToolBase
+public class EBackgroundExecTool : ITool
 {
     private readonly BackgroundProcessManager _mgr;
-    private readonly string _workingDir;
+    private readonly IProcessRunner _processRunner;
+    private readonly IFileSystem _fileSystem;
+    private readonly IConfigProvider _configProvider;
+    private readonly IColorFormatter _colorFormatter;
 
-    public EBackgroundExecTool(BackgroundProcessManager mgr, string workingDir)
+    private string WorkingDir => _configProvider.GetValue("background.workingDir", Environment.CurrentDirectory);
+
+    public EBackgroundExecTool(
+        BackgroundProcessManager mgr,
+        IProcessRunner processRunner,
+        IFileSystem fileSystem,
+        IConfigProvider configProvider,
+        IColorFormatter colorFormatter)
     {
         _mgr = mgr;
-        _workingDir = workingDir;
+        _processRunner = processRunner;
+        _fileSystem = fileSystem;
+        _configProvider = configProvider;
+        _colorFormatter = colorFormatter;
     }
 
-    public override string Name => "EBackgroundExec";
+    public string Name => "EBackgroundExec";
 
-    public override string Description =>
+    public string Description =>
         "Start, check, or kill background processes. Non-blocking — lets you run long commands " +
         "like builds while continuing to work. Use action=start to begin, action=status to list, " +
         "action=output to get results, action=kill to terminate.";
 
-    public override string UsageExample =>
-        "EBackgroundExec(command=\"dotnet build\", action=\"start\")";
+    public Interfaces.ToolPolicy GetPolicy() => Interfaces.ToolPolicy.Allowed(Name);
 
-    public override string GetToolRules() =>
-        "<action>=start|status|output|kill. start:+<command>. output/kill:+<id>. For long commands.";
-
-
-    public override string GetToolExample() =>
-        "<toolcall>EBackgroundExec<command>dotnet build</command><action>start</action></toolcall>\n" +
-        "<toolcall>EBackgroundExec<action>status</action></toolcall>";
-
-    public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments, CancellationToken cancellationToken = default)
+    public async Task<string> ExecuteAsync(string input, CancellationToken ct = default)
     {
-        var action = arguments.GetValueOrDefault("action")?.ToLower().Trim();
+        var args = ParseInput(input);
+        var action = args.GetValueOrDefault("action")?.ToLower().Trim();
 
         switch (action)
         {
             case "start":
             {
-                var command = arguments.GetValueOrDefault("command");
+                var command = args.GetValueOrDefault("command");
                 if (string.IsNullOrWhiteSpace(command))
-                    return EToolResult.Failure(Name, "Missing 'command' argument for action=start.");
+                    return $"[{Name}] ERROR: Missing 'command' argument for action=start.";
 
-                // v10.9.3: Cancellation support
-                if (cancellationToken.IsCancellationRequested)
-                    return EToolResult.Failure(Name, "[CANCELLED] Background process start was cancelled by user.");
-                var id = await _mgr.StartAsync(command, _workingDir);
-                return EToolResult.Success(Name,
-                    $"Background process started: {id}\nCommand: {command}\nUse EBackgroundExec with action=output and id={id} to check results.",
-                    new Dictionary<string, string> { ["process_id"] = id });
+                if (ct.IsCancellationRequested)
+                    return $"[{Name}] ERROR: [CANCELLED] Background process start was cancelled by user.";
+
+                var id = await _mgr.StartAsync(command, WorkingDir);
+                return $"[{Name}] Background process started: {id}\nCommand: {command}\nUse EBackgroundExec with action=output and id={id} to check results.";
             }
 
             case "status":
             {
                 var list = _mgr.List();
                 if (list.Count == 0)
-                    return EToolResult.Success(Name, "No background processes running.");
+                    return $"[{Name}] No background processes running.";
 
-                var sb = new System.Text.StringBuilder();
+                var sb = new StringBuilder();
                 sb.AppendLine($"Background processes ({list.Count}):");
                 foreach (var p in list)
                     sb.AppendLine($"  {p}");
-                return EToolResult.Success(Name, sb.ToString());
+                return $"[{Name}] {sb}";
             }
 
             case "output":
             {
-                var id = arguments.GetValueOrDefault("id");
+                var id = args.GetValueOrDefault("id");
                 if (string.IsNullOrWhiteSpace(id))
-                    return EToolResult.Failure(Name, "Missing 'id' argument for action=output.");
+                    return $"[{Name}] ERROR: Missing 'id' argument for action=output.";
 
                 var status = _mgr.GetStatus(id);
                 var output = _mgr.GetOutput(id);
-                return EToolResult.Success(Name,
-                    $"Process {id} — Status: {status}\n\n{output}",
-                    new Dictionary<string, string> { ["status"] = status.ToString() });
+                return $"[{Name}] Process {id} — Status: {status}\n\n{output}";
             }
 
             case "kill":
             {
-                var id = arguments.GetValueOrDefault("id");
+                var id = args.GetValueOrDefault("id");
                 if (string.IsNullOrWhiteSpace(id))
-                    return EToolResult.Failure(Name, "Missing 'id' argument for action=kill.");
+                    return $"[{Name}] ERROR: Missing 'id' argument for action=kill.";
 
                 var killed = _mgr.Kill(id);
                 return killed
-                    ? EToolResult.Success(Name, $"Killed process: {id}")
-                    : EToolResult.Failure(Name, $"Failed to kill process: {id} (not running or not found)");
+                    ? $"[{Name}] Killed process: {id}"
+                    : $"[{Name}] ERROR: Failed to kill process: {id} (not running or not found)";
             }
 
             default:
-                return EToolResult.Failure(Name,
-                    $"Unknown action: '{action}'. Use start, status, output, or kill.");
+                return $"[{Name}] ERROR: Unknown action: '{action}'. Use start, status, output, or kill.";
+        }
+    }
+
+    private Dictionary<string, string> ParseInput(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+            return new Dictionary<string, string>();
+
+        try
+        {
+            using var doc = JsonDocument.Parse(input);
+            var dict = new Dictionary<string, string>();
+            foreach (var prop in doc.RootElement.EnumerateObject())
+            {
+                if (prop.Value.ValueKind == JsonValueKind.String)
+                    dict[prop.Name] = prop.Value.GetString() ?? string.Empty;
+                else
+                    dict[prop.Name] = prop.Value.ToString();
+            }
+            return dict;
+        }
+        catch
+        {
+            var dict = new Dictionary<string, string>();
+            var pairs = input.Split('&');
+            foreach (var pair in pairs)
+            {
+                var eq = pair.IndexOf('=');
+                if (eq > 0)
+                    dict[pair[..eq].Trim()] = pair[(eq + 1)..].Trim();
+            }
+            return dict;
         }
     }
 }

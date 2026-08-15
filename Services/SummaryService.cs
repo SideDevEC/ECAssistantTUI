@@ -56,7 +56,7 @@ public class SummaryService
     }
 
     /// <summary>Build an extractive (non-LLM) summary from message content.</summary>
-    private static string BuildExtractiveSummary(List<TranscriptMessage> messages)
+    private string BuildExtractiveSummary(List<TranscriptMessage> messages)
     {
         var sb = new StringBuilder();
         // Take first 2 and last 1 for context
@@ -78,7 +78,7 @@ public class SummaryService
     }
 
     /// <summary>Build a formatted block from messages for summary prompts.</summary>
-    private static string BuildBlockString(List<TranscriptMessage> msgs)
+    private string BuildBlockString(List<TranscriptMessage> msgs)
     {
         var sb = new StringBuilder();
         foreach (var msg in msgs)

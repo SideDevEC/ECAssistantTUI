@@ -1,5 +1,3 @@
-using static ECAssistant.EColor;
-
 using System.Text;
 using System.Text.RegularExpressions;
 using ECAssistant.Engine;
@@ -7,6 +5,7 @@ using ECAssistant.Tools;
 using ECAssistant.Services;
 using ECAssistant.UI;
 using ECAssistant.Session;
+using ECAssistant.Interfaces;
 
 namespace ECAssistant.Orchestration;
 
@@ -44,7 +43,8 @@ public sealed class AgentOrchestrator : IAsyncDisposable
     private readonly HashSet<string> _toolWhitelist = new(StringComparer.OrdinalIgnoreCase);
 
       // ─── Tool Policy (permissions + approval) ─────
-    private readonly ToolPolicy _toolPolicy;
+    private readonly ECAssistant.Tools.ToolPolicy _toolPolicy;
+    private readonly ECAssistant.Interfaces.ILogger? _logger;
 
      // v10.18: Sub-agent manager (lazy-init, created when first sub-agent tool is registered)
     private SubAgentManager? _subAgentManager;
@@ -56,13 +56,15 @@ public sealed class AgentOrchestrator : IAsyncDisposable
         ISessionOutput? sessionOutput = null,
         int maxTurns = 5,
         int maxFailures = 3,
-        ToolPolicy? toolPolicy = null)
+        ECAssistant.Tools.ToolPolicy? toolPolicy = null,
+        ECAssistant.Interfaces.ILogger? logger = null)
               {
                   _engine = engine;
                   _out = sessionOutput;
                   _maxTurns = Math.Max(1, maxTurns);
                   _maxFailuresBeforeStop = maxFailures;
-                  _toolPolicy = toolPolicy ?? new ToolPolicy();
+                  _toolPolicy = toolPolicy ?? new ECAssistant.Tools.ToolPolicy();
+                  _logger = logger ?? new Logger();
 
             foreach (var tool in _engine.Tools)
                    _toolWhitelist.Add(tool.Name);
@@ -71,7 +73,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
       /// <summary>v10.18: Initialize sub-agent support. Creates SubAgentManager and registers ESubAgent tool.</summary>
      public void InitializeSubAgents(string defaultWorkingDir)
       {
-          _subAgentManager = new SubAgentManager(_engine, defaultWorkingDir);
+          _subAgentManager = new SubAgentManager(_engine, defaultWorkingDir, _logger);
           _engine.RegisterTool(new Tools.SubAgent.ESubAgentTool(_subAgentManager, defaultWorkingDir));
           _toolWhitelist.Add("ESubAgent");
           _toolPolicy.SetPermission("ESubAgent", ToolPermissionLevel.Allowed, "Sub-agent spawning");
@@ -88,7 +90,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
       }
 
       /// <summary>Get the tool policy instance (for runtime modification).</summary>
-    public ToolPolicy Policy => _toolPolicy;
+    public ECAssistant.Tools.ToolPolicy Policy => _toolPolicy;
 
       /// <summary>Execute multi-step workflow autonomously.</summary>
     public async Task<OrchestratorResult> ExecuteMultiStep(string goal)
@@ -154,7 +156,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
             ExecutionPlan? executionPlan = null;
             if (_subTasks != null && _subTasks.Count > 1)
              {
-                var mapper = new StepMapper(_engine);
+                var mapper = new StepMapper(_engine, _logger);
                 _out?.WriteInfo("Mapping steps to tool calls...");
                 executionPlan = await mapper.MapAsync(_subTasks, goal);
                  _executionPlan = executionPlan; // Store for advancement logic
@@ -198,7 +200,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                         Status = OrchestratorStatus.GoalAchieved   // not an error — user chose to stop
                      };
                  }
-            Logger.Info("Orchestrator", $"Turn {_turnCount + 1}/{_maxTurns}");
+            _logger.Info("Orchestrator", $"Turn {_turnCount + 1}/{_maxTurns}");
 
                   // Step 1: Ask the LLM to decide what to do (with full context of tools + history)
               var llmResponse = await _engine.GenerateAsync(goal);
@@ -240,7 +242,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                  // v10.13: Multi-tool parallel execution
                 if (decision.IsMultiCall)
                  {
-                    Logger.Info("Orchestrator", $"Multi-tool call: {decision.ToolCallCount} tools");
+                    _logger.Info("Orchestrator", $"Multi-tool call: {decision.ToolCallCount} tools");
                     _out?.WriteInfo($"Multi-tool call: {decision.ToolCallCount} tools — analyzing dependencies...");
 
                      // Create parallel executor
@@ -259,7 +261,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                          _out?.WriteSuccess($"Batch: {consoleSummary}");
                     else
                          _out?.WriteWarning($"Batch: {consoleSummary}");
-                    Logger.Info("Orchestrator", $"Batch result: {consoleSummary}");
+                    _logger.Info("Orchestrator", $"Batch result: {consoleSummary}");
 
                      // Combine all results into one output block for the LLM
                     var combinedOutput = ParallelToolExecutor.CombineResults(batchResult);
@@ -334,7 +336,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                  }
 
                  // ── Single tool call (original path) ──
-                Logger.Info("Orchestrator", $"Tool call: {decision.ToolName}");
+                _logger.Info("Orchestrator", $"Tool call: {decision.ToolName}");
 
                 var argsDict = decision.Args;
 
@@ -385,7 +387,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                                  _out?.WriteSuccess($"[Tool] {decision.ToolName}: OK ({elapsedMs}ms)");
                             else
                                  _out?.WriteError($"[Tool] {decision.ToolName}: FAIL ({elapsedMs}ms)");
-                            Logger.Info("Orchestrator", $"Tool: {decision.ToolName} = {(result.Succeeded ? "SUCCESS" : "FAILURE")} ({elapsedMs}ms)");
+                            _logger.Info("Orchestrator", $"Tool: {decision.ToolName} = {(result.Succeeded ? "SUCCESS" : "FAILURE")} ({elapsedMs}ms)");
 
                         if (result.Succeeded)
                                  {
@@ -487,7 +489,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                  _formatRetries++;
                 if (_formatRetries <= MaxFormatRetries)
                  {
-                    Logger.Warn("Orchestrator", $"No tags (attempt {_formatRetries}/{MaxFormatRetries}). Removing bad response, retrying.");
+                    _logger.Warn("Orchestrator", $"No tags (attempt {_formatRetries}/{MaxFormatRetries}). Removing bad response, retrying.");
 
                      // Remove the bad assistant response from history so model doesn't learn from it
                     await _engine.RemoveLastAssistantResponseAsync();
@@ -504,7 +506,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                  }
                 else
                  {
-                    Logger.Error("Orchestrator", $"No tags after {MaxFormatRetries} retries. Stopping.");
+                    _logger.Error("Orchestrator", $"No tags after {MaxFormatRetries} retries. Stopping.");
                     return new OrchestratorResult
                              {
                             FinalOutput = $"Invalid response after {MaxFormatRetries} retries. The model did not use required tags.\nLast response:\n{llmResponse}",
@@ -541,7 +543,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
      /// Priority: if <toolcall> blocks exist, they take precedence over <output>.
      /// A response with both <toolcall> and <output> is treated as tool calls (output is ignored).
      /// </summary>
-    private static LLMDecision ParseLLMDecision(string response)
+    private LLMDecision ParseLLMDecision(string response)
                  {
             var trimmed = response.Trim();
 
@@ -593,15 +595,15 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                 var answer = trimmed.Substring(
                     outputOpenIdx + "<output>".Length,
                     outputCloseIdx.Value - outputOpenIdx - "<output>".Length).Trim();
-                return LLMDecision.DirectAnswer(answer);
+                return new LLMDecision(false, null, new Dictionary<string, string?>(), answer);
                    }
 
               // Neither block found — invalid response
-            return LLMDecision.Unknown();
+            return new LLMDecision(false, null, new Dictionary<string, string?>(), null);
                  }
 
 /// <summary>Parses a single <toolcall> block content to extract tool name and arguments.</summary>
-    private static ToolCallRequest ParseToolCallBlock(string toolcallContent, int index)
+    private ToolCallRequest ParseToolCallBlock(string toolcallContent, int index)
            {
               // Extract tool name: first word before any '<', space, or end of string
             var ltIdx = toolcallContent.IndexOf('<');
@@ -661,7 +663,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
         if (tool == null)
             throw new InvalidOperationException($"Unknown tool: {toolName}");
 
-        Logger.Debug("Orchestrator", $"Executing: {tool.Name}");
+        _logger.Debug("Orchestrator", $"Executing: {tool.Name}");
          // v10.9.3: Pass execution cancellation token to tool
         return await tool.ExecuteAsync(args, _engine.ExecutionToken);
               }
@@ -911,13 +913,13 @@ public class LLMDecision
      /// <summary>Is this a multi-call (parallel) decision?</summary>
     public bool IsMultiCall => ToolCalls.Count > 1;
 
-    public static LLMDecision ToolCall(string name, Dictionary<string, string?> dict)
+    public LLMDecision ToolCall(string name, Dictionary<string, string?> dict)
                  => new(true, name, dict);
 
-    public static LLMDecision DirectAnswer(string answer)
+    public LLMDecision DirectAnswer(string answer)
                  => new(false, null, new Dictionary<string, string?>(), answer);
 
-    public static LLMDecision Unknown()
+    public LLMDecision Unknown()
                  => new(false, null, new Dictionary<string, string?>(), null);
 }
 

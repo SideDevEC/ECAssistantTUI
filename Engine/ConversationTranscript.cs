@@ -26,23 +26,28 @@ public class TranscriptMessage
 
     // ─── Factories ──────────────────────────────
 
+   // Stateless factory — immutable data class
     public static TranscriptMessage System(string content)
-         => new() { Role = "system", Content = content, EstimatedTokens = TokenCounter.Count(content) };
+         => new() { Role = "system", Content = content, EstimatedTokens = 0 };
 
+   // Stateless factory — immutable data class
     public static TranscriptMessage User(string content, string source = "user")
-         => new() { Role = "user", Source = source, Content = content, EstimatedTokens = TokenCounter.Count(content) };
+         => new() { Role = "user", Source = source, Content = content, EstimatedTokens = 0 };
 
+   // Stateless factory — immutable data class
     public static TranscriptMessage Assistant(string content, string source = "assistant")
-         => new() { Role = "assistant", Source = source, Content = content, EstimatedTokens = TokenCounter.Count(content) };
+         => new() { Role = "assistant", Source = source, Content = content, EstimatedTokens = 0 };
 
+   // Stateless factory — immutable data class
     public static TranscriptMessage ToolOutput(string content, string toolName = "")
-         => new() { Role = "tool_output", Source = toolName, Content = content, EstimatedTokens = TokenCounter.Count(content) };
+         => new() { Role = "tool_output", Source = toolName, Content = content, EstimatedTokens = 0 };
 
     /// <summary>Serialize to JSON for disk persistence.</summary>
     public string ToJson()
         => JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = false });
 
     /// <summary>Deserialize from JSON.</summary>
+   // Stateless factory — immutable data class
     public static TranscriptMessage FromJson(string json)
          => JsonSerializer.Deserialize<TranscriptMessage>(json)!;
 }
@@ -96,6 +101,7 @@ public class ConversationTranscript
         => JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
 
     /// <summary>Deserialize from a JSON string.</summary>
+   // Stateless factory — immutable data class
     public static ConversationTranscript FromJson(string json)
         => JsonSerializer.Deserialize<ConversationTranscript>(json)!;
 
@@ -104,6 +110,7 @@ public class ConversationTranscript
          => File.WriteAllText(path, ToJson());
 
     /// <summary>Load from disk at the given path. Returns null if file doesn't exist.</summary>
+   // Stateless factory — immutable data class
     public static ConversationTranscript? LoadFromDisk(string path)
          => !File.Exists(path) ? null : FromJson(File.ReadAllText(path));
 }

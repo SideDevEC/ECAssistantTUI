@@ -47,7 +47,7 @@ public class ParallelToolExecutor
     public async Task<BatchToolResult> ExecuteAsync(List<ToolCallRequest> toolCalls, CancellationToken ct = default)
     {
         // Analyze dependencies
-        var groups = ToolDependencyAnalyzer.Analyze(toolCalls);
+        var analyzer = new ToolDependencyAnalyzer(); var groups = analyzer.Analyze(toolCalls);
         var allResults = new List<SingleToolResult>();
 
         if (groups.Count == 1 && groups[0].ToolCalls.Count == 1)
@@ -323,6 +323,7 @@ public class ParallelToolExecutor
     /// [Tool 2: ToolName] Output: ...
     /// </result></tooloutput>
     /// </summary>
+   // Stateless utility — no mutable state
     public static string CombineResults(BatchToolResult batch)
     {
         if (batch.Results.Count == 1)
@@ -355,6 +356,7 @@ public class ParallelToolExecutor
     /// <summary>
     /// Format a short summary for console display (not for LLM).
     /// </summary>
+   // Stateless utility — no mutable state
     public static string FormatConsoleSummary(BatchToolResult batch)
     {
         if (batch.Results.Count == 1)

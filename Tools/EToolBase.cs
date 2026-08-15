@@ -101,13 +101,15 @@ public class EToolResult
                   /// <summary>Additional metadata (null if not applicable)</summary>
     public Dictionary<string, string>? Metadata { get; init; }
 
-       private EToolResult() { }
+       public EToolResult() { }
 
             /// <summary>Create a successful tool result</summary>
+   // Stateless factory — immutable data class
     public static EToolResult Success(string toolName, string output, Dictionary<string, string>? metadata = null)
               => new() { ToolName = toolName, Succeeded = true, Output = output, Metadata = metadata };
 
              /// <summary>Create a failed tool result with error message</summary>
+   // Stateless factory — immutable data class
     public static EToolResult Failure(string toolName, string error, Dictionary<string, string>? metadata = null)
               => new() { ToolName = toolName, Succeeded = false, Error = error, Metadata = metadata };
 

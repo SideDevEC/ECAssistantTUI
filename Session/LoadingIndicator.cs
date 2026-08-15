@@ -1,5 +1,5 @@
-using static ECAssistant.EColor;
 using ECAssistant.UI;
+using ECAssistant.Interfaces;
 
 namespace ECAssistant.Session;
 
@@ -8,7 +8,7 @@ namespace ECAssistant.Session;
 /// Runs on a background timer (500ms interval). Input is disabled while running.
 /// 
 /// Usage:
-///   var indicator = new LoadingIndicator(Gui);
+///   var indicator = new LoadingIndicator(Gui, color);
 ///   indicator.Start("Initializing session 'main'");
 ///   ... do async work ...
 ///   indicator.Stop();  // clears the line, ready for prompt
@@ -16,14 +16,16 @@ namespace ECAssistant.Session;
 public class LoadingIndicator : IDisposable
 {
     private readonly EGuiBase _gui;
+    private readonly IColorFormatter _color;
     private Timer? _timer;
     private int _dotCount = 0;
     private string _label = "";
     private bool _running;
 
-    public LoadingIndicator(EGuiBase gui)
+    public LoadingIndicator(EGuiBase gui, IColorFormatter color)
     {
         _gui = gui;
+        _color = color;
     }
 
     /// <summary>Start the animated indicator with a label.</summary>
@@ -70,7 +72,7 @@ public class LoadingIndicator : IDisposable
         var dots = new string('.', _dotCount);
 
         // \r to return to start of line, then overwrite
-        var line = $"\r{Cyan}{_label}{Reset} {Dim}{dots}  {Reset}";
+        var line = $"\r{_color.Cyan}{_label}{_color.Reset} {_color.Dim}{dots}  {_color.Reset}";
         _gui.WriteRawDirect(line);
     }
 

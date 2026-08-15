@@ -1,159 +1,153 @@
-using System.Diagnostics;
 using System.Text;
-using System.Text.RegularExpressions;
-using ECAssistant.Services;
+using System.Text.Json;
+using ECAssistant.Interfaces;
 
 namespace ECAssistant.Tools.Git;
 
 /// <summary>
 /// Git Integration Tool — wraps common git operations with structured output.
 /// Returns clean, parsed results instead of raw git output.
-/// 
+///
 /// Usage:
-///   <toolcall>EGitTool<action>status</action></toolcall>
-///   <toolcall>EGitTool<action>diff</action></toolcall>
-///   <toolcall>EGitTool<action>commit</action><message>fix: update config</message></toolcall>
-///   <toolcall>EGitTool<action>log</action><max_entries>5</max_entries></toolcall>
+///   EGitTool(action="status")
+///   EGitTool(action="diff")
+///   EGitTool(action="commit", message="fix: update config")
+///   EGitTool(action="log", max_entries="5")
 /// </summary>
-public class EGitTool : EToolBase
+public class EGitTool : ITool
 {
-    private readonly string _workingDir;
+    private readonly IProcessRunner _processRunner;
+    private readonly IFileSystem _fileSystem;
+    private readonly IConfigProvider _configProvider;
+    private readonly IColorFormatter _colorFormatter;
 
-    public EGitTool(string workingDir) => _workingDir = workingDir;
+    private string WorkingDir => _configProvider.GetValue("git.workingDir", Environment.CurrentDirectory);
 
-    public override string Name => "EGitTool";
+    public EGitTool(IProcessRunner processRunner, IFileSystem fileSystem, IConfigProvider configProvider, IColorFormatter colorFormatter)
+    {
+        _processRunner = processRunner;
+        _fileSystem = fileSystem;
+        _configProvider = configProvider;
+        _colorFormatter = colorFormatter;
+    }
 
-    public override string Description =>
+    public string Name => "EGitTool";
+
+    public string Description =>
         "Git operations with structured output. Actions: init, status, diff, commit, push, pull, log, " +
         "add, branch, checkout. Better than raw shell for git — parses output into clean format.";
 
-    public override string UsageExample =>
-        "EGitTool(action=\"status\")";
+    public Interfaces.ToolPolicy GetPolicy() => Interfaces.ToolPolicy.Allowed(Name);
 
-    public override string GetToolRules() =>
-        "<action>=init|status|diff|commit|push|pull|log|add|branch|checkout. " +
-        "init: no args. commit: +<message>. add: +<files>('all'=-A). log: +<max_entries>. checkout: +<branch>.";
-
-
-    public override string GetToolExample() =>
-        "<toolcall>EGitTool<action>init</action></toolcall>\n" +
-        "<toolcall>EGitTool<action>status</action></toolcall>\n" +
-        "<toolcall>EGitTool<action>commit</action><message>fix: update</message></toolcall>";
-
-    public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments, CancellationToken cancellationToken = default)
+    public async Task<string> ExecuteAsync(string input, CancellationToken ct = default)
     {
-        var action = arguments.GetValueOrDefault("action")?.ToLower().Trim();
+        var args = ParseInput(input);
+        var action = args.GetValueOrDefault("action")?.ToLower().Trim();
+
         if (string.IsNullOrEmpty(action))
-            return EToolResult.Failure(Name, "Missing 'action' argument.");
+            return $"[{Name}] ERROR: Missing 'action' argument.";
 
-        var (cmd, needsApproval) = BuildGitCommand(action, arguments);
-
+        var cmd = BuildGitCommand(action, args);
         if (string.IsNullOrEmpty(cmd))
-            return EToolResult.Failure(Name, $"Unknown git action: {action}");
+            return $"[{Name}] ERROR: Unknown git action: {action}";
 
         try
         {
-            var psi = new ProcessStartInfo
-            {
-                FileName = "git",
-                Arguments = cmd,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-                WorkingDirectory = _workingDir,
-            };
+            var result = await _processRunner.ExecuteAsync($"git {cmd}", WorkingDir, ct);
 
-            var process = Process.Start(psi);
-            if (process == null)
-                return EToolResult.Failure(Name, "Failed to start git process.");
+            if (result.ExitCode != 0 && !string.IsNullOrWhiteSpace(result.StdErr))
+                return $"[{Name}] ERROR: git {action} failed (exit {result.ExitCode}):\n{result.StdErr.Trim()}";
 
-            var stdout = await process.StandardOutput.ReadToEndAsync();
-            var stderr = await process.StandardError.ReadToEndAsync();
-            // v10.9.3: Cancellation support
-            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, cancellationToken);
-            try
-            {
-                await process.WaitForExitAsync(linkedCts.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                try { process.Kill(entireProcessTree: true); } catch { }
-                if (cancellationToken.IsCancellationRequested)
-                    return EToolResult.Failure(Name, "[CANCELLED] Git operation was cancelled by user.");
-                return EToolResult.Failure(Name, "[TIMEOUT] Git operation exceeded 60 second limit.");
-            }
-
-            if (process.ExitCode != 0 && !string.IsNullOrWhiteSpace(stderr))
-            {
-                return EToolResult.Failure(Name, $"git {action} failed (exit {process.ExitCode}):\n{stderr.Trim()}");
-            }
-
-            var result = ParseGitOutput(action, stdout);
-            Logger.Info("GitTool", $"git {action}: exit={process.ExitCode}");
-
-            return EToolResult.Success(Name, result, new Dictionary<string, string>
-            {
-                ["action"] = action,
-                ["exit_code"] = process.ExitCode.ToString()
-            });
+            var output = ParseGitOutput(action, result.StdOut);
+            return $"[{Name}] {output}";
         }
         catch (Exception ex)
         {
-            return EToolResult.Failure(Name, $"git error: {ex.Message}");
+            return $"[{Name}] ERROR: git error: {ex.Message}";
         }
     }
 
-    private (string cmd, bool needsApproval) BuildGitCommand(string action, Dictionary<string, string?> args)
+    private Dictionary<string, string> ParseInput(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+            return new Dictionary<string, string>();
+
+        try
+        {
+            using var doc = JsonDocument.Parse(input);
+            var dict = new Dictionary<string, string>();
+            foreach (var prop in doc.RootElement.EnumerateObject())
+            {
+                if (prop.Value.ValueKind == JsonValueKind.String)
+                    dict[prop.Name] = prop.Value.GetString() ?? string.Empty;
+                else
+                    dict[prop.Name] = prop.Value.ToString();
+            }
+            return dict;
+        }
+        catch
+        {
+            var dict = new Dictionary<string, string>();
+            var pairs = input.Split('&');
+            foreach (var pair in pairs)
+            {
+                var eq = pair.IndexOf('=');
+                if (eq > 0)
+                    dict[pair[..eq].Trim()] = pair[(eq + 1)..].Trim();
+            }
+            return dict;
+        }
+    }
+
+    private string BuildGitCommand(string action, Dictionary<string, string> args)
     {
         switch (action)
         {
             case "init":
-                return ("init", false);
+                return "init";
             case "status":
-                return ("status --porcelain", false);
+                return "status --porcelain";
             case "diff":
-                return ("diff", false);
+                return "diff";
             case "diff-staged":
-                return ("diff --cached", false);
+                return "diff --cached";
             case "add":
             {
                 var files = args.GetValueOrDefault("files") ?? ".";
                 if (files == "all") files = "-A";
-                return ($"add {files}", false);
+                return $"add {files}";
             }
             case "commit":
             {
                 var msg = args.GetValueOrDefault("message") ?? "";
-                if (string.IsNullOrEmpty(msg)) return ("", false);
-                return ($"commit -m \"{msg.Replace("\"", "\\\"")}\"", true);
+                if (string.IsNullOrEmpty(msg)) return "";
+                return $"commit -m \"{msg.Replace("\"", "\\\"")}\"";
             }
             case "push":
-                return ("push", true);
+                return "push";
             case "pull":
-                return ("pull", false);
+                return "pull";
             case "log":
             {
                 var max = args.GetValueOrDefault("max_entries") ?? "10";
-                return ($"log --oneline -{max}", false);
+                return $"log --oneline -{max}";
             }
             case "branch":
-                return ("branch -a", false);
+                return "branch -a";
             case "checkout":
             {
                 var branch = args.GetValueOrDefault("branch") ?? "";
-                if (string.IsNullOrEmpty(branch)) return ("", false);
-                return ($"checkout {branch}", false);
+                if (string.IsNullOrEmpty(branch)) return "";
+                return $"checkout {branch}";
             }
             case "current-branch":
-                return ("rev-parse --abbrev-ref HEAD", false);
+                return "rev-parse --abbrev-ref HEAD";
             default:
-                return ("", false);
+                return "";
         }
     }
 
-    private static string ParseGitOutput(string action, string rawOutput)
+    private string ParseGitOutput(string action, string rawOutput)
     {
         var sb = new StringBuilder();
         var output = rawOutput.Trim();
@@ -166,11 +160,10 @@ public class EGitTool : EToolBase
                 else
                     sb.AppendLine($"Git init output: {output}");
                 break;
+
             case "status":
                 if (string.IsNullOrEmpty(output))
-                {
                     sb.AppendLine("✅ Working tree clean — no changes.");
-                }
                 else
                 {
                     var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
@@ -178,7 +171,7 @@ public class EGitTool : EToolBase
                     foreach (var line in lines)
                     {
                         var status = line.Length >= 2 ? line.Substring(0, 2).Trim() : "??";
-                        var file = line.Length > 3 ? line.Substring(3).Trim() : line;
+                    var file = line.Length > 3 ? line.Substring(3).Trim() : line;
                         var icon = status switch
                         {
                             "M" => "📝",
@@ -195,9 +188,7 @@ public class EGitTool : EToolBase
 
             case "log":
                 if (string.IsNullOrEmpty(output))
-                {
                     sb.AppendLine("(No commits yet.)");
-                }
                 else
                 {
                     var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
@@ -209,9 +200,7 @@ public class EGitTool : EToolBase
 
             case "branch":
                 if (string.IsNullOrEmpty(output))
-                {
                     sb.AppendLine("(No branches.)");
-                }
                 else
                 {
                     var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
@@ -228,9 +217,7 @@ public class EGitTool : EToolBase
             case "diff":
             case "diff-staged":
                 if (string.IsNullOrEmpty(output))
-                {
                     sb.AppendLine("No differences.");
-                }
                 else
                 {
                     sb.AppendLine($"📝 Changes ({output.Length} chars):");

@@ -2,6 +2,7 @@ using LLama;
 using LLama.Common;
 using LLama.Sampling;
 using ECAssistant.Services;
+using ECAssistant.Interfaces;
 
 namespace ECAssistant.Engine;
 
@@ -27,21 +28,30 @@ public class SecondaryModelLoader : IDisposable
     private InferenceParams? _inferenceParams;
     private string[] _antiPrompts = new[] { "User:", "Question:" };
     private bool _loaded = false;
+    private readonly ILogger _logger;
+    private readonly IColorFormatter _color;
 
     public string ModelPath { get; private set; } = "";
     public uint ContextSize { get; private set; } = 4096;
     public bool IsLoaded => _loaded;
 
+    private SecondaryModelLoader(ILogger? logger = null, IColorFormatter? color = null)
+    {
+        _logger = logger ?? new Logger();
+        _color = color ?? new EColor();
+    }
+
     /// <summary>Load a secondary model from disk.</summary>
+   // Stateless factory — immutable data class
     public static SecondaryModelLoader? Load(string modelPath, uint contextSize = 4096, int gpuLayers = 0,
         float temperature = 0.1f, float topP = 0.8f, int topK = 40, float repeatPenalty = 1.1f, int maxTokens = 512,
-        string[]? antiPrompts = null)
+        string[]? antiPrompts = null, ILogger? logger = null, IColorFormatter? color = null)
     {
-        var loader = new SecondaryModelLoader();
+        var loader = new SecondaryModelLoader(logger, color);
 
         if (!File.Exists(modelPath))
         {
-            ECAssistant.Services.Logger.Warn("SecondaryModel", $"Model not found: {modelPath}");
+            loader._logger.Warn("SecondaryModel", $"Model not found: {modelPath}");
             return null;
         }
 
@@ -74,11 +84,11 @@ public class SecondaryModelLoader : IDisposable
             loader._loaded = true;
             loader.ModelPath = modelPath;
             loader.ContextSize = contextSize;
-            ECAssistant.Services.Logger.Info("SecondaryModel", $"Loaded: {modelPath} | Context: {contextSize} | GPU: {gpuLayers}");
+            loader._logger.Info("SecondaryModel", $"Loaded: {modelPath} | Context: {contextSize} | GPU: {gpuLayers}");
         }
         catch (Exception ex)
         {
-            ECAssistant.Services.Logger.Error("SecondaryModel", $"Failed to load: {ex.Message}");
+            loader._logger.Error("SecondaryModel", $"Failed to load: {ex.Message}");
             return null;
         }
 
@@ -165,8 +175,8 @@ User: " + userRequest + "\n";
         var result = await GenerateAsync(prompt, maxTokens: effectiveMax);
         
         // v10.7.5: Log raw decomposition output for debugging
-        Logger.Info("SecondaryModel", $"Raw decomposition output:\n{result}");
-        EColor.WriteLine(EColor.Dim, $"[Secondary] Raw decomposition:\n{result}");
+        _logger.Info("SecondaryModel", $"Raw decomposition output:\n{result}");
+        _color.WriteLine(_color.Dim, $"[Secondary] Raw decomposition:\n{result}");
 
         if (string.IsNullOrWhiteSpace(result))
             return null;
@@ -199,20 +209,20 @@ User: " + userRequest + "\n";
         // If we found no numbered steps, return null (use keyword fallback)
         if (steps.Count == 0)
         {
-            Logger.Warn("SecondaryModel", "Decomposition produced no numbered steps — falling back to keywords.");
+            _logger.Warn("SecondaryModel", "Decomposition produced no numbered steps — falling back to keywords.");
             return null;
         }
 
-        Logger.Info("SecondaryModel", $"Decomposed into {steps.Count} steps: {string.Join(" | ", steps.Select(s => s.Substring(0, Math.Min(s.Length, 50))))}");
-        EColor.TagBold(EColor.Success(), "Secondary", $"Decomposed into {steps.Count} steps:");
+        _logger.Info("SecondaryModel", $"Decomposed into {steps.Count} steps: {string.Join(" | ", steps.Select(s => s.Substring(0, Math.Min(s.Length, 50))))}");
+        _color.TagBold(_color.Green, "Secondary", $"Decomposed into {steps.Count} steps:");
         for (int i = 0; i < steps.Count; i++)
-            EColor.WriteLine(EColor.Dim, $"  {i+1}. {steps[i]}");
+            _color.WriteLine(_color.Dim, $"  {i+1}. {steps[i]}");
         return steps;
     }
 
     public void Dispose()
     {
         try { _weights?.Dispose(); } catch { }
-        ECAssistant.Services.Logger.Info("SecondaryModel", "Disposed.");
+        _logger.Info("SecondaryModel", "Disposed.");
     }
 }

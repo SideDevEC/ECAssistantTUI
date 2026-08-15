@@ -1,120 +1,68 @@
-using System.Diagnostics;
+using System.Collections.Generic;
 using System.Text;
 using System.Text.RegularExpressions;
-using ECAssistant.Services;
+using System.Threading;
+using System.Threading.Tasks;
+using ECAssistant.Interfaces;
 
 namespace ECAssistant.Tools.Build;
 
 /// <summary>
-/// Dotnet Build Tool — runs dotnet build, parses errors/warnings, and returns
-/// structured output that's easy for the LLM to understand and fix.
+/// Dotnet Build Tool — runs dotnet build/restore/pack/publish commands.
 /// 
-/// Instead of raw build output, the LLM gets:
+/// Parses output for:
 /// - Build status (succeeded/failed)
 /// - Error count, warning count
 /// - Each error with file, line, column, error code, and message
 /// - Each warning with file, line, and message
-/// 
-/// Usage:
-///   <toolcall>EDotnetBuild<project>MyProject.csproj</project></toolcall>
-///   <toolcall>EDotnetBuild<action>build</action><project>MyProject.csproj</project></toolcall>
-///   <toolcall>EDotnetBuild<action>test</action></toolcall>
 /// </summary>
-public class EDotnetBuildTool : EToolBase
+public class EDotnetBuildTool : ITool
 {
-    private readonly string _workingDir;
+    private readonly IProcessRunner _processRunner;
+    private readonly IConfigProvider _configProvider;
+    private readonly IColorFormatter _colorFormatter;
 
-    public EDotnetBuildTool(string workingDir)
+    private const int TimeoutSeconds = 300; // 5 minutes
+
+    public EDotnetBuildTool(IProcessRunner processRunner, IConfigProvider configProvider, IColorFormatter colorFormatter)
     {
-        _workingDir = workingDir;
+        _processRunner = processRunner;
+        _configProvider = configProvider;
+        _colorFormatter = colorFormatter;
     }
 
-    public override string Name => "EDotnetBuild";
+    public string Name => "DotnetBuild";
 
-    public override string Description =>
-        "Run dotnet build or test, parse errors and warnings, return structured results. " +
-        "Use for: building projects, running tests, checking for compile errors. " +
-        "Much better than raw PowerShell output for build results.";
+    public string Description =>
+        "Builds .NET projects using dotnet CLI. " +
+        "Supports build, restore, pack, and publish actions. " +
+        "Parses build output for errors and warnings with file locations.";
 
-    public override string UsageExample =>
-        "EDotnetBuild(project=\"MyProject.csproj\")";
-
-    public override string GetToolRules() =>
-        "<action>=build|test|test-filter|restore|clean|format (default:build). " +
-        "+<project>? +<configuration>? +<filter>? Returns structured errors (file,line,code).";
-
-
-    public override string GetToolExample() =>
-        "<toolcall>EDotnetBuild<project>ECAssistant.csproj</project></toolcall>\n" +
-        "<toolcall>EDotnetBuild<action>test</action></toolcall>\n" +
-        "<toolcall>EDotnetBuild<action>test-filter</action><filter>TestClass.TestMethod</filter></toolcall>\n" +
-        "<toolcall>EDotnetBuild<action>format</action></toolcall>\n" +
-        "<toolcall>EDotnetBuild<action>build</action><configuration>Release</configuration></toolcall>";
-
-    public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments, CancellationToken cancellationToken = default)
+    public async Task<string> ExecuteAsync(string input, CancellationToken ct = default)
     {
-        var action = arguments.GetValueOrDefault("action")?.ToLower().Trim() ?? "build";
-        var project = arguments.GetValueOrDefault("project") ?? "";
-        var configuration = arguments.GetValueOrDefault("configuration") ?? "Debug";
+        var action = "build";
+        var projectPath = "";
 
-        string cmd;
-        switch (action)
+        if (!string.IsNullOrWhiteSpace(input))
         {
-            case "build": cmd = "build"; break;
-            case "test": cmd = "test"; break;
-            case "test-filter":
-            {
-                var filter = arguments.GetValueOrDefault("filter") ?? "";
-                cmd = string.IsNullOrEmpty(filter) ? "test" : "test --filter \"" + filter + "\"";
-                break;
-            }
-            case "restore": cmd = "restore"; break;
-            case "clean": cmd = "clean"; break;
-            case "format": cmd = "format"; break;
-            case "format-check": cmd = "format --verify-no-changes"; break;
-            default: cmd = "build"; break;
+            var parts = input.Split('|');
+            if (parts.Length > 0 && !string.IsNullOrWhiteSpace(parts[0]))
+                action = parts[0].Trim().ToLower();
+            if (parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[1]))
+                projectPath = parts[1].Trim();
         }
 
-        if (!string.IsNullOrEmpty(project))
-            cmd += $" \"{project}\"";
+        var command = $"dotnet {action}{(string.IsNullOrEmpty(projectPath) ? "" : $" {projectPath}")}";
 
-        if (action == "build" || action == "clean")
-            cmd += $" -c {configuration}";
+        var result = await _processRunner.ExecuteAsync(command, null, ct);
 
-        var psi = new ProcessStartInfo
-        {
-            FileName = "dotnet",
-            Arguments = cmd,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true,
-            WorkingDirectory = _workingDir,
-        };
+        if (result.TimedOut)
+            return $"[{Name}] [TIMEOUT] Build exceeded {TimeoutSeconds / 60} minute limit.";
 
-        var process = Process.Start(psi);
-        if (process == null)
-            return EToolResult.Failure(Name, "Failed to start dotnet process.");
-
-        var stdout = await process.StandardOutput.ReadToEndAsync();
-        var stderr = await process.StandardError.ReadToEndAsync();
-        // v10.9.3: Cancellation support — builds can take minutes, allow user to stop
-        using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(300));
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, cancellationToken);
-        try
-        {
-            await process.WaitForExitAsync(linkedCts.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            try { process.Kill(entireProcessTree: true); } catch { }
-            if (cancellationToken.IsCancellationRequested)
-                return EToolResult.Failure(Name, "[CANCELLED] Build was cancelled by user.");
-            return EToolResult.Failure(Name, "[TIMEOUT] Build exceeded 5 minute limit.");
-        }
-
-        var exitCode = process.ExitCode;
+        var stdout = result.StdOut;
+        var stderr = result.StdErr;
         var allOutput = stdout + "\n" + stderr;
+        var exitCode = result.ExitCode;
 
         // Parse errors and warnings
         var errors = ParseBuildErrors(allOutput);
@@ -159,19 +107,13 @@ public class EDotnetBuildTool : EToolBase
             }
         }
 
-        Logger.Info("DotnetBuild", $"dotnet {action}: exit={exitCode}, errors={errors.Count}, warnings={warnings.Count}");
-
         var success = exitCode == 0;
-        return EToolResult.Success(Name, sb.ToString(), new Dictionary<string, string>
-        {
-            ["exit_code"] = exitCode.ToString(),
-            ["error_count"] = errors.Count.ToString(),
-            ["warning_count"] = warnings.Count.ToString(),
-            ["succeeded"] = success.ToString()
-        });
+        return sb.ToString();
     }
 
-    private static List<BuildError> ParseBuildErrors(string output)
+    public ECAssistant.Interfaces.ToolPolicy GetPolicy() => ECAssistant.Interfaces.ToolPolicy.Allowed(Name);
+
+    private List<BuildError> ParseBuildErrors(string output)
     {
         var errors = new List<BuildError>();
         // Pattern: file.cs(line,col): error CSXXXX: message
@@ -192,7 +134,7 @@ public class EDotnetBuildTool : EToolBase
         return errors;
     }
 
-    private static List<BuildError> ParseBuildWarnings(string output)
+    private List<BuildError> ParseBuildWarnings(string output)
     {
         var warnings = new List<BuildError>();
         var pattern = @"^(.+?)\((\d+),(\d+)\):\s+warning\s+(\w+):\s+(.+)$";
@@ -211,13 +153,14 @@ public class EDotnetBuildTool : EToolBase
         }
         return warnings;
     }
-}
 
-internal class BuildError
-{
-    public string File { get; set; } = "";
-    public int Line { get; set; }
-    public int Column { get; set; }
-    public string Code { get; set; } = "";
-    public string Message { get; set; } = "";
+    /// <summary>Represents a build error or warning parsed from dotnet output.</summary>
+    private class BuildError
+    {
+        public string File { get; set; } = "";
+        public int Line { get; set; }
+        public int Column { get; set; }
+        public string Code { get; set; } = "";
+        public string Message { get; set; } = "";
+    }
 }

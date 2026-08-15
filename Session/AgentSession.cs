@@ -5,6 +5,7 @@ using ECAssistant.Engine;
 using ECAssistant.Memory;
 using ECAssistant.Orchestration;
 using ECAssistant.Services;
+using ECAssistant.Interfaces;
 using ECAssistant.Tools;
 using LLama;
 using LLama.Common;
@@ -111,7 +112,8 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
     public DateTime RunStartedAt { get; private set; }
 
     // ── Tool policy ───────────────────────────────────
-    private readonly ToolPolicy _toolPolicy;
+    private readonly ECAssistant.Tools.ToolPolicy _toolPolicy;
+    private readonly ILogger _logger;
 
     /// <summary>
     /// Create a new fully isolated session with shared model weights.
@@ -134,14 +136,16 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
         string workingDir,
         SemaphoreSlim inferenceLock,
         SubAgentConfig? subAgentConfig = null,
-        string? label = null)
+        string? label = null,
+        ILogger? logger = null)
     {
+        _logger = logger ?? new Logger();
         Key = key;
         Label = label;
         _workingDir = workingDir;
         _inferenceLock = inferenceLock;
         _subAgentConfig = subAgentConfig ?? new SubAgentConfig();
-        _toolPolicy = new ToolPolicy();
+        _toolPolicy = new ECAssistant.Tools.ToolPolicy();
 
         // Create session directory
         _sessionDir = Path.Combine(workingDir, ".sessions", key);
@@ -164,13 +168,14 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
             inferenceParams: inferenceParams,
             workingDir: workingDir,
             sharedWeights: sharedWeights,
-            sharedModelParams: sharedModelParams);
+            sharedModelParams: sharedModelParams,
+            logger: _logger);
 
         _engine.LoadContext();
         _engine.WireSummaryService();
 
         // Create orchestrator
-        _orchestrator = new AgentOrchestrator(_engine, sessionOutput: this, maxTurns: 5, maxFailures: 3, toolPolicy: _toolPolicy);
+        _orchestrator = new AgentOrchestrator(_engine, sessionOutput: this, maxTurns: 5, maxFailures: 3, toolPolicy: _toolPolicy, logger: _logger);
 
         // Wire engine output through this session
         _engine.SessionOutput = this;
@@ -189,7 +194,7 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
     public AgentOrchestrator Orchestrator => _orchestrator;
 
     /// <summary>The tool policy for this session.</summary>
-    public ToolPolicy Policy => _toolPolicy;
+    public ECAssistant.Tools.ToolPolicy Policy => _toolPolicy;
 
     /// <summary>Number of messages in the conversation.</summary>
     public int MessageCount => _engine.Transcript.MessageCount;
@@ -684,6 +689,12 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
         _engine.RegisterTool(tool);
     }
 
+    /// <summary>Register an ITool implementation (wrapped via ToolAdapter).</summary>
+    public void RegisterTool(ECAssistant.Interfaces.ITool tool)
+    {
+        _engine.RegisterTool(tool);
+    }
+
     /// <summary>Initialize vector memory for this session.</summary>
     public async Task InitializeVectorMemoryAsync(string storeDir)
     {
@@ -746,7 +757,7 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
     }
 
     /// <summary>Truncate a prompt for display.</summary>
-    private static string TruncatePrompt(string prompt, int maxLen = 60)
+    private string TruncatePrompt(string prompt, int maxLen = 60)
     {
         if (string.IsNullOrEmpty(prompt)) return "";
         return prompt.Length <= maxLen ? prompt : prompt.Substring(0, maxLen) + "...";

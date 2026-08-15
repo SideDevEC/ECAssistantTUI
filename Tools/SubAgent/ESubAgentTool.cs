@@ -55,7 +55,7 @@ public class ESubAgentTool : EToolBase
     {
         var taskDesc = arguments.GetValueOrDefault("task")?.Trim();
         if (string.IsNullOrEmpty(taskDesc))
-            return EToolResult.Failure(Name, "Missing 'task' argument.");
+            return new EToolResult { ToolName = Name, Succeeded = false, Error = "Missing task argument." };
 
         // Parse optional arguments
         var workingDir = arguments.GetValueOrDefault("working_dir") ?? _defaultWorkingDir;
@@ -114,12 +114,12 @@ public class ESubAgentTool : EToolBase
             }
 
             return result.Succeeded
-                ? EToolResult.Success(Name, output, metadata)
-                : EToolResult.Failure(Name, output, metadata);
+                ? new EToolResult { ToolName = Name, Succeeded = true, Output = output, Metadata = metadata }
+                : new EToolResult { ToolName = Name, Succeeded = false, Error = output, Metadata = metadata };
         }
         catch (Exception ex)
         {
-            return EToolResult.Failure(Name, $"Sub-agent execution failed: {ex.Message}");
+            return new EToolResult { ToolName = Name, Succeeded = false, Error = $"Sub-agent execution failed: {ex.Message}" };
         }
     }
 }

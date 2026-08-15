@@ -4,18 +4,12 @@ namespace ECAssistant.Session;
 
 /// <summary>
 /// Discovers existing sessions on disk and determines which one to load as active.
-/// Also handles migration of legacy transcript.json to the .sessions/&lt;key&gt;/ layout.
 /// </summary>
-public static class SessionDiscovery
+public class SessionDiscovery
 {
-    /// <summary>Session metadata file (stored in each session directory).</summary>
     private const string MetaFileName = "session_meta.json";
 
-    /// <summary>
-    /// Scan the .sessions/ directory for existing sessions.
-    /// Returns a list of session keys found, ordered by last-modified time (newest first).
-    /// </summary>
-    public static List<string> DiscoverSessions(string workingDir)
+    public List<string> DiscoverSessions(string workingDir)
     {
         var sessionsDir = Path.Combine(workingDir, ".sessions");
         if (!Directory.Exists(sessionsDir))
@@ -30,18 +24,13 @@ public static class SessionDiscovery
             DateTime lastMod;
 
             if (File.Exists(metaPath))
-            {
-                // Use meta file's last write time
                 lastMod = File.GetLastWriteTimeUtc(metaPath);
-            }
             else
             {
-                // Fall back to transcript or any file in the dir
                 var transPath = Path.Combine(dir, "transcript.json");
-                if (File.Exists(transPath))
-                    lastMod = File.GetLastWriteTimeUtc(transPath);
-                else
-                    lastMod = Directory.GetLastWriteTimeUtc(dir);
+                lastMod = File.Exists(transPath)
+                    ? File.GetLastWriteTimeUtc(transPath)
+                    : Directory.GetLastWriteTimeUtc(dir);
             }
 
             result.Add((key, lastMod));
@@ -50,20 +39,13 @@ public static class SessionDiscovery
         return result.OrderByDescending(x => x.LastModified).Select(x => x.Key).ToList();
     }
 
-    /// <summary>
-    /// Find the most recently modified session. Returns null if no sessions exist.
-    /// </summary>
-    public static string? FindLastActiveSession(string workingDir)
+    public string? FindLastActiveSession(string workingDir)
     {
         var sessions = DiscoverSessions(workingDir);
         return sessions.Count > 0 ? sessions[0] : null;
     }
 
-    /// <summary>
-    /// Migrate legacy transcript.json from the working dir root to .sessions/main/.
-    /// Only migrates if .sessions/main/transcript.json doesn't exist.
-    /// </summary>
-    public static void MigrateLegacyTranscript(string workingDir)
+    public void MigrateLegacyTranscript(string workingDir)
     {
         var legacyPath = Path.Combine(workingDir, "transcript.json");
         var sessionsDir = Path.Combine(workingDir, ".sessions");
@@ -73,30 +55,18 @@ public static class SessionDiscovery
         if (!Directory.Exists(mainSessionDir)) return;
 
         var targetPath = Path.Combine(mainSessionDir, "transcript.json");
-        if (File.Exists(targetPath)) return; // already exists, don't overwrite
+        if (File.Exists(targetPath)) return;
 
-        try
-        {
-            File.Copy(legacyPath, targetPath);
-            // Keep the legacy file for now — don't delete, let user clean up
-        }
-        catch { }
+        try { File.Copy(legacyPath, targetPath); } catch { }
     }
 
-    /// <summary>
-    /// Ensure .sessions/ directory exists.
-    /// </summary>
-    public static void EnsureSessionsDir(string workingDir)
+    public void EnsureSessionsDir(string workingDir)
     {
         var sessionsDir = Path.Combine(workingDir, ".sessions");
         Directory.CreateDirectory(sessionsDir);
     }
 
-    /// <summary>
-    /// Save session metadata (updates last-modified time on the meta file).
-    /// Called when a session is created or switched to.
-    /// </summary>
-    public static void TouchSessionMeta(string workingDir, string sessionKey)
+    public void TouchSessionMeta(string workingDir, string sessionKey)
     {
         var sessionDir = Path.Combine(workingDir, ".sessions", sessionKey);
         Directory.CreateDirectory(sessionDir);
@@ -116,7 +86,6 @@ public static class SessionDiscovery
         catch { }
     }
 
-    /// <summary>Session metadata stored on disk.</summary>
     private class SessionMeta
     {
         public string Key { get; set; } = "";

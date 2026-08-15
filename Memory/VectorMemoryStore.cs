@@ -1,5 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ECAssistant.Services;
+using ECAssistant.Interfaces;
 
 namespace ECAssistant.Memory;
 
@@ -29,9 +31,11 @@ public class VectorMemoryStore : IDisposable
     private Func<string, Task<float[]>>? _embeddingGenerator;
     private int _vectorDim = 0;
     private bool _initialized = false;
+    private readonly ILogger _logger;
 
-    public VectorMemoryStore(string storeDir)
+    public VectorMemoryStore(string storeDir, ILogger? logger = null)
     {
+        _logger = logger ?? new Logger();
         _storeDir = Path.GetFullPath(storeDir);
         _vectorsFile = Path.Combine(_storeDir, "vectors.json");
     }
@@ -58,7 +62,7 @@ public class VectorMemoryStore : IDisposable
         }
 
         _initialized = true;
-        Services.Logger.Info("VecMem", $"Initialized: {_entries.Count} entries, dim={_vectorDim}, dir={_storeDir}");
+        _logger.Info("VecMem", $"Initialized: {_entries.Count} entries, dim={_vectorDim}, dir={_storeDir}");
     }
 
     /// <summary>Initialize without embedding generator (for load-only mode).</summary>
@@ -70,7 +74,7 @@ public class VectorMemoryStore : IDisposable
         if (_entries.Count > 0 && _entries[0].Vector != null)
             _vectorDim = _entries[0].Vector!.Length;
         _initialized = true;
-        Services.Logger.Info("VecMem", $"Loaded (no generator): {_entries.Count} entries, dim={_vectorDim}");
+        _logger.Info("VecMem", $"Loaded (no generator): {_entries.Count} entries, dim={_vectorDim}");
     }
 
     /// <summary>Add an entry with auto-generated embedding.</summary>
@@ -94,7 +98,7 @@ public class VectorMemoryStore : IDisposable
 
         _entries.Add(entry);
         await SaveAsync();
-        Services.Logger.Info("VecMem", $"Added: {key} (category: {category})");
+        _logger.Info("VecMem", $"Added: {key} (category: {category})");
     }
 
     /// <summary>Semantic search — finds entries most similar to the query.</summary>
@@ -119,7 +123,7 @@ public class VectorMemoryStore : IDisposable
             .Take(maxResults)
             .ToList();
 
-        Services.Logger.Debug("VecMem", $"Search '{query}': {scored.Count} results, top score: {scored.FirstOrDefault()?.Score:F3}");
+        _logger.Debug("VecMem", $"Search '{query}': {scored.Count} results, top score: {scored.FirstOrDefault()?.Score:F3}");
         return scored;
     }
 
@@ -206,13 +210,13 @@ public class VectorMemoryStore : IDisposable
         }
         catch (Exception ex)
         {
-            Services.Logger.Error("VecMem", $"Failed to load: {ex.Message}");
+            _logger.Error("VecMem", $"Failed to load: {ex.Message}");
         }
     }
 
     // ─── Math ──────────────────────────────────────
 
-    private static float CosineSimilarity(float[] a, float[] b)
+    private float CosineSimilarity(float[] a, float[] b)
     {
         if (a.Length == 0 || b.Length == 0 || a.Length != b.Length) return 0f;
         

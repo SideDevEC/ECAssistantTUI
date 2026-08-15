@@ -1,5 +1,4 @@
 using System.Text;
-using static ECAssistant.EColor;
 
 namespace ECAssistant.UI;
 
@@ -17,20 +16,20 @@ namespace ECAssistant.UI;
 /// </summary>
 public sealed class EGuiConsole : EGuiBase
 {
-    private static bool _ansiSupported;
-    private static int _scrollBottom;
-    private static int _inputRow;
+    private bool _ansiSupported;
+    private int _scrollBottom;
+    private int _inputRow;
 
-    private static readonly object _cursorLock = new();
-    private static StringBuilder _inputBuffer = new();
-    private static string _inputPrompt = "> ";
-    private static bool _inputActive;
+    private readonly object _cursorLock = new();
+    private StringBuilder _inputBuffer = new();
+    private string _inputPrompt = "> ";
+    private bool _inputActive;
 
     // Output cursor row tracking (1-based, within scroll region)
-    private static int _outputRow = 1;
-    private static bool _cursorOnInputLine;
+    private int _outputRow = 1;
+    private bool _cursorOnInputLine;
 
-    public static void InitConsole()
+    public void InitConsole()
     {
         _ansiSupported = DetectAnsiSupport();
         if (_ansiSupported)
@@ -40,7 +39,7 @@ public sealed class EGuiConsole : EGuiBase
         }
     }
 
-    public static void ShutdownConsole()
+    public void ShutdownConsole()
     {
         if (!_ansiSupported) return;
         Console.Write("\x1b[r");
@@ -48,7 +47,7 @@ public sealed class EGuiConsole : EGuiBase
         Console.Write("\x1b[1;1H");
     }
 
-    private static bool DetectAnsiSupport()
+    private bool DetectAnsiSupport()
     {
         // Windows: enable ANSI via SetConsoleMode, then check if not redirected.
         // Windows doesn't use TERM, so check it first.
@@ -75,7 +74,7 @@ public sealed class EGuiConsole : EGuiBase
     private const int STD_OUTPUT_HANDLE = -11;
     private const uint ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004;
 
-    private static void EnableWindowsAnsi()
+    private void EnableWindowsAnsi()
     {
         if (!OperatingSystem.IsWindows()) return;
         var handle = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -86,7 +85,7 @@ public sealed class EGuiConsole : EGuiBase
         }
     }
 
-    private static void UpdateTerminalSize()
+    private void UpdateTerminalSize()
     {
         try
         {
@@ -100,7 +99,7 @@ public sealed class EGuiConsole : EGuiBase
         }
     }
 
-    private static void SetupScrollRegion()
+    private void SetupScrollRegion()
     {
         Console.Write($"\x1b[1;{_scrollBottom}r");
         Console.Write("\x1b[2J");
@@ -148,7 +147,7 @@ public sealed class EGuiConsole : EGuiBase
 
     private void WriteOutputLine(string text) => WriteOutput(text + "\n");
 
-    private static void RedrawInputLine()
+    private void RedrawInputLine()
     {
         if (!_ansiSupported) return;
         Console.Write($"\x1b[{_inputRow};1H");
@@ -190,7 +189,7 @@ public sealed class EGuiConsole : EGuiBase
     public override string? PromptColored(string labelAndText) => ReadInputLine(labelAndText);
     public override string? PromptRaw(string label) => ReadInputLine(label);
 
-    private static string? ReadInputLine(string prompt)
+    private string? ReadInputLine(string prompt)
     {
         _inputPrompt = prompt;
         _inputBuffer.Clear();

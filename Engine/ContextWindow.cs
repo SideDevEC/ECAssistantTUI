@@ -6,182 +6,161 @@ namespace ECAssistant.Engine;
 
 /// <summary>
 /// Manages the LLM conversation context window.
-/// - Tracks typed messages with real token counts (from TokenCounter)
-/// - Enforces a context-size budget (from config)
-/// - Applies sliding window policy when over budget
-/// - Calls SummaryService to compress old messages if needed
 /// </summary>
 public class ContextWindow
 {
     private readonly List<TranscriptMessage> _messages = new();
+    private readonly TokenCounter _tokenCounter;
     private readonly uint _maxTokens;
     private SummaryService? _summaryService;
     private uint _autoSummarizeThreshold;
 
-      // ─── Factories ──────────────────────────────
+    public ContextWindow(uint maxTokens, TokenCounter? tokenCounter = null)
+    {
+        _maxTokens = maxTokens;
+        _autoSummarizeThreshold = (uint)(maxTokens * 0.50f);
+        _tokenCounter = tokenCounter ?? new TokenCounter();
+    }
 
-       /// <summary>Create context window with a fixed token budget.</summary>
-     public ContextWindow(uint maxTokens)
-         {
-              _maxTokens = maxTokens;
-           _autoSummarizeThreshold = (uint)(maxTokens * 0.50f); // Summarize at 50% (v9.3: more aggressive)
-            }
+    public ContextWindow(uint maxTokens, SummaryService? summaryService, TokenCounter? tokenCounter = null)
+    {
+        _maxTokens = maxTokens;
+        _autoSummarizeThreshold = (uint)(maxTokens * 0.50f);
+        _summaryService = summaryService;
+        _tokenCounter = tokenCounter ?? new TokenCounter();
+    }
 
-      /// <summary>Create context window with a fixed token budget and summary service.</summary>
-    public ContextWindow(uint maxTokens, SummaryService? summaryService)
-          {
-              _maxTokens = maxTokens;
-               _autoSummarizeThreshold = (uint)(maxTokens * 0.50f); // Summarize at 50% (v9.3: more aggressive)
-                _summaryService = summaryService;
-                 }
-
-      /// <summary>Add a user message. Returns the tokens consumed.</summary>
     public int AddUserMessage(string content)
-         {
-            var tokens = TokenCounter.Count(content);
-             _messages.Add(TranscriptMessage.User(content));
-           return tokens;
-            }
+    {
+        var tokens = _tokenCounter.Count(content);
+        var msg = TranscriptMessage.User(content);
+        msg.EstimatedTokens = tokens;
+        _messages.Add(msg);
+        return tokens;
+    }
 
-       /// <summary>Add an assistant response. Returns the tokens consumed.</summary>
-     public int AddAssistantMessage(string content)
-          {
-             var tokens = TokenCounter.Count(content);
-              _messages.Add(TranscriptMessage.Assistant(content));
-             return tokens;
-           }
+    public int AddAssistantMessage(string content)
+    {
+        var tokens = _tokenCounter.Count(content);
+        var msg = TranscriptMessage.Assistant(content);
+        msg.EstimatedTokens = tokens;
+        _messages.Add(msg);
+        return tokens;
+    }
 
-       /// <summary>Add a tool output. Returns the tokens consumed.</summary>
-      public int AddToolOutput(string content, string toolName = "")
+    public int AddToolOutput(string content, string toolName = "")
+    {
+        var tokens = _tokenCounter.Count(content);
+        var msg = TranscriptMessage.ToolOutput(content, toolName);
+        msg.EstimatedTokens = tokens;
+        _messages.Add(msg);
+        return tokens;
+    }
+
+    public int AddSystemMessage(string content)
+    {
+        var tokens = _tokenCounter.Count(content);
+        if (_messages.Count == 0 || _messages[0].Role != "system")
         {
-         var tokens = TokenCounter.Count(content);
-          _messages.Add(TranscriptMessage.ToolOutput(content, toolName));
-           return tokens;
-            }
-
-      /// <summary>Add system-level messages (e.g., memory injection).</summary>
-     public int AddSystemMessage(string content)
+            var msg = TranscriptMessage.System(content);
+            msg.EstimatedTokens = tokens;
+            _messages.Insert(0, msg);
+        }
+        else
         {
-         var tokens = TokenCounter.Count(content);
-          if (_messages.Count == 0 || _messages[0].Role != "system")
-             {
-                 _messages.Insert(0, TranscriptMessage.System(content));
-             }
-            else
-                {
-                  _messages[0].Content = content;
-                    }
-         return tokens;
-          }
+            _messages[0].Content = content;
+            _messages[0].EstimatedTokens = tokens;
+        }
+        return tokens;
+    }
 
-       /// <summary>Get all messages within the current budget. Returns as list.</summary>
     public List<TranscriptMessage> GetWindowMessages()
-         {
-             // Check total tokens and trigger auto-summarize if approaching or exceeding budget
-           var totalEst = 0;
-            foreach (var m in _messages) totalEst += m.EstimatedTokens;
+    {
+        var totalEst = 0;
+        foreach (var m in _messages) totalEst += m.EstimatedTokens;
 
-           if (totalEst > (int)_maxTokens)
-              {
-                 SummarizeOldest(totalEst);
-                  return _messages.ToList();
-               }
-           else if (totalEst > (int)_autoSummarizeThreshold && _messages.Count > 10)
-                {
-                  // Approaching budget — proactively summarize oldest 30%
-                   SummarizeOldest(totalEst);
-                     return _messages.ToList();
-                    }
+        if (totalEst > (int)_maxTokens)
+        {
+            SummarizeOldest(totalEst);
+            return _messages.ToList();
+        }
+        else if (totalEst > (int)_autoSummarizeThreshold && _messages.Count > 10)
+        {
+            SummarizeOldest(totalEst);
+            return _messages.ToList();
+        }
 
-              return _messages.ToList();
-         }
+        return _messages.ToList();
+    }
 
-       /// <summary>Set the summary service for auto-summarization.</summary>
-    public void SetSummaryService(SummaryService service)
-           => _summaryService = service;
+    public void SetSummaryService(SummaryService service) => _summaryService = service;
 
-      /// <summary>Remove the last assistant message from history (for format retries).</summary>
-     public bool RemoveLastAssistantMessage()
-     {
-         for (int i = _messages.Count - 1; i >= 0; i--)
-         {
-             if (_messages[i].Role == "assistant")
-             {
-                 _messages.RemoveAt(i);
-                 return true;
-             }
-         }
-         return false;
-     }
-
-      /// <summary>Clear all messages and reset.</summary>
-     public void Clear() { _messages.Clear(); }
-
-       /// <summary>Check if the context is within budget. Returns true if safe.</summary>
-    public bool IsWithinBudget()
-         {
-             var total = 0;
-             foreach (var m in _messages) total += m.EstimatedTokens;
-           return total <= _maxTokens;
+    public bool RemoveLastAssistantMessage()
+    {
+        for (int i = _messages.Count - 1; i >= 0; i--)
+        {
+            if (_messages[i].Role == "assistant")
+            {
+                _messages.RemoveAt(i);
+                return true;
             }
+        }
+        return false;
+    }
 
-      /// <summary>The total estimated tokens currently used by all messages.</summary>
-     public int GetTotalTokens()
-          {
-              var total = 0;
-             foreach (var m in _messages) total += m.EstimatedTokens;
-                return total;
-                 }
+    public void Clear() => _messages.Clear();
 
-       /// <summary>The number of messages in the window.</summary>
+    public bool IsWithinBudget()
+    {
+        var total = 0;
+        foreach (var m in _messages) total += m.EstimatedTokens;
+        return total <= _maxTokens;
+    }
+
+    public int GetTotalTokens()
+    {
+        var total = 0;
+        foreach (var m in _messages) total += m.EstimatedTokens;
+        return total;
+    }
+
     public int MessageCount => _messages.Count;
-
-      /// <summary>The maximum token budget for this context window.</summary>
     public uint MaxTokens => _maxTokens;
 
-       // ─── Private: Summarize Oldest Messages ────────────────────────
-
-     /// <summary>If total estimated tokens exceed budget, remove oldest messages and optionally summarize them.</summary>
     private async void SummarizeOldest(int currentTotal)
-         {
-             if (currentTotal <= _maxTokens) return;
+    {
+        if (currentTotal <= _maxTokens) return;
 
-              // Remove oldest 40% of messages to stay under budget
-           var keepCount = Math.Max(5, (int)(_messages.Count * 0.3f));
-            var oldMessages = new List<TranscriptMessage>();
+        var keepCount = Math.Max(5, (int)(_messages.Count * 0.3f));
+        var oldMessages = new List<TranscriptMessage>();
 
-              while (_messages.Count > keepCount && currentTotal > _maxTokens)
-                  {
-                    var removed = _messages[0];
-                   oldMessages.Add(removed);
-                       currentTotal -= removed.EstimatedTokens;
-                        _messages.RemoveAt(0);
-                     }
+        while (_messages.Count > keepCount && currentTotal > _maxTokens)
+        {
+            var removed = _messages[0];
+            oldMessages.Add(removed);
+            currentTotal -= removed.EstimatedTokens;
+            _messages.RemoveAt(0);
+        }
 
-                // If we have a summary service, compress the removed messages
-               if (_summaryService != null && oldMessages.Count > 3)
-                   {
-                       try
-                           {
-                                var summary = await _summaryService.SummarizeAsync(oldMessages);
-                                 _messages.Insert(0, TranscriptMessage.System(summary));
-                            }
-                          catch (Exception ex)
-                               {
-                                  // Summarization failed — messages already removed, nothing to do
-                              }
-                         }
-                      }
+        if (_summaryService != null && oldMessages.Count > 3)
+        {
+            try
+            {
+                var summary = await _summaryService.SummarizeAsync(oldMessages);
+                _messages.Insert(0, TranscriptMessage.System(summary));
+            }
+            catch { }
+        }
+    }
 
-      /// <summary>Build a text block from messages (for summary prompts).</summary>
-    private static string BuildBlockString(List<TranscriptMessage> msgs)
-         {
-              var sb = new StringBuilder();
-           foreach (var msg in msgs)
-                {
-                 sb.Append($"[{msg.Role}] ");
-                     sb.AppendLine(msg.Content);
-                   }
-               return sb.ToString();
-                 }
+    private string BuildBlockString(List<TranscriptMessage> msgs)
+    {
+        var sb = new StringBuilder();
+        foreach (var msg in msgs)
+        {
+            sb.Append($"[{msg.Role}] ");
+            sb.AppendLine(msg.Content);
+        }
+        return sb.ToString();
+    }
 }

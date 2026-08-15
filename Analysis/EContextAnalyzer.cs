@@ -1,8 +1,7 @@
-using static ECAssistant.EColor;
-
 using System.Text;
 using System.Linq;
 using ECAssistant;
+using ECAssistant.Interfaces;
 
 namespace ECAssistant.Analysis;
 
@@ -19,11 +18,13 @@ public class EContextAnalyzer : IDisposable
     private readonly List<FileInfoData> _files = new();
     private List<ProjectRelationship> _relationships = new();
     private ProjectArchitecture? _architecture;
+    private readonly IColorFormatter _color;
 
-    public EContextAnalyzer(string projectRoot)
+    public EContextAnalyzer(string projectRoot, IColorFormatter color)
     {
         _projectRoot = Path.GetFullPath(projectRoot);
-        EColor.TagBold(Cyan, "Analyzer", $"Initialized for: {_projectRoot}");
+        _color = color;
+        _color.TagBold(_color.Cyan, "Analyzer", $"Initialized for: {_projectRoot}");
     }
 
     public async Task<ProjectArchitecture> AnalyzeProjectAsync(
@@ -40,22 +41,22 @@ public class EContextAnalyzer : IDisposable
 
         // ── Phase 1: Scan all files ──
         await ScanFiles(scanDir, exts);
-        EColor.Tag(Success(), "Scan", $"{_files.Count} files found.");
+        _color.Tag(_color.Green, "Scan", $"{_files.Count} files found.");
 
         // ── Phase 2: Analyze content (line counts, TODOs, imports) ──
         foreach (var file in _files)
         {
             await AnalyzeFileContent(file);
         }
-        EColor.Tag(Success(), "Analyze", "Content analysis complete.");
+        _color.Tag(_color.Green, "Analyze", "Content analysis complete.");
 
         // ── Phase 3: Map relationships (imports, references) ──
         _relationships = MapRelationships();
-        EColor.Tag(Info(), "Map", $"{_relationships.Count} relationships found.");
+        _color.Tag(_color.Cyan, "Map", $"{_relationships.Count} relationships found.");
 
         // ── Phase 4: Build architecture summary ──
         _architecture = BuildArchitecture();
-        EColor.TagBold(Info(), "Arch", $"Type: {_architecture.ProjectType}");
+        _color.TagBold(_color.Cyan, "Arch", $"Type: {_architecture.ProjectType}");
 
         return _architecture;
     }
@@ -93,7 +94,7 @@ public class EContextAnalyzer : IDisposable
             }
             catch (Exception ex)
             {
-                EColor.Tag(Info(), "Skip", $"Skipped {file}: {ex.Message}");
+                _color.Tag(_color.Cyan, "Skip", $"Skipped {file}: {ex.Message}");
             }
         }
     }
@@ -364,35 +365,3 @@ public class EContextAnalyzer : IDisposable
 }
 
 // ─── Data Structures ─────────────────────────────────
-
-public class FileInfoData
-{
-    public string FilePath { get; set; } = "";
-    public string RelativePath { get; set; } = "";
-    public string ContentType { get; set; } = "";
-    public int FileSize { get; set; }
-    public int LineCount { get; set; }
-    public int ClassCount { get; set; }
-    public int MethodCount { get; set; }
-    public int TodoCount { get; set; }
-    public List<string>? ImportList { get; set; }
-    public DateTime LastModified { get; set; }
-}
-
-public class ProjectRelationship
-{
-    public string SourceFile { get; set; } = "";
-    public string? TargetFile { get; set; }
-    public string RelationshipType { get; set; } = "";
-    public double Importance { get; set; }
-}
-
-public class ProjectArchitecture
-{
-    public string ProjectRoot { get; set; } = "";
-    public int Files { get; set; }
-    public int Relationships { get; set; }
-    public string ProjectType { get; set; } = "";
-    public Dictionary<string, List<string>> DependencyGraph { get; set; } = new();
-    public List<string> PotentialIssues { get; set; } = new();
-}

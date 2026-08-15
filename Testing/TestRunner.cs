@@ -14,10 +14,10 @@ using ECAssistant.Tools.Code;
 using ECAssistant.Tools.Reader;
 using ECAssistant.Analysis;
 using ECAssistant.Services;
+using ECAssistant.Interfaces;
 using ECAssistant.UI;
 using LLama.Common;
 using LLama.Sampling;
-using static ECAssistant.EColor;
 
 namespace ECAssistant.Testing;
 
@@ -105,6 +105,7 @@ public sealed class TestRunner : IAsyncDisposable
     private EGuiTestHarness? _testGui;
     private BackgroundProcessManager? _bgMgr;
     private EShellAgent? _shellAgent;
+    private readonly ILogger _logger;
 
     public List<TestResult> Results { get; } = new();
 
@@ -117,9 +118,10 @@ public sealed class TestRunner : IAsyncDisposable
     /// <summary>Create a test runner with the given model path.</summary>
     /// <param name="modelPath">Absolute path to the GGUF model file.</param>
     /// <param name="testRootDir">Root directory for test sandboxes (default: ~/ECAssistant/tests/).</param>
-    public TestRunner(string modelPath, string? testRootDir = null)
+    public TestRunner(string modelPath, string? testRootDir = null, ILogger? logger = null)
     {
         _modelPath = modelPath;
+        _logger = logger ?? new Logger();
         // v10.19.2: All test artifacts stay inside the working directory (~/ECAssistant/tests/)
         _testRootDir = testRootDir ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -364,7 +366,7 @@ public sealed class TestRunner : IAsyncDisposable
         var userConfigDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant");
         var configPath = Path.Combine(userConfigDir, "appsettings.json");
         var config = File.Exists(configPath)
-            ? EAgentConfig.Load(configPath)
+            ? new Config.ConfigLoader(new Services.FileSystemAdapter()).Load(configPath)
             : new EAgentConfig();
 
         // Override model path with our test model
@@ -393,11 +395,11 @@ public sealed class TestRunner : IAsyncDisposable
         if (UseMockEngine)
         {
             // v10.22: Mock engine — no GGUF needed, returns predefined responses
-            EAgentEngine.MockMode = true; // Skip LLama native init
             engine = new MockEngine(workingDir);
+            engine.MockMode = true;
             engine.LoadContext();
             engine.WireSummaryService();
-            EAgentEngine.MockMode = false; // Reset for safety
+            engine.MockMode = false; // Reset for safety
         }
         else
         {
@@ -407,7 +409,8 @@ public sealed class TestRunner : IAsyncDisposable
                 contextSize: config.Llm.ContextSize,
                 gpuLayers: config.Llm.GpuLayers,
                 threadCount: config.Llm.Threads,
-                inferenceParams: inferenceParams
+                inferenceParams: inferenceParams,
+                logger: _logger
             );
 
             engine.LoadContext();
@@ -448,7 +451,7 @@ public sealed class TestRunner : IAsyncDisposable
                 topK: config.SecondaryModel.TopK,
                 repeatPenalty: config.SecondaryModel.RepeatPenalty,
                 maxTokens: config.SecondaryModel.MaxTokens,
-                antiPrompts: config.SecondaryModel.AntiPrompts);
+                antiPrompts: config.SecondaryModel.AntiPrompts, logger: _logger);
             if (secondary != null)
                 engine.SetSecondaryModel(secondary);
         }
@@ -457,38 +460,38 @@ public sealed class TestRunner : IAsyncDisposable
         _bgMgr = new BackgroundProcessManager();
 
         // File watcher
-        var fileWatcher = new FileWatcherService(workingDir);
+        var fileWatcher = new FileWatcherService(workingDir, logger: _logger);
         fileWatcher.Start();
 
         // Register tools
-        _shellAgent = new EShellAgent(workingDir);
+        var processRunner = new ProcessRunner();
+        var fileSystem = new FileSystemAdapter();
+        var configProvider = new ConfigProvider(fileSystem, configPath);
+        var colorFormatter = new ColorFormatter();
+        var httpClient = new HttpClientAdapter();
+
+        _shellAgent = new EShellAgent(processRunner, configProvider, colorFormatter, workingDir);
         engine.RegisterTool(_shellAgent);
-        engine.RegisterTool(new EBackgroundExecTool(_bgMgr, workingDir));
-        engine.RegisterTool(new EWebSearchTool());
-        engine.RegisterTool(new EDotnetBuildTool(workingDir));
-        engine.RegisterTool(new EGitTool(workingDir));
-        engine.RegisterTool(new ECodeEditorTool(workingDir));
+        engine.RegisterTool(new EBackgroundExecTool(_bgMgr, processRunner, fileSystem, configProvider, colorFormatter));
+        engine.RegisterTool(new EWebSearchTool(httpClient, configProvider, colorFormatter));
+        engine.RegisterTool(new EDotnetBuildTool(processRunner, configProvider, colorFormatter));
+        engine.RegisterTool(new EGitTool(processRunner, fileSystem, configProvider, colorFormatter));
+        engine.RegisterTool(new ECodeEditorTool(fileSystem, configProvider, colorFormatter));
 
         // v10.22: EFileReader + EWebFetch
-        engine.RegisterTool(new EFileReaderTool(workingDir));
-        engine.RegisterTool(new EWebFetchTool());
+        engine.RegisterTool(new EFileReaderTool(fileSystem, configProvider, colorFormatter));
+        engine.RegisterTool(new EWebFetchTool(httpClient, configProvider, colorFormatter));
 
         // File research tool
-        var researchExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            { ".cs", ".md", ".json", ".txt", ".xml", ".sql", ".html", ".css", ".js", ".sh" };
-        foreach (var ext in config.Tools.EFileResearchTool.DefaultExtensions)
-            researchExtensions.Add(ext);
-        engine.RegisterTool(new EFileResearchTool(
-            workingDir, defaultExtensions: researchExtensions,
-            maxCharsPerFile: config.Tools.EFileResearchTool.MaxCharsPerFile));
+        engine.RegisterTool(new EFileResearchTool(fileSystem, configProvider, colorFormatter));
 
         // Prefill KV cache (no-op for mock engine)
         if (!UseMockEngine)
             await engine.PrefillStaticPrefix();
 
         // Create orchestrator with tool policy (all allowed for tests)
-        var policy = new ToolPolicy();
-        var orchestrator = new AgentOrchestrator(engine, sessionOutput: null, maxTurns: 10, maxFailures: 3, toolPolicy: policy);
+        var policy = new ECAssistant.Tools.ToolPolicy();
+        var orchestrator = new AgentOrchestrator(engine, sessionOutput: null, maxTurns: 10, maxFailures: 3, toolPolicy: policy, logger: _logger);
 
         // v10.18: Initialize sub-agent support (async — rebuilds KV cache)
         // v10.19.4: Only if enabled in config
@@ -500,7 +503,7 @@ public sealed class TestRunner : IAsyncDisposable
         return (engine, orchestrator);
     }
 
-    private static string TruncateForConsole(string text, int max)
+    private string TruncateForConsole(string text, int max)
     {
         if (string.IsNullOrEmpty(text)) return "(empty)";
         return text.Length <= max ? text : text.Substring(0, max) + " [...]";
@@ -518,7 +521,7 @@ public sealed class TestRunner : IAsyncDisposable
     /// v10.22: Inject scripted mock responses based on the test scenario name.
     /// Each mock test gets deterministic responses that exercise specific orchestrator paths.
     /// </summary>
-    private static void InjectMockResponses(MockEngine mock, TestScenario scenario)
+    private void InjectMockResponses(MockEngine mock, TestScenario scenario)
     {
         switch (scenario.Name)
         {

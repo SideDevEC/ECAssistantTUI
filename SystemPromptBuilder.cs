@@ -2,27 +2,30 @@ namespace ECAssistant;
 
 /// <summary>
 /// Builds a system prompt for ECAssistant.Core that includes the required
-/// &lt;lm&gt; tag format rules plus custom domain context.
+/// &lt;lm&gt; tag format rules, OS awareness, and custom domain context.
 ///
-/// Library consumers MUST use this (or include the tag rules manually) —
-/// the engine's response parser expects &lt;lm&gt; containers and will
-/// reject responses without them.
+/// The OS is auto-detected if WithPlatform() is not called.
+/// The &lt;lm&gt; tag rules are always included — the engine parser depends on them.
 ///
 /// Usage:
 ///   var prompt = SystemPromptBuilder.Create()
 ///       .WithAgentName("ECSQL Assistant")
 ///       .WithDescription("You help users manage and query SQL databases.")
-///       .WithPlatform("macOS")
 ///       .Build();
+///   // OS is auto-detected: "macOS", "Windows", or "Linux"
 ///   session.Engine.SystemPromptText = prompt;
 ///
-/// The tag rules are always included. Everything else is optional.
+/// Override OS if needed:
+///   .WithPlatform("Linux")
+///
+/// Add domain rules:
+///   .WithCustomRules("Always explain SQL before executing. Use SqlQuery for SELECT statements.")
 /// </summary>
 public class SystemPromptBuilder
 {
     private string _agentName = "ECAssistant";
     private string _description = "a local AI agent with multiple tools and persistent memory";
-    private string _platform = "";
+    private string? _platform = null;  // null = auto-detect
     private string _customRules = "";
 
     private SystemPromptBuilder() { }
@@ -36,7 +39,10 @@ public class SystemPromptBuilder
     /// <summary>Describe what the agent does. Appended after the name.</summary>
     public SystemPromptBuilder WithDescription(string desc) { _description = desc; return this; }
 
-    /// <summary>Specify the platform (macOS, Windows, Linux). Affects shell guidance.</summary>
+    /// <summary>
+    /// Specify the platform explicitly. If not called, auto-detected:
+    /// macOS → "macOS", Windows → "Windows", otherwise → "Linux".
+    /// </summary>
     public SystemPromptBuilder WithPlatform(string platform) { _platform = platform; return this; }
 
     /// <summary>
@@ -45,22 +51,45 @@ public class SystemPromptBuilder
     /// </summary>
     public SystemPromptBuilder WithCustomRules(string rules) { _customRules = rules; return this; }
 
+    /// <summary>
+    /// Auto-detect the OS. Returns "macOS", "Windows", or "Linux".
+    /// </summary>
+    private static string DetectPlatform()
+    {
+        if (OperatingSystem.IsMacOS()) return "macOS";
+        if (OperatingSystem.IsWindows()) return "Windows";
+        return "Linux";
+    }
+
+    /// <summary>
+    /// Get OS-specific shell guidance for the platform.
+    /// </summary>
+    private static string GetShellGuidance(string platform)
+    {
+        return platform switch
+        {
+            "macOS" => "Use bash/zsh commands. Shell is case-sensitive.",
+            "Windows" => "Use PowerShell commands. Shell is case-insensitive.",
+            "Linux" => "Use bash commands. Shell is case-sensitive.",
+            _ => "Use shell commands appropriate for your platform."
+        };
+    }
+
     /// <summary>Build the complete system prompt string.</summary>
     public string Build()
     {
+        var platform = _platform ?? DetectPlatform();
+        var shellGuidance = GetShellGuidance(platform);
+
         var sb = new System.Text.StringBuilder();
 
-        // ── Agent identity ──
+        // ── Agent identity + OS ──
         sb.AppendLine($"# {_agentName} — System Prompt");
         sb.AppendLine();
         sb.AppendLine($"You are **{_agentName}** — {_description}");
         sb.AppendLine();
-
-        if (!string.IsNullOrEmpty(_platform))
-        {
-            sb.AppendLine($"You work on {_platform}.");
-            sb.AppendLine();
-        }
+        sb.AppendLine($"You work on {platform}. {shellGuidance}");
+        sb.AppendLine();
 
         // ── REQUIRED: <lm> tag format rules (engine parser depends on these) ──
         sb.AppendLine("## RESPONSE FORMAT — STRICT");
@@ -128,7 +157,7 @@ public class SystemPromptBuilder
         sb.AppendLine("If you see a `<tooloutput>` in history, the tool ALREADY RAN. Read the result and give your `<output>` answer. Do NOT repeat the same tool call.");
         sb.AppendLine();
 
-        // ── Operating rules (generic) ──
+        // ── Operating rules ──
         sb.AppendLine("## OPERATING RULES");
         sb.AppendLine();
         sb.AppendLine("1. Keep responses concise — don't over-explain");

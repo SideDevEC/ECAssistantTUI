@@ -16,7 +16,6 @@ public class ConsoleUiRenderer : IOutputListener
 {
     private readonly EGuiBase _gui;
     private readonly IColorFormatter _color;
-    private bool _streaming;
 
     public ConsoleUiRenderer(EGuiBase gui, IColorFormatter color)
     {
@@ -72,12 +71,12 @@ public class ConsoleUiRenderer : IOutputListener
 
     public void OnStreamStart()
     {
-        _streaming = true;
+        // Streaming started — listener can poll GetStreamBuffer() if needed
     }
 
     public void OnStreamStop()
     {
-        _streaming = false;
+        // Streaming stopped — buffer will be flushed via WriteLine
     }
 
     public bool OnRequestApproval(string message)

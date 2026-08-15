@@ -5,37 +5,39 @@ namespace ECAssistant.UI;
 /// <summary>
 /// Console-based EGuiBase with ANSI scroll region.
 ///
-/// Architecture:
-/// - Terminal is split into two regions:
-///   - Top region: scrollable output (all session output goes here)
-///   - Bottom line: always-visible input with "> " prompt
-/// - ANSI scroll region (\x1b[<top>;<bottom>r) keeps output scrolling in the top area
-///   while the input line stays fixed at the bottom
-/// - User can type at ANY time — input is always accepting keys
-/// - Output arriving while user types just scrolls above — no cursor tricks needed
-/// - ESC stops the active session (handled by Program.cs main loop)
+/// Terminal layout:
+///   ┌─────────────────────────┐
+///   │  output scrolls here     │  ← scroll region (lines 1 to height-1)
+///   │  [INFO] Session created  │
+///   │  token stream...         │
+///   │                          │
+///   ├─────────────────────────┤
+///   │ > type here always_      │  ← input line (pinned, line height)
+///   └─────────────────────────┘
+///
+/// How it works:
+/// - ANSI scroll region (\x1b[1;<h-1>r) confines scrolling to the top area
+/// - Output: move cursor to last line of scroll region, write text + \n
+///   → the \n causes the scroll region to scroll up, pushing content up
+/// - Input: cursor stays on the bottom line (outside scroll region)
+/// - User can type at any time — output scrolling doesn't touch the input line
 /// </summary>
 public sealed class EGuiConsole : EGuiBase
 {
     private bool _ansiSupported;
     private readonly object _writeLock = new();
-
-    // Input state — always active, user can type whenever
     private readonly StringBuilder _inputBuffer = new();
     private string _inputPrompt = "> ";
     private int _consoleHeight = 24;
-
-    // Callback for when user submits input (set by Program.cs)
-    private Func<string, Task>? _onSubmitAsync;
-    private Action? _onEscape;
-
-    //ESC detection (for IsEscapePressed compat)
+    private int _scrollBottom;  // last line of scroll region (1-based)
     private volatile bool _escPressed;
+    private Action? _onEscape;
 
     public void InitConsole()
     {
         _ansiSupported = DetectAnsiSupport();
         try { _consoleHeight = Console.WindowHeight; } catch { }
+        _scrollBottom = Math.Max(1, _consoleHeight - 1);
 
         if (_ansiSupported)
         {
@@ -48,20 +50,18 @@ public sealed class EGuiConsole : EGuiBase
     {
         if (_ansiSupported)
         {
-            // Reset scroll region to full terminal
             try
             {
-                Console.Write("\x1b[r");           // reset scroll region
+                Console.Write("\x1b[r");       // reset scroll region
                 Console.CursorVisible = true;
             }
             catch { }
         }
     }
 
-    /// <summary>Set callbacks for input submission and ESC.</summary>
+    /// <summary>Set ESC callback to stop the active session.</summary>
     public void SetHandlers(Func<string, Task>? onSubmit, Action? onEscape)
     {
-        _onSubmitAsync = onSubmit;
         _onEscape = onEscape;
     }
 
@@ -100,73 +100,87 @@ public sealed class EGuiConsole : EGuiBase
         }
     }
 
-    /// <summary>
-    /// Set the ANSI scroll region to leave the bottom line free for input.
-    /// Top region = lines 1 to (height-1), bottom line = input.
-    /// </summary>
-    private void SetupScrollRegion()
+    private void RefreshHeight()
     {
         try { _consoleHeight = Console.WindowHeight; } catch { }
-        // \x1b[1;<height-1>r — set scroll region from line 1 to height-1
-        var bottom = Math.Max(1, _consoleHeight - 1);
-        Console.Write($"\x1b[1;{bottom}r");
-        // Move cursor to bottom line for input
-        Console.Write($"\x1b[{_consoleHeight};1H");
-        Console.Write("\x1b[2K");  // clear the line
-        Console.Write(_inputPrompt);
-        Console.CursorVisible = true;
+        _scrollBottom = Math.Max(1, _consoleHeight - 1);
     }
 
     /// <summary>
-    /// Write output to the scroll region (above the input line).
-    /// This works because the scroll region confines scrolling to the top area.
-    /// The input line at the bottom is never touched.
+    /// Set the ANSI scroll region to lines 1..(height-1).
+    /// The bottom line (height) is outside the scroll region — input lives there.
     /// </summary>
-    private void WriteToScrollRegion(string text)
+    private void SetupScrollRegion()
+    {
+        RefreshHeight();
+        // Set scroll region: \x1b[1;<scrollBottom>r
+        Console.Write($"\x1b[1;{_scrollBottom}r");
+        // Move cursor to bottom line for input
+        Console.Write($"\x1b[{_consoleHeight};1H");
+        Console.Write("\x1b[2K");
+        Console.Write("\x1b[36m> \x1b[0m");
+        Console.CursorVisible = true;
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  OUTPUT — writes go to the scroll region, never the input line
+    // ═══════════════════════════════════════════════════
+
+    /// <summary>
+    /// Write text into the scroll region.
+    ///
+    /// 1. Save cursor (we're on the input line)
+    /// 2. Move to the LAST line of the scroll region (line scrollBottom)
+    /// 3. Write text — if it contains \n, the scroll region auto-scrolls up
+    /// 4. Restore cursor to the input line
+    ///
+    /// The input line is outside the scroll region so it's never affected.
+    /// </summary>
+    private void WriteOutput(string text)
     {
         if (!_ansiSupported)
         {
-            // Fallback: just write to console
             Console.Write(text);
             return;
         }
 
         lock (_writeLock)
         {
-            // Save cursor position
+            // Save cursor position (currently on input line)
             Console.Write("\x1b7");
 
-            // Move to top of scroll region, write output
-            // The scroll region handles the scrolling automatically
+            // Move to last line of scroll region
+            Console.Write($"\x1b[{_scrollBottom};1H");
+
+            // Write the text — \n causes the scroll region to scroll up
             Console.Write(text);
 
-            // Restore cursor position (back to input line)
+            // Restore cursor to input line
             Console.Write("\x1b8");
+
+            // Reprint input prompt + current buffer (in case scroll region output
+            // overwrote the input line visually — it shouldn't, but just in case)
+            // Actually we DON'T need this — the input line is outside the scroll region.
+            // Only reprint if cursor visual got messed up.
         }
     }
 
-    // ── EGuiBase output methods ──
+    public override void WriteLine(string text) => WriteOutput(text + "\n");
+    public override void WriteLineColored(string coloredText) => WriteOutput(coloredText + "\n");
+    public override void WriteRaw(string text) => WriteOutput(text);
+    public override void BlankLine() => WriteOutput("\n");
+    public override void InfoColored(string coloredText) => WriteOutput(coloredText + "\n");
+    public override void WarningColored(string coloredText) => WriteOutput(coloredText + "\n");
+    public override void WriteRawDirect(string text) => WriteOutput(text);
+    public override void LogInternal(string text) => WriteOutput(text + "\n");
 
-    public override void WriteLine(string text) => WriteToScrollRegion(text + "\n");
-    public override void WriteLineColored(string coloredText) => WriteToScrollRegion(coloredText + "\n");
-    public override void WriteRaw(string text) => WriteToScrollRegion(text);
-    public override void BlankLine() => WriteToScrollRegion("\n");
-    public override void InfoColored(string coloredText) => WriteToScrollRegion(coloredText + "\n");
-    public override void WarningColored(string coloredText) => WriteToScrollRegion(coloredText + "\n");
-
-    public override void WriteRawDirect(string text) => WriteToScrollRegion(text);
-    public override void LogInternal(string text) => WriteToScrollRegion(text + "\n");
-
-    // ── Input ──
+    // ═══════════════════════════════════════════════════
+    //  INPUT — always on the bottom line, outside scroll region
+    // ═══════════════════════════════════════════════════
 
     public override string? PromptColored(string labelAndText) => ReadInputLine(labelAndText);
     public override string? PromptRaw(string label) => ReadInputLine(label);
 
-    /// <summary>
-    /// Read a line of input. Shows the prompt, waits for Enter.
-    /// Output can arrive simultaneously via other threads — it goes to the scroll region
-    /// and doesn't interfere with the input line.
-    /// </summary>
     private string? ReadInputLine(string prompt)
     {
         _inputPrompt = prompt;
@@ -176,8 +190,8 @@ public sealed class EGuiConsole : EGuiBase
         {
             if (_ansiSupported)
             {
+                RefreshHeight();
                 // Move to bottom line, clear it, show prompt
-                try { _consoleHeight = Console.WindowHeight; } catch { }
                 Console.Write($"\x1b[{_consoleHeight};1H");
                 Console.Write("\x1b[2K");
                 Console.Write(prompt);
@@ -198,7 +212,6 @@ public sealed class EGuiConsole : EGuiBase
             }
             catch (InvalidOperationException)
             {
-                // No console — fallback to ReadLine
                 return Console.ReadLine();
             }
 
@@ -211,22 +224,23 @@ public sealed class EGuiConsole : EGuiBase
 
                     if (_ansiSupported)
                     {
-                        // Clear the input line, move output to scroll region
-                        try { _consoleHeight = Console.WindowHeight; } catch { }
+                        RefreshHeight();
+
+                        // Clear the input line
                         Console.Write($"\x1b[{_consoleHeight};1H");
                         Console.Write("\x1b[2K");
 
-                        // Write the submitted input into the scroll region as a log line
+                        // Echo the submitted command into the scroll region
                         if (!string.IsNullOrEmpty(result))
                         {
-                            WriteToScrollRegion(prompt + result + "\n");
+                            WriteOutput(prompt + result + "\n");
                         }
 
-                        // Reprint prompt for next input
-                        _inputPrompt = "> ";
+                        // Reprint fresh prompt on the input line
+                        _inputPrompt = "\x1b[36m> \x1b[0m";
                         Console.Write($"\x1b[{_consoleHeight};1H");
                         Console.Write("\x1b[2K");
-                        Console.Write(_colorPrompt());
+                        Console.Write(_inputPrompt);
                     }
                     else
                     {
@@ -245,17 +259,16 @@ public sealed class EGuiConsole : EGuiBase
                 }
                 else if (key.Key == ConsoleKey.Escape)
                 {
-                    // ESC: clear current input OR signal stop
                     if (_inputBuffer.Length > 0)
                     {
-                        // Clear input buffer first
+                        // Clear input buffer
                         _inputBuffer.Clear();
                         if (_ansiSupported)
                         {
-                            try { _consoleHeight = Console.WindowHeight; } catch { }
+                            RefreshHeight();
                             Console.Write($"\x1b[{_consoleHeight};1H");
                             Console.Write("\x1b[2K");
-                            Console.Write(_colorPrompt());
+                            Console.Write(_inputPrompt);
                         }
                         else
                         {
@@ -265,7 +278,7 @@ public sealed class EGuiConsole : EGuiBase
                     }
                     else
                     {
-                        // Input is empty — ESC signals stop
+                        // Empty input + ESC = stop session
                         _escPressed = true;
                         _onEscape?.Invoke();
                     }
@@ -277,12 +290,6 @@ public sealed class EGuiConsole : EGuiBase
                 }
             }
         }
-    }
-
-    /// <summary>Default prompt with color (cyan "> ").</summary>
-    private string _colorPrompt()
-    {
-        return "\x1b[36m> \x1b[0m";
     }
 
     public override bool IsEscapePressed()

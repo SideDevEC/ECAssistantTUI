@@ -674,7 +674,7 @@ public class Program
         string userConfigDir)
     {
         Gui.BlankLine();
-        Gui.WriteLineColored(_color.Cyan + _color.Bold + "[ECLoop] Type your request (help | quit)" + _color.Reset);
+        Gui.WriteLineColored(_color.Cyan + _color.Bold + $"[{activeSession.Key}] Type your request (help | quit)" + _color.Reset);
         Gui.WriteLine("===========================================");
         Gui.WriteLineColored(_color.Cyan + _color.Bold + "[Mode] The agent decides tools automatically." + _color.Reset);
         Gui.BlankLine();

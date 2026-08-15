@@ -1,173 +1,90 @@
-# ECAssistant Architecture (v11.1 — 2026-08-15)
+# ECAssistant — Architecture
 
-**Summary:** Strict OOP refactor complete. All mutable statics eliminated, full interface-based design, constructor injection, 912 tests passing.
-
-## OOP Principles (IDENTITY.md)
-
-- No mutable static state — statics discouraged but permitted for pure/stateless functions
-- Constructor injection — all dependencies passed via constructor
-- Program to interfaces — depend on abstractions, not implementations
-- One type per file — each class/interface in its own file
-- Encapsulation — private/protected fields, no public mutable state
-- Single responsibility — one purpose per class
-- Cross-dependency free — dependencies flow one direction
-
-## Build & Test Status
-
-- **Build:** 0 errors, 0 warnings (main + test projects)
-- **Tests:** 912 total (825 unit + 87 integration), all passing
-- **Test files:** 59 (50 unit + 9 integration)
-- **App launch:** Verified — loads config, model, tools, sessions, KV cache
+**Updated:** 2026-08-15
+**Build:** 0 errors, 0 warnings
+**Tests:** 892/892 passing
 
 ## Dependency Flow
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌──────────────┐
-│   UI Layer   │────>│  Engine Layer│────>│  Tool Layer  │
-│  (Terminal)  │     │  (Orchestration)│  │ (Execution)  │
-└─────────────┘     └──────────────┘     └──────────────┘
-                           │                      │
-                           v                      v
-                    ┌──────────────┐     ┌──────────────┐
-                    │ Service Layer │     │  IO Layer    │
-                    │ (Memory,      │     │ (File, Web,   │
-                    │  Config,      │     │  Shell)      │
-                    │  Inference)   │     └──────────────┘
-                    └──────────────┘
+Program.cs (Main → binder)
+  │
+  ├── creates EGuiConsole (GUI layer)
+  │     └── EColor, ANSI codes, Console I/O
+  │     └── Implements IOutputListener
+  │     └── Knows NOTHING about session internals
+  │
+  ├── creates AgentSession (headless)
+  │     └── EAgentEngine, Orchestrator, Tools, Memory, SubAgents
+  │     └── All communicate via ISessionOutput (OutputState enums)
+  │     └── ZERO references to EColor, EGuiBase, ANSI, Console
+  │
+  └── wires: session.AddListener(guiRenderer)
 ```
 
-Dependencies flow: UI → Engine → Service/Tool → IO
+## Layers
 
-## Module Boundaries
+### Program.cs (Binder)
+- Entry point (`Main`)
+- Creates GUI (`EGuiConsole`) and session (`AgentSession`)
+- Wires them together (`session.AddListener(renderer)`)
+- Main input loop: `> ` prompt, routes commands, ESC stops session
+- Uses `EColor` directly for its own startup messages (it's in the UI layer)
 
-### 1. Interfaces (Interfaces/)
-- `ITool` — unified tool interface (Name, Description, ExecuteAsync, GetPolicy)
-- `IInferenceEngine` — LLM inference abstraction
-- `IMemoryService` — persistent memory with vector search
-- `IConfigProvider` — configuration access abstraction
-- `IContextManager` — context window management
-- `IFileSystem` — file system abstraction (ReadFile, WriteFile, FileExists, ListFiles)
-- `IProcessRunner` — process execution abstraction
-- `IHttpClient` — HTTP client abstraction
-- `IColorFormatter` — ANSI color formatting
-- `ILogger` — logging abstraction (Debug, Info, Warn, Error)
-- `IVectorStore` — vector similarity search
-- `IModelLoader` — GGUF model loading
-- `IOutputRenderer` — terminal output
-- `ITerminal` — terminal I/O
-- `IToolPolicyEvaluator` — tool permission evaluation
-- `IVectorEmbedder` — text embedding
-- `IEngine` — engine interface
+### Session Layer (`Session/`)
+- `AgentSession` — central hub, implements `ISessionOutput`
+- `ISessionOutput` — the ONLY interface engine/tools use for output
+- `IOutputListener` — UI implements this, gets notified by session
+- `OutputState` enum: Info, Success, Warning, Error, Dim, Bold, Raw, System
+- `OutputEntry` — JSONL record for persistent output buffer
+- `ConsoleUiRenderer` — bridge between session and GUI (uses EColor)
+- `LoadingIndicator` — animated loading dots (uses EColor)
+- `SessionManager` — multi-session lifecycle
+- `SessionDiscovery` — finds existing sessions on disk
 
-### 2. Engine Layer (Engine/)
-- `EAgentEngine` — main agent orchestration, conversation flow, tool dispatch
-- `AgentOrchestrator` — decision loop, multi-step execution, tool call parsing
-- `ContextWindow` — context budget tracking with auto-summarize
-- `ConversationTranscript` — message history persistence
-- `ParallelToolExecutor` — batch tool execution with dependency analysis
-- `ToolDependencyAnalyzer` — analyzes tool call dependencies for parallel grouping
-- `TaskPlanner` — decomposes requests into steps
-- `StepMapper` — maps execution plan to tool calls
-- `SelfCorrectionManager` — failure tracking and recovery
-- `EDecisionLoop` — decision loop state machine
-- `ProjectContextManager` — project file scanning and context
-- `SubAgentManager` — spawns and manages sub-agent sessions
-- `TokenCounter` — token counting via LLamaSharp tokenizer
-- `SecondaryModelLoader` — secondary model for summaries
+### Engine Layer (`Engine/`)
+- `EAgentEngine` — core LLM inference, context window, KV cache
+- `AgentOrchestrator` — multi-step execution, tool dispatch
+- `EDecisionLoop` — interactive clarifying questions
+- `ParallelToolExecutor` — dependency-ordered parallel tool execution
+- `SubAgentManager` — isolated child agents with shared model weights
+- `SecondaryModelLoader` — secondary LLM for task decomposition
+- `TaskPlanner` — chained multi-step task planning
+- All use `ISessionOutput` for output — no UI/color/Console references
 
-### 3. Tool Layer (Tools/)
-- `EToolBase` — abstract base class for tools
-- `ToolAdapter` — wraps ITool as EToolBase for engine compatibility
-- `ToolPolicy` — permission manager (Allow, ApprovalRequired, Blocked)
-- `EShellAgent` — shell command execution
-- `EBackgroundExecTool` — background process management
-- `EWebSearchTool` — web search
-- `EWebFetchTool` — URL fetching and HTML-to-text
-- `EDotnetBuildTool` — .NET build/test
-- `EGitTool` — git operations
-- `ECodeEditorTool` — file patching with diff
-- `EFileReaderTool` — controlled file reading
-- `EFileResearchTool` — multi-file search
-- `EFileAnalyzer` — file analysis (example tool)
-- `ESubAgentTool` — sub-agent spawning
+### Tools Layer (`Tools/`)
+- 10 tools: Shell, Git, CodeEditor, DotnetBuild, FileReader, WebSearch, WebFetch, FileResearch, BackgroundExec, SubAgent
+- All headless — no `IColorFormatter`, no `EColor`, no `Console`
+- Constructor-injected dependencies: `IProcessRunner`, `IFileSystem`, `IConfigProvider`, `IHttpClient`
+- Output goes through orchestrator → `ISessionOutput`
 
-### 4. Service Layer (Services/)
-- `LlamaInferenceEngine` — LLamaSharp inference (StatelessExecutor + InferAsync)
-- `Logger` — file + console logging implementing ILogger
-- `FileSystemAdapter` — real file system implementing IFileSystem
-- `ProcessRunner` — real process execution implementing IProcessRunner
-- `HttpClientAdapter` — HTTP client implementing IHttpClient
-- `ConfigProvider` — JSON config access implementing IConfigProvider
-- `ColorFormatter` — ANSI colors implementing IColorFormatter
-- `TfidfEmbedder` — TF-IDF text embedding
-- `InMemoryVectorStore` — in-memory vector store
-- `SummaryService` — conversation summarization
-- `BackgroundProcessManager` — background process lifecycle
-- `FileWatcherService` — file change watching
-- `MemoryService` — persistent memory
-- `ContextManager` — context window management
-- `ModelLoader` — GGUF model loading
-- `TerminalAdapter` — terminal I/O
+### Services Layer (`Services/`)
+- `Logger` — file-only, no console output
+- `LlamaInferenceEngine` — LLamaSharp wrapper
+- `InMemoryVectorStore` — FAISS alternative for vector memory
+- `FileSystemAdapter` — IFileSystem implementation
+- `HttpClientAdapter` — IHttpClient implementation
+- `ConfigProvider` — IConfigProvider implementation
 
-### 5. Config Layer (Config/)
-- `EAgentConfig` — strongly-typed appsettings.json wrapper
-- `ConfigLoader` — loads config from JSON (replaces static EAgentConfig.Load)
-- `ContextParams` — inference parameters
-- `Config/Models/` — 14 config model classes (one per file)
+### UI Layer (`UI/`)
+- `EGuiConsole` — the ONLY class that touches the terminal
+- `EGuiBase` — abstract base for UI implementations
+- Maps `OutputState` → ANSI colors
+- Always-visible `> ` prompt, output scrolls above
 
-### 6. Memory Layer (Memory/)
-- `VectorMemoryStore` — vector storage with cosine similarity
-- `EMemoryManager` — persistent memory manager
+### Config Layer (`Config/`)
+- `EAgentConfig` — strongly-typed app settings
+- `ConfigLoader` — JSON deserialization with case-insensitive matching
+- All config models: LlmConfig, MemoryConfig, SubAgentConfig, etc.
 
-### 7. Analysis Layer (Analysis/)
-- `EContextAnalyzer` — project file analysis and relationship mapping
+### Interfaces (`Interfaces/`)
+- `ITool` — tool interface
+- `ILogger` — logging interface (file-only, no GUI)
+- `IProcessRunner`, `IFileSystem`, `IHttpClient`, `IConfigProvider` — service abstractions
+- `ITerminal` — terminal abstraction (unused, candidate for removal)
 
-### 8. Session Layer (Session/)
-- `SessionManager` — multi-session lifecycle management
-- `AgentSession` — single session state and engine binding
-- `SessionDiscovery` — discovers sessions on disk
-- `ConsoleUiRenderer` — console UI rendering
-
-### 9. UI Layer (UI/)
-- `EGuiBase` — abstract UI base
-- `EGuiConsole` — ANSI terminal with scroll regions
-- `EColor` — color formatting (instance class implementing IColorFormatter)
-
-## Test Structure
-
-```
-Tests/
-├── Services/          — 14 unit test files
-├── Tools/             — 13 unit test files
-├── Engine/            — 12 unit test files
-├── Memory/            — 2 unit test files
-├── Analysis/          — 1 unit test file
-├── Session/           — 2 unit test files
-├── Config/            — 2 unit test files
-├── Integration/       — 9 integration test files
-│   ├── OrchestratorIntegrationTests.cs
-│   ├── ToolPipelineIntegrationTests.cs
-│   ├── SubAgentIntegrationTests.cs
-│   ├── ParallelToolExecutorIntegrationTests.cs
-│   ├── SessionManagementIntegrationTests.cs
-│   ├── MemoryIntegrationTests.cs
-│   ├── ConfigIntegrationTests.cs
-│   ├── ContextWindowIntegrationTests.cs
-│   └── TranscriptIntegrationTests.cs
-└── ECAssistant.Tests.csproj
-```
-
-## Remaining Statics (Policy-Compliant)
-
-All remaining statics are pure/stateless with `// Stateless utility` comments:
-- `EGuiBase.Truncate()` — pure string utility (14 call sites)
-- `EToolResult.Success/Failure` — pure factory on immutable class
-- `TranscriptMessage` factories — pure factory on data class
-- `ToolPolicy` record factories — pure
-- `SecondaryModelLoader.Load()` — pure factory
-- `ParallelToolExecutor.CombineResults/FormatConsoleSummary` — pure utilities
-- `EGuiConsole` P/Invoke extern methods — language requirement
-- `EcaTests` — test fixture (allowed)
-
-**Status:** v11.1 — OOP refactoring complete, 912 tests passing.
-**Updated:** 2026-08-15
+## Key Constraints
+- `EColor` is used ONLY by `ConsoleUiRenderer`, `LoadingIndicator`, and `Program.cs`
+- `Console.Write/WriteLine` appears ONLY in `EGuiConsole`, `EColor` (fallback), and `TerminalAdapter` (unused)
+- `EGuiBase.Truncate` kept for UI/ compatibility; engine uses `StringUtil.Truncate`
+- `IColorFormatter` and `ColorFormatter` deleted — no longer needed

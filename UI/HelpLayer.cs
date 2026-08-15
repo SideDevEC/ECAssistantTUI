@@ -2,7 +2,7 @@ namespace ECAssistant.UI;
 
 /// <summary>
 /// Full-screen help layer.
-/// Shows formatted help content, waits for any keypress, then pops back.
+/// Shows formatted help content, waits for Enter, then pops back.
 /// </summary>
 public sealed class HelpLayer : IGuiLayer
 {
@@ -29,17 +29,22 @@ public sealed class HelpLayer : IGuiLayer
 
     public bool OnKey(EGuiConsole console, ConsoleKeyInfo key)
     {
-        // Any key pops the help layer
-        return false;
+        // Only pop on Enter — user must consciously press Enter to return
+        if (key.Key == ConsoleKey.Enter)
+            return false; // pop the layer
+
+        // All other keys: handled (stay in help layer)
+        return true;
     }
 
     private string[] BuildHelpContent()
     {
-        var lines = new List<string>();
-
-        lines.Add($"{_color.Cyan}{_color.Bold}  ECAssistant — Help{_color.Reset}");
-        lines.Add($"{_color.Dim}  Press any key to return{_color.Reset}");
-        lines.Add("");
+        var lines = new List<string>
+        {
+            $"{_color.Cyan}{_color.Bold}  ECAssistant — Help{_color.Reset}",
+            $"{_color.Dim}  Press Enter to return{_color.Reset}",
+            ""
+        };
 
         foreach (var line in _helpLines)
             lines.Add(line);

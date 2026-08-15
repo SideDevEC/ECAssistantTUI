@@ -737,7 +737,7 @@ public sealed class EGuiConsole : EGuiBase
             }
 
             // Footer hint at bottom
-            Console.Write($"\x1b[{_screenHeight};1H\x1b[2K{_color_Dim}  Press any key to return{_color_Reset}");
+            Console.Write($"\x1b[{_screenHeight};1H\x1b[2K{_color_Dim}  Press Enter to return{_color_Reset}");
             Console.Out.Flush();
         }
     }

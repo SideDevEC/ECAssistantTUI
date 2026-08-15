@@ -88,8 +88,9 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
         }, null, StreamFlushIntervalMs, StreamFlushIntervalMs);
     }
 
-    // ── UI Attachment ─────────────────────────────────
-    private IUiRenderer? _attachedUi;
+    // ── Output Buffer + Listeners ─────────────────────
+    private readonly List<OutputEntry> _outputBuffer = new();
+    private readonly List<IUiRenderer> _listeners = new();
     private readonly object _uiLock = new();
 
     // ── Prompt Queue ───────────────────────────────────
@@ -285,7 +286,7 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
             // Flush any buffered content first, then write directly through UI renderer
             if (_streamBuffer.Length > 0)
                 FlushBuffer();
-            _attachedUi?.OnRawDirect(token);
+            foreach (var l in _listeners) { try { l.OnRawDirect(token); } catch {} };
         }
     }
 
@@ -401,13 +402,17 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
         }
     }
 
-    /// <summary>Notify attached UI renderer (if any).</summary>
+    /// <summary>Add entry to output buffer and notify all listeners.</summary>
     private void NotifyUi(OutputEntry entry)
     {
         lock (_uiLock)
         {
-            try { _attachedUi?.OnOutput(entry); }
-            catch { /* don't let UI errors crash the session */ }
+            _outputBuffer.Add(entry);
+            foreach (var listener in _listeners)
+            {
+                try { listener.OnOutput(entry); }
+                catch { /* don't let UI errors crash the session */ }
+            }
         }
     }
 
@@ -415,30 +420,39 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
     //  UI ATTACHMENT
     // ═══════════════════════════════════════════════════
 
-    /// <summary>Attach a UI renderer for live output notifications.</summary>
-    public void AttachUi(IUiRenderer renderer)
+    /// <summary>Add a listener for live output notifications.</summary>
+    public void AddListener(IUiRenderer listener)
     {
         lock (_uiLock)
         {
-            _attachedUi = renderer;
+            _listeners.Add(listener);
         }
 
         // Notify current state
-        renderer.OnStateChanged(_runState);
+        listener.OnStateChanged(_runState);
 
         // Notify current queue
         lock (_queueLock)
         {
-            renderer.OnQueueChanged(_promptQueue.ToList());
+            listener.OnQueueChanged(_promptQueue.ToList());
         }
     }
 
-    /// <summary>Detach the UI renderer.</summary>
-    public void DetachUi()
+    /// <summary>Remove a listener.</summary>
+    public void RemoveListener(IUiRenderer listener)
     {
         lock (_uiLock)
         {
-            _attachedUi = null;
+            _listeners.Remove(listener);
+        }
+    }
+
+    /// <summary>Get a copy of the output buffer (for UI to display history).</summary>
+    public List<OutputEntry> GetOutputBuffer()
+    {
+        lock (_uiLock)
+        {
+            return _outputBuffer.ToList();
         }
     }
 
@@ -671,8 +685,7 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
         _runState = state;
         lock (_uiLock)
         {
-            try { _attachedUi?.OnStateChanged(state); }
-            catch { }
+            foreach (var l in _listeners) { try { l.OnStateChanged(state); } catch {} }
         }
     }
 
@@ -684,7 +697,7 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
             {
                 lock (_queueLock)
                 {
-                    _attachedUi?.OnQueueChanged(_promptQueue.ToList());
+                    foreach (var l in _listeners) { try { l.OnQueueChanged(_promptQueue.ToList()); } catch {} }
                 }
             }
             catch { }

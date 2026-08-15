@@ -28,7 +28,8 @@ public class Program
     private static ILogger _logger = null!;
     public static EGuiBase Gui = null!;   // the UI instance, set once in Main()
     private static EColor _color = null!;  // color formatter instance
-    private static bool _quitRequested;   // set by quit/exit command
+    private static bool _quitRequested;
+    private static ConsoleUiRenderer? _activeUi;   // set by quit/exit command
 
 [System.STAThread]
     public static async Task<int> Main(string[] args)
@@ -328,8 +329,8 @@ public class Program
         BackgroundProcessManager bgMgr, string userConfigDir)
     {
         // ── Attach UI renderer to the session ──
-        var uiRenderer = new ConsoleUiRenderer(Gui, _color);
-        session.AttachUi(uiRenderer);
+        var uiRenderer = new ConsoleUiRenderer(Gui, _color); _activeUi = uiRenderer;
+        session.AddListener(uiRenderer);
 
         // v10.22: Start timer-based stream flushing for real-time token output
         session.StartStreamFlushTimer();
@@ -499,9 +500,9 @@ public class Program
                         var newActive = sessionManager.ActiveSession!;
                         // Re-attach UI
                         foreach (var s in sessionManager.List())
-                            if (s != newActive) s.DetachUi();
-                        var ui = new ConsoleUiRenderer(Gui, _color);
-                        newActive.AttachUi(ui);
+                            if (s != newActive) if (_activeUi != null) s.RemoveListener(_activeUi);
+                        var ui = new ConsoleUiRenderer(Gui, _color); _activeUi = ui;
+                        newActive.AddListener(ui);
                         Gui.BlankLine();
                         _color.TagBold(_color.Green, "Session", $"Switched to [{newActive.Key}] {newActive.GetStatusSummary()}");
                         Gui.BlankLine();
@@ -512,9 +513,9 @@ public class Program
                 {
                     var newActive = sessionManager.ActiveSession!;
                     foreach (var s in sessionManager.List())
-                        if (s != newActive) s.DetachUi();
-                    var ui = new ConsoleUiRenderer(Gui, _color);
-                    newActive.AttachUi(ui);
+                        if (s != newActive) if (_activeUi != null) s.RemoveListener(_activeUi);
+                    var ui = new ConsoleUiRenderer(Gui, _color); _activeUi = ui;
+                    newActive.AddListener(ui);
                     Gui.BlankLine();
                     _color.TagBold(_color.Green, "Session", $"Switched to [{newActive.Key}]");
                     Gui.BlankLine();

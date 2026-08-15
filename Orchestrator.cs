@@ -199,7 +199,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                         Status = OrchestratorStatus.GoalAchieved   // not an error — user chose to stop
                      };
                  }
-            _logger.Info("Orchestrator", $"Turn {_turnCount + 1}/{_maxTurns}");
+            _logger?.Info("Orchestrator", $"Turn {_turnCount + 1}/{_maxTurns}");
 
                   // Step 1: Ask the LLM to decide what to do (with full context of tools + history)
               var llmResponse = await _engine.GenerateAsync(goal);
@@ -241,7 +241,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                  // v10.13: Multi-tool parallel execution
                 if (decision.IsMultiCall)
                  {
-                    _logger.Info("Orchestrator", $"Multi-tool call: {decision.ToolCallCount} tools");
+                    _logger?.Info("Orchestrator", $"Multi-tool call: {decision.ToolCallCount} tools");
                     _out?.WriteInfo($"Multi-tool call: {decision.ToolCallCount} tools — analyzing dependencies...");
 
                      // Create parallel executor
@@ -260,7 +260,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                          _out?.WriteSuccess($"Batch: {consoleSummary}");
                     else
                          _out?.WriteWarning($"Batch: {consoleSummary}");
-                    _logger.Info("Orchestrator", $"Batch result: {consoleSummary}");
+                    _logger?.Info("Orchestrator", $"Batch result: {consoleSummary}");
 
                      // Combine all results into one output block for the LLM
                     var combinedOutput = ParallelToolExecutor.CombineResults(batchResult);
@@ -335,7 +335,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                  }
 
                  // ── Single tool call (original path) ──
-                _logger.Info("Orchestrator", $"Tool call: {decision.ToolName}");
+                _logger?.Info("Orchestrator", $"Tool call: {decision.ToolName}");
 
                 var argsDict = decision.Args;
 
@@ -379,14 +379,14 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                                 Status = OrchestratorStatus.GoalAchieved
                              };
                          }
-                        var result = await ExecuteTool(decision.ToolName, argsDict);
+                        var result = await ExecuteTool(decision.ToolName!, argsDict);
                         var elapsedMs = (long)((DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond) - startMs);
 
                             if (result.Succeeded)
                                  _out?.WriteSuccess($"[Tool] {decision.ToolName}: OK ({elapsedMs}ms)");
                             else
                                  _out?.WriteError($"[Tool] {decision.ToolName}: FAIL ({elapsedMs}ms)");
-                            _logger.Info("Orchestrator", $"Tool: {decision.ToolName} = {(result.Succeeded ? "SUCCESS" : "FAILURE")} ({elapsedMs}ms)");
+                            _logger?.Info("Orchestrator", $"Tool: {decision.ToolName} = {(result.Succeeded ? "SUCCESS" : "FAILURE")} ({elapsedMs}ms)");
 
                         if (result.Succeeded)
                                  {
@@ -488,7 +488,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                  _formatRetries++;
                 if (_formatRetries <= MaxFormatRetries)
                  {
-                    _logger.Warn("Orchestrator", $"No tags (attempt {_formatRetries}/{MaxFormatRetries}). Removing bad response, retrying.");
+                    _logger?.Warn("Orchestrator", $"No tags (attempt {_formatRetries}/{MaxFormatRetries}). Removing bad response, retrying.");
 
                      // Remove the bad assistant response from history so model doesn't learn from it
                     await _engine.RemoveLastAssistantResponseAsync();
@@ -505,7 +505,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                  }
                 else
                  {
-                    _logger.Error("Orchestrator", $"No tags after {MaxFormatRetries} retries. Stopping.");
+                    _logger?.Error("Orchestrator", $"No tags after {MaxFormatRetries} retries. Stopping.");
                     return new OrchestratorResult
                              {
                             FinalOutput = $"Invalid response after {MaxFormatRetries} retries. The model did not use required tags.\nLast response:\n{llmResponse}",
@@ -662,7 +662,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
         if (tool == null)
             throw new InvalidOperationException($"Unknown tool: {toolName}");
 
-        _logger.Debug("Orchestrator", $"Executing: {tool.Name}");
+        _logger?.Debug("Orchestrator", $"Executing: {tool.Name}");
          // v10.9.3: Pass execution cancellation token to tool
         return await tool.ExecuteAsync(args, _engine.ExecutionToken);
               }

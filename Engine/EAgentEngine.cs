@@ -400,7 +400,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                        NativeLibraryConfig.All.WithLogCallback(delegate (LLamaLogLevel level, string message)
                         {
                          if (level == LLamaLogLevel.Error)
-                            _logger.Error("LLAMA", $"[LLAMA ERROR] {message}");
+                            _logger?.Error("LLAMA", $"[LLAMA ERROR] {message}");
                         });
                    } catch { /* may already be loaded */ }
                }
@@ -424,18 +424,18 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
            }
 
            var sysInfo = SystemInfo.Get();
-          if (sysInfo.OSPlatform != null)
+          if (sysInfo.OSPlatform != default)
                 {
                 var cudaVer = sysInfo.CudaMajorVersion;
                   if (cudaVer == -1)
-                      _logger.Info("CUDA", "No CUDA detected — will run on CPU");
+                      _logger?.Info("CUDA", "No CUDA detected — will run on CPU");
                      else
-                        _logger.Info("CUDA", $"Detected: CUDA {cudaVer}");
+                        _logger?.Info("CUDA", $"Detected: CUDA {cudaVer}");
                         }
 
                // Report which GPU backends are available
            // v9.4: Suppress SystemInfo dump on startup
-           try { _logger.Debug("System", SystemInfo.Get().ToString()); } catch { }
+           try { _logger?.Debug("System", SystemInfo.Get().ToString()); } catch { }
 
               _contextSize = contextSize;
                _gpuLayers = gpuLayers;
@@ -513,12 +513,12 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                     }
               catch (Exception ex)
                    {
-                   _logger.Error("Context", $"Failed to load transcript: {ex.Message}");
+                   _logger?.Error("Context", $"Failed to load transcript: {ex.Message}");
                         }
                     }
 
              _out?.WriteInfo($"[Engine] Model loaded: {modelPath}");
-            _logger.Info("Engine", $"Model loaded: {modelPath} | Context: {contextSize} | GPU: {gpuLayers} | Threads: {threadCount}");
+            _logger?.Info("Engine", $"Model loaded: {modelPath} | Context: {contextSize} | GPU: {gpuLayers} | Threads: {threadCount}");
               _out?.WriteInfo($"[Config] ContextSize: {contextSize} tokens | GPU Layers: {_gpuLayers}");
 
            // Load memory and show how many entries are active
@@ -556,13 +556,13 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                       }
                     else
                          {
-                           _logger.Warn("Engine", "No system prompt file found — using empty system prompt.");
+                           _logger?.Warn("Engine", "No system prompt file found — using empty system prompt.");
                               _systemPromptText = "";
                             }
                           }
              catch (Exception ex)
                   {
-                       _logger.Warn("Engine", $"Failed to load system prompt: {ex.Message}");
+                       _logger?.Warn("Engine", $"Failed to load system prompt: {ex.Message}");
                     _systemPromptText = "";
                     }
 
@@ -616,7 +616,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
         {
             // The anti-prompts will stop generation after the static prefix.
             // We just need the prefill to happen — any generated tokens are discarded.
-            await foreach (var token in _executor.InferAsync(_cachedStaticPrefix, _inferenceParams, cts.Token))
+            await foreach (var token in _executor!.InferAsync(_cachedStaticPrefix, _inferenceParams, cts.Token))
             {
                 sb.Append(token);
                 // Stop early if the model tries to generate content (we just want prefill)
@@ -765,7 +765,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                if (histTokens <= historyBudget) break;
                windowMessages.RemoveAt(0); // remove oldest
            }
-           _logger.Debug("Context", $"Prompt budget: system={systemTokens}, memory={memoryTokens}, history_budget={historyBudget}, msgs={windowMessages.Count}");
+           _logger?.Debug("Context", $"Prompt budget: system={systemTokens}, memory={memoryTokens}, history_budget={historyBudget}, msgs={windowMessages.Count}");
 
              // ── Step 4: Build the final prompt text ────────────────
              var sb = new StringBuilder();
@@ -1047,7 +1047,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
          {
              try
              {
-                 _executor.LoadState(_savedStateBeforeGen);
+                 await _executor!.LoadState(_savedStateBeforeGen);
                  rewindOK = true;
                  _consecutiveRewindFailures = 0;  // reset on success
                _out?.WriteInfo("[KVCache] Rewound to pre-generation state (format retry, fast path).");
@@ -1055,7 +1055,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
              catch (Exception ex)
              {
                  _consecutiveRewindFailures++;
-                 _logger.Warn("KVCache", $"LoadState rewind failed (attempt {_consecutiveRewindFailures}/{MaxRewindFailures}): {ex.Message}");
+                 _logger?.Warn("KVCache", $"LoadState rewind failed (attempt {_consecutiveRewindFailures}/{MaxRewindFailures}): {ex.Message}");
              }
          }
 
@@ -1104,7 +1104,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                      try
                      {
                          using var feedCts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-                         await foreach (var _ in _executor.InferAsync(historySb.ToString(), _inferenceParams, feedCts.Token))
+                         await foreach (var _ in _executor!.InferAsync(historySb.ToString(), _inferenceParams, feedCts.Token))
                              break; // Just prefill, do not generate
                      }
                      catch (OperationCanceledException)
@@ -1218,7 +1218,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                 _contextWindow.AddUserMessage(userPrompt);
             }
 
-             _logger.Debug("Context", $"Turn {_turnCount} | Budget: {_contextWindow.GetTotalTokens()}/{_contextWindow.MaxTokens} tokens");
+             _logger?.Debug("Context", $"Turn {_turnCount} | Budget: {_contextWindow.GetTotalTokens()}/{_contextWindow.MaxTokens} tokens");
 
             // v10.8: KV cache overflow handling — if context is >80% full, rebuild cache
             // with summarized conversation to prevent garbage/crashes on long sessions
@@ -1285,13 +1285,13 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
 
             try
               {
-              _logger.Debug("Engine", $"Incremental input: {incrementalInput.Length} chars, Turn: {_turnCount}");
+              _logger?.Debug("Engine", $"Incremental input: {incrementalInput.Length} chars, Turn: {_turnCount}");
               
               // v10.5: Dump incremental input to debug file
               var promptDumpPath = Path.Combine(_workingDir, "last_prompt.txt");
               try { File.WriteAllText(promptDumpPath, $"=== INCREMENTAL INPUT (Turn {_turnCount}) ===\n{incrementalInput}\n\n=== STATIC PREFIX (cached) ===\n{_cachedStaticPrefix ?? "(not prefilled)"}"); } catch { }
               
-              if (_logger.IsDebugEnabled)
+              if (_logger?.IsDebugEnabled == true)
               {
                    _out?.WriteInfo($"[IncrementalInput] Turn {_turnCount} — {incrementalInput.Length} chars");
                   _out?.WriteDim(new string('=', 60));
@@ -1302,7 +1302,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
               var sb = new StringBuilder();
 
               // v10.8: Save KV cache state before generation for format retry rewind
-              try { _savedStateBeforeGen = _executor.GetStateData(); }
+              try { _savedStateBeforeGen = _executor?.GetStateData(); }
               catch { /* if save fails, rewind won't work but generation continues */ }
 
              using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
@@ -1316,7 +1316,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                     _out?.WriteLine($"── Token Stream (Turn {_turnCount}) ── [ESC to stop] ──", OutputState.Bold);
                     _out?.StartStream(OutputState.Raw);
                     var tokenCount = 0;
-                    await foreach (var token in _executor.InferAsync(incrementalInput, _inferenceParams, cts.Token))
+                    await foreach (var token in _executor!.InferAsync(incrementalInput, _inferenceParams, cts.Token))
                          {
                           // ESC / cancellation: stop the stream and bail
                           if (ExecutionToken.IsCancellationRequested)
@@ -1380,12 +1380,12 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                      {
                          try
                          {
-                             _executor.LoadState(_savedStateBeforeGen);
+                             await _executor!.LoadState(_savedStateBeforeGen);
                              _out?.WriteInfo("[KVCache] Rewound to pre-generation state (stopped).");
                          }
                          catch (Exception ex)
                          {
-                             _logger.Warn("KVCache", $"Failed to rewind after stop: {ex.Message}");
+                             _logger?.Warn("KVCache", $"Failed to rewind after stop: {ex.Message}");
                          }
                      }
                      return "(Stopped by user)";
@@ -1398,7 +1398,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                            }
 
                  _out?.BlankLine();
-                  _logger.Info("Engine", $"Response: {cleanResponse.Length} chars");
+                  _logger?.Info("Engine", $"Response: {cleanResponse.Length} chars");
                   return cleanResponse;
                     }
               catch (Exception ex)
@@ -1426,13 +1426,13 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
          {
              // Extract content between <lm> and </lm>
              content = raw.Substring(llmStart + 4, llmEnd - llmStart - 4).Trim();  // <lm> is 4 chars
-             _logger.Debug("Extract", $"Extracted from <lm> container: {content.Length} chars (noise stripped: {raw.Length - content.Length - 9} chars)");  // <lm>+</lm> = 9 chars
+             _logger?.Debug("Extract", $"Extracted from <lm> container: {content.Length} chars (noise stripped: {raw.Length - content.Length - 9} chars)");  // <lm>+</lm> = 9 chars
          }
          else if (llmStart >= 0 && llmEnd < 0)
          {
              // <lm> opened but never closed — take everything after <lm>
              content = raw.Substring(llmStart + 4).Trim();  // <lm> is 4 chars
-             _logger.Debug("Extract", $"<lm> opened but not closed — taking rest: {content.Length} chars");
+             _logger?.Debug("Extract", $"<lm> opened but not closed — taking rest: {content.Length} chars");
          }
          else
          {
@@ -1446,13 +1446,13 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                  // Also try to strip a malformed closing tag
                  var closeRegex = new System.Text.RegularExpressions.Regex(@"</?l?m[^>]*>?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                  content = closeRegex.Replace(content, "").Trim();
-                 _logger.Debug("Extract", $"Fallback regex found malformed <lm> tag at {lmMatch.Index}: extracted {content.Length} chars");
+                 _logger?.Debug("Extract", $"Fallback regex found malformed <lm> tag at {lmMatch.Index}: extracted {content.Length} chars");
              }
              else
              {
                  // No <lm> container — fall back to raw (format retry / backwards compat)
                  content = raw.Trim();
-                 _logger.Debug("Extract", $"No <lm> container found — using raw: {content.Length} chars");
+                 _logger?.Debug("Extract", $"No <lm> container found — using raw: {content.Length} chars");
              }
          }
 
@@ -1460,7 +1460,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
          // The model can batch multiple toolcalls in one response for parallel execution.
          // We preserve the <lm> inner content structure for the orchestrator to parse.
 
-         _logger.Debug("Extract", $"Content length: {content.Length}");
+         _logger?.Debug("Extract", $"Content length: {content.Length}");
 
          // Find the first <thinking> block
          var thinkStart = content.IndexOf("<thinking>", StringComparison.OrdinalIgnoreCase);
@@ -1524,7 +1524,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                  var blockContent = content.Substring(tcS, tcE - tcS).Trim();
                  sb.AppendLine(blockContent);
              }
-             _logger.Debug("Extract", $"Extracted {toolcallBlocks.Count} <toolcall> blocks");
+             _logger?.Debug("Extract", $"Extracted {toolcallBlocks.Count} <toolcall> blocks");
          }
          else if (outputStart >= 0)
          {
@@ -1539,7 +1539,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
          }
 
          var result = sb.ToString().Trim();
-         _logger.Debug("Extract", $"Output: {result.Length} chars, starts with: {StringUtil.Truncate(result, 80)}");
+         _logger?.Debug("Extract", $"Output: {result.Length} chars, starts with: {StringUtil.Truncate(result, 80)}");
          return result;
            }
 

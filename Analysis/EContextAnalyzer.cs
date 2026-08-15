@@ -84,7 +84,7 @@ public class EContextAnalyzer : IDisposable
                     LastModified = info.LastWriteTime
                 });
             }
-            catch (Exception ex)
+            catch (Exception)
             {
             }
         }

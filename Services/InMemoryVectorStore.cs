@@ -28,7 +28,7 @@ public class InMemoryVectorStore : IVectorStore
 
             foreach (var entry in _entries)
             {
-                var score = CosineSimilarity(embedding, entry.Embedding);
+                var score = entry.Embedding != null ? CosineSimilarity(embedding, entry.Embedding) : 0f;
                 results.Add(new VectorResult(entry.Content, entry.Metadata, score));
             }
 
@@ -54,5 +54,5 @@ public class InMemoryVectorStore : IVectorStore
         return dot / (MathF.Sqrt(magA) * MathF.Sqrt(magB));
     }
 
-    private record VectorEntry(string Content, string Metadata, float[] Embedding = null);
+    private record VectorEntry(string Content, string Metadata, float[]? Embedding = null);
 }

@@ -66,7 +66,7 @@ public class EMemoryManager : IDisposable
                     _entryCounter++;
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
             }
         }
@@ -92,7 +92,7 @@ public class EMemoryManager : IDisposable
                     };
                 File.WriteAllText(filePath, JsonSerializer.Serialize(entry, options));
             }
-            catch (Exception ex)
+            catch (Exception)
             {
             }
         }

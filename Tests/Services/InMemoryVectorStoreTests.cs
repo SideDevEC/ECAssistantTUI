@@ -43,13 +43,12 @@ public class InMemoryVectorStoreTests
     }
 
     [Fact]
-    public async Task SearchAsync_AfterIndex_ThrowsNullReferenceException()
+    public async Task SearchAsync_AfterIndex_NullEmbedding_ReturnsZeroScore()
     {
-        // The InMemoryVectorStore stores entries with null Embedding by default,
-        // so SearchAsync will throw NRE when trying to compute CosineSimilarity
+        // Entries with null Embedding get a score of 0 (no exception)
         await _store.IndexAsync("content", "meta");
-        await Assert.ThrowsAsync<NullReferenceException>(
-            () => _store.SearchAsync(new float[] { 1f }, 5));
+        var results = await _store.SearchAsync(new float[] { 1f }, 5);
+        Assert.NotNull(results);
     }
 
     [Fact]

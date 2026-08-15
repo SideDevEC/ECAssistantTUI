@@ -402,7 +402,7 @@ public sealed class SubAgentManager : IDisposable
 
             return result;
         }
-        catch (OperationCanceledException ex)
+        catch (OperationCanceledException)
         {
             childEngine?.EndExecution();
             var isMainCancel = _mainEngine.ExecutionToken.IsCancellationRequested;

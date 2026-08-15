@@ -29,7 +29,7 @@ public class ConfigLoader
                 if (config != null) return config;
             }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             // Silently fall back to defaults — callers handle null/missing config
         }

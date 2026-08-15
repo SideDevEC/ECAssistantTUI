@@ -507,7 +507,10 @@ public class Program
                             if (s != newActive) if (_activeUi != null) s.RemoveListener(_activeUi);
                         var ui = new ConsoleUiRenderer(Gui, _color); _activeUi = ui;
                         newActive.AddListener(ui);
-                        Gui.BlankLine();
+                        // Clear screen and render the new session's output history
+                        Gui.ClearCanvas();
+                        var history = newActive.ReadOutputHistory();
+                        if (_activeUi != null) _activeUi.RenderHistory(history);
                         Gui.WriteLineColored(_color.Green + _color.Bold + "[Session] " + $"Switched to [{newActive.Key}] {newActive.GetStatusSummary()}" + _color.Reset);
                         Gui.BlankLine();
                     }
@@ -520,7 +523,10 @@ public class Program
                         if (s != newActive) if (_activeUi != null) s.RemoveListener(_activeUi);
                     var ui = new ConsoleUiRenderer(Gui, _color); _activeUi = ui;
                     newActive.AddListener(ui);
-                    Gui.BlankLine();
+                    // Clear screen and render the new session's output history
+                    Gui.ClearCanvas();
+                    var history = newActive.ReadOutputHistory();
+                    if (_activeUi != null) _activeUi.RenderHistory(history);
                     Gui.WriteLineColored(_color.Green + _color.Bold + "[Session] " + $"Switched to [{newActive.Key}]" + _color.Reset);
                     Gui.BlankLine();
                 }

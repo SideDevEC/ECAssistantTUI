@@ -5,22 +5,22 @@ namespace ECAssistant.UI;
 /// <summary>
 /// Console-based EGuiBase.
 ///
-/// Approach: no ANSI scroll region (unreliable across terminals).
-/// Instead: the input line is always at the bottom. When output arrives:
-/// 1. Clear the current input line
-/// 2. Move cursor up one line
-/// 3. Write the output (scrolls normally)
-/// 4. Move to bottom, reprint "> " + whatever user had typed
+/// The "> " prompt is ALWAYS visible. When output arrives while the
+/// user is typing, we clear the input line, move up, write the output,
+/// then reprint "> " + whatever the user had typed so far.
 ///
-/// This is the same pattern tmux, screen, and other TUIs use when they
-/// can't rely on scroll regions.
+/// After the user submits (Enter), the typed text scrolls up as output
+/// and "> " immediately reappears for the next input.
 /// </summary>
 public sealed class EGuiConsole : EGuiBase
 {
     private bool _ansiSupported;
     private readonly object _writeLock = new();
     private readonly StringBuilder _inputBuffer = new();
-    private string _inputPrompt = "> ";
+
+    // The prompt is always "> " — stored without ANSI codes so reprint is clean
+    private const string PromptStr = "> ";
+    private string _inputPrompt = PromptStr;
     private bool _inputActive;
     private volatile bool _escPressed;
     private Action? _onEscape;
@@ -84,13 +84,25 @@ public sealed class EGuiConsole : EGuiBase
     // ═══════════════════════════════════════════════════
 
     /// <summary>
-    /// Write output. If user is typing (input active), we:
-    /// 1. Clear the input line
-    /// 2. Move up one line so output appears ABOVE the input
-    /// 3. Write the output (normal scroll)
-    /// 4. On a fresh line, reprint "> " + user's partial input
+    /// Reprint the prompt + current input buffer on the current line.
+    /// Caller must hold _writeLock.
+    /// </summary>
+    private void ReprintInput()
+    {
+        Console.Write("\r\x1b[2K");  // clear line
+        Console.Write(_inputPrompt);
+        Console.Write(_inputBuffer.ToString());
+    }
+
+    /// <summary>
+    /// Write output. If user is typing (input active):
+    /// 1. Clear input line
+    /// 2. Move up one line, newline to make room
+    /// 3. Write the output (scrolls up)
+    /// 4. Reprint "> " + partial input on the new bottom line
     ///
-    /// If user is NOT typing, just write normally.
+    /// If not typing, just write normally. The "> " is always reprinted
+    /// after output in case it got scrolled away.
     /// </summary>
     private void WriteOutput(string text)
     {
@@ -104,21 +116,19 @@ public sealed class EGuiConsole : EGuiBase
         {
             if (_inputActive)
             {
-                // We're on the input line. Clear it, move up, write output, reprint input.
+                // Clear input line, move up, make room, write output, reprint input
                 Console.Write("\r\x1b[2K");       // clear current line
                 Console.Write("\x1b[A");            // move up one line
-                Console.Write("\n");                // newline (creates space below for our output)
+                Console.Write("\n");                // newline — now we're on a fresh line
                 Console.Write(text);                // write the output
-                // Ensure output ends with a newline so we get a fresh line for input
                 if (!text.EndsWith("\n"))
                     Console.Write("\n");
-                // Reprint prompt + partial input on the new bottom line
-                Console.Write(_inputPrompt);
-                Console.Write(_inputBuffer.ToString());
+                // Reprint prompt + partial input
+                ReprintInput();
             }
             else
             {
-                // No input active — just write
+                // Not typing — just write output
                 Console.Write(text);
             }
         }
@@ -142,12 +152,14 @@ public sealed class EGuiConsole : EGuiBase
 
     private string? ReadInputLine(string prompt)
     {
-        _inputPrompt = prompt;
+        // Strip ANSI codes from prompt for internal storage — we reprint it ourselves
+        _inputPrompt = StripAnsi(prompt);
         _inputBuffer.Clear();
 
         lock (_writeLock)
         {
-            Console.Write(prompt);
+            // Show the prompt
+            ReprintInput();
             _inputActive = true;
         }
 
@@ -172,7 +184,19 @@ public sealed class EGuiConsole : EGuiBase
                     var result = _inputBuffer.ToString();
                     _inputBuffer.Clear();
                     _inputActive = false;
-                    Console.WriteLine();
+
+                    // Move the typed text up into the scroll area as a log line
+                    Console.Write("\r\x1b[2K");     // clear current line
+                    Console.Write(_inputPrompt);     // write prompt + input as output
+                    Console.Write(result);
+                    Console.Write("\n");             // newline — scrolls up
+
+                    // Immediately reprint fresh "> " for next input
+                    _inputPrompt = PromptStr;
+                    _inputBuffer.Clear();
+                    ReprintInput();
+                    _inputActive = true;
+
                     return result;
                 }
                 else if (key.Key == ConsoleKey.Backspace)
@@ -187,14 +211,11 @@ public sealed class EGuiConsole : EGuiBase
                 {
                     if (_inputBuffer.Length > 0)
                     {
-                        // Clear input buffer, keep prompt
                         _inputBuffer.Clear();
-                        Console.Write("\r\x1b[2K");
-                        Console.Write(_inputPrompt);
+                        ReprintInput();
                     }
                     else
                     {
-                        // Empty input + ESC = stop session
                         _escPressed = true;
                         _onEscape?.Invoke();
                     }
@@ -206,6 +227,31 @@ public sealed class EGuiConsole : EGuiBase
                 }
             }
         }
+    }
+
+    /// <summary>Strip ANSI escape sequences from a string.</summary>
+    private static string StripAnsi(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        var sb = new StringBuilder();
+        var i = 0;
+        while (i < text.Length)
+        {
+            if (text[i] == '\x1b' && i + 1 < text.Length && text[i + 1] == '[')
+            {
+                // Skip ANSI escape sequence: ESC [ ... letter
+                i += 2;
+                while (i < text.Length && !char.IsLetter(text[i]))
+                    i++;
+                i++; // skip the final letter
+            }
+            else
+            {
+                sb.Append(text[i]);
+                i++;
+            }
+        }
+        return sb.ToString();
     }
 
     public override bool IsEscapePressed()

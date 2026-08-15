@@ -3,7 +3,9 @@ using ECAssistant.UI;
 namespace ECAssistant.Session;
 
 /// <summary>
-/// Animated loading indicator — part of the UI layer, uses EColor directly.
+/// Animated loading indicator — uses the status bar in the TUI layout.
+/// Writes "Loading model weights..." etc. to the status bar row.
+/// When stopped, clears the status bar.
 /// </summary>
 public class LoadingIndicator : IDisposable
 {
@@ -36,7 +38,9 @@ public class LoadingIndicator : IDisposable
         _running = false;
         _timer?.Dispose();
         _timer = null;
-        _gui.WriteRawDirect("\r" + new string(' ', Console.WindowWidth > 0 ? Console.WindowWidth - 1 : 80) + "\r");
+        // Clear the status bar
+        if (_gui is EGuiConsole console)
+            console.SetStatusBar("");
     }
 
     private void OnTick(object? state)
@@ -49,8 +53,9 @@ public class LoadingIndicator : IDisposable
     {
         _dotCount = (_dotCount + 1) % 4;
         var dots = new string('.', _dotCount);
-        var line = $"\r{_color.Cyan}{_label}{_color.Reset} {_color.Dim}{dots}  {_color.Reset}";
-        _gui.WriteRawDirect(line);
+        var line = $"{_color.Cyan}{_label}{_color.Reset} {_color.Dim}{dots}  {_color.Reset}";
+        if (_gui is EGuiConsole console)
+            console.SetStatusBar(line);
     }
 
     public void Dispose() => Stop();

@@ -14,6 +14,12 @@ namespace ECAssistant.UI;
 ///
 /// Thread safety: all console writes go through _writeLock.
 /// Input is read on the main thread; output comes from session background threads.
+///
+/// Key principle: there is only ONE way to write to the console — through the
+/// locked RedrawPrompt / WriteOutput methods. Individual keystrokes are NEVER
+/// written directly to the console (no Console.Write(key.KeyChar)). Instead,
+/// each keystroke updates the buffer and triggers a full prompt line redraw.
+/// This eliminates race conditions between input echo and output streaming.
 /// </summary>
 public sealed class EGuiConsole : EGuiBase
 {
@@ -24,7 +30,6 @@ public sealed class EGuiConsole : EGuiBase
     private volatile bool _escPressed;
     private Action? _onEscape;
 
-    // ── Prompt state ──
     // _promptActive = true once ReadInputLine is first called, stays true forever.
     // This ensures WriteOutput always reprints the prompt after writing output.
     private volatile bool _promptActive;
@@ -80,6 +85,22 @@ public sealed class EGuiConsole : EGuiBase
     }
 
     // ═══════════════════════════════════════════════════
+    //  PROMPT REDRAW — the only way to render the input line
+    // ═══════════════════════════════════════════════════
+
+    /// <summary>
+    /// Redraw the prompt line: clear current line, write "> " + buffer.
+    /// Must be called inside _writeLock.
+    /// </summary>
+    private void RedrawPrompt()
+    {
+        Console.Write("\r\x1b[2K");
+        Console.Write(PromptStr);
+        Console.Write(_inputBuffer.ToString());
+        Console.Out.Flush();
+    }
+
+    // ═══════════════════════════════════════════════════
     //  OUTPUT — writes above the prompt line
     // ═══════════════════════════════════════════════════
 
@@ -87,7 +108,7 @@ public sealed class EGuiConsole : EGuiBase
     /// Write output above the prompt line, then reprint "> " + input buffer.
     ///
     /// If prompt is active:
-    ///   1. Save cursor, move to start of line, clear it (clears "> " + partial input)
+    ///   1. Clear current line (clears "> " + partial input)
     ///   2. Write the output text (scrolls up into scrollback)
     ///   3. Ensure output ends with newline
     ///   4. Reprint "> " + current input buffer on the new line
@@ -98,7 +119,6 @@ public sealed class EGuiConsole : EGuiBase
     {
         if (!_ansiSupported)
         {
-            // No ANSI — just write. Prompt management not possible without cursor control.
             lock (_writeLock) { Console.Write(text); Console.Out.Flush(); }
             return;
         }
@@ -123,9 +143,7 @@ public sealed class EGuiConsole : EGuiBase
                 Console.Write("\n");
 
             // Reprint "> " + current input buffer
-            Console.Write(PromptStr);
-            Console.Write(_inputBuffer.ToString());
-            Console.Out.Flush();
+            RedrawPrompt();
         }
     }
 
@@ -152,22 +170,20 @@ public sealed class EGuiConsole : EGuiBase
     /// background sessions may arrive — WriteOutput will preserve the input
     /// buffer and reprint it after writing output.
     ///
-    /// This method blocks the calling thread until Enter is pressed.
-    /// It uses Console.KeyAvailable polling (10ms) to avoid blocking on input.
+    /// Key principle: keystrokes are NEVER echoed directly to the console.
+    /// Each keystroke updates _inputBuffer and calls RedrawPrompt(), which
+    /// clears the line and rewrites "> " + buffer. This ensures the prompt
+    /// is always in the correct position, even if output arrived between
+    /// keystrokes and scrolled the previous prompt line up.
     /// </summary>
     private string? ReadInputLine()
     {
-        // Clear buffer for new input
         _inputBuffer.Clear();
 
         lock (_writeLock)
         {
             _promptActive = true;
-
-            // Always start fresh: clear line and write prompt
-            Console.Write("\r\x1b[2K");
-            Console.Write(PromptStr);
-            Console.Out.Flush();
+            RedrawPrompt();
         }
 
         while (true)
@@ -184,8 +200,6 @@ public sealed class EGuiConsole : EGuiBase
             }
             catch (InvalidOperationException)
             {
-                // Console not interactive — fall back to ReadLine
-
                 return Console.ReadLine();
             }
 
@@ -201,12 +215,11 @@ public sealed class EGuiConsole : EGuiBase
                     Console.Write(PromptStr);
                     Console.Write(result);
                     Console.Write("\n");
-
-                    // Immediately reprint "> " for next input
-                    Console.Write(PromptStr);
                     Console.Out.Flush();
 
-                    // Buffer is empty but prompt stays active for next ReadInputLine call
+                    // Reprint "> " for next input
+                    RedrawPrompt();
+
                     return result;
                 }
                 else if (key.Key == ConsoleKey.Backspace)
@@ -214,40 +227,31 @@ public sealed class EGuiConsole : EGuiBase
                     if (_inputBuffer.Length > 0)
                     {
                         _inputBuffer.Remove(_inputBuffer.Length - 1, 1);
-                        // Redraw the prompt line
-                        Console.Write("\r\x1b[2K");
-                        Console.Write(PromptStr);
-                        Console.Write(_inputBuffer.ToString());
-                        Console.Out.Flush();
+                        RedrawPrompt();
                     }
                 }
                 else if (key.Key == ConsoleKey.Escape)
                 {
                     if (_inputBuffer.Length > 0)
                     {
-                        // Clear input buffer
                         _inputBuffer.Clear();
-                        Console.Write("\r\x1b[2K");
-                        Console.Write(PromptStr);
-                        Console.Out.Flush();
+                        RedrawPrompt();
                     }
                     else
                     {
-                        // No input — ESC stops the running session
                         _escPressed = true;
                         _onEscape?.Invoke();
                     }
                 }
                 else if (key.Key == ConsoleKey.Tab)
                 {
-                    // Insert 4 spaces (basic tab handling)
                     _inputBuffer.Append("    ");
-                    Console.Write("    ");
+                    RedrawPrompt();
                 }
                 else if (key.KeyChar != '\0' && !char.IsControl(key.KeyChar))
                 {
                     _inputBuffer.Append(key.KeyChar);
-                    Console.Write(key.KeyChar);
+                    RedrawPrompt();
                 }
             }
         }

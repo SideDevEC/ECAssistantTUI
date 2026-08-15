@@ -73,6 +73,13 @@ public class EWebFetchTool : ITool
         if (string.IsNullOrWhiteSpace(input))
             return result;
 
+        // XML tag format from ToolAdapter: <url>...</url>
+        var xmlMatches = Regex.Matches(input, @"<(\w+)>(.*?)</\1>");
+        foreach (Match m in xmlMatches)
+            result[m.Groups[1].Value] = m.Groups[2].Value;
+
+        if (result.Count > 0) return result;
+
         // Try key=value or key="value" format
         var matches = Regex.Matches(input, @"(\w+)\s*=\s*""([^""]*)""|(\w+)\s*=\s*(\S+)");
         foreach (Match match in matches)

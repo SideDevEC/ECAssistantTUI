@@ -133,6 +133,13 @@ public class EWebSearchTool : ITool
         if (string.IsNullOrWhiteSpace(input))
             return result;
 
+        // XML tag format from ToolAdapter: <query>...</query>
+        var xmlMatches = System.Text.RegularExpressions.Regex.Matches(input, @"<(\w+)>(.*?)</\1>");
+        foreach (System.Text.RegularExpressions.Match m in xmlMatches)
+            result[m.Groups[1].Value] = m.Groups[2].Value;
+
+        if (result.Count > 0) return result;
+
         var matches = System.Text.RegularExpressions.Regex.Matches(input, @"(\w+)\s*=\s*""([^""]*)""|(\w+)\s*=\s*(\S+)");
         foreach (System.Text.RegularExpressions.Match match in matches)
         {

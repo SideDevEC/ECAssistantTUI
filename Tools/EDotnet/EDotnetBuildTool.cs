@@ -34,11 +34,12 @@ public class EDotnetBuildTool : ITool
             var args = ParseInput(input);
             action = args.GetValueOrDefault("action")?.Trim().ToLower() ?? "build";
             projectPath = args.GetValueOrDefault("projectPath")?.Trim() ?? args.GetValueOrDefault("project")?.Trim() ?? "";
-            // Fallback: raw input without key=value format
-            if (string.IsNullOrEmpty(action) || action == "build")
+
+            // Fallback: raw input without key=value or XML format (pipe-separated)
+            if (args.Count == 0)
             {
                 var parts = input.Split('|');
-                if (parts.Length > 0 && !string.IsNullOrWhiteSpace(parts[0]) && !parts[0].Contains('='))
+                if (parts.Length > 0 && !string.IsNullOrWhiteSpace(parts[0]))
                     action = parts[0].Trim().ToLower();
                 if (parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[1]))
                     projectPath = parts[1].Trim();

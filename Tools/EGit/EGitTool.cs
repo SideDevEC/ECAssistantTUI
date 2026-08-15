@@ -88,6 +88,14 @@ public class EGitTool : ITool
         catch
         {
             var dict = new Dictionary<string, string>();
+
+            // XML tag format from ToolAdapter: <action>status</action>
+            var xmlMatches = System.Text.RegularExpressions.Regex.Matches(input, @"<(\w+)>(.*?)</\1>");
+            foreach (System.Text.RegularExpressions.Match m in xmlMatches)
+                dict[m.Groups[1].Value] = m.Groups[2].Value;
+
+            if (dict.Count > 0) return dict;
+
             var pairs = input.Split('&');
             foreach (var pair in pairs)
             {

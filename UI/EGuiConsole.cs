@@ -72,6 +72,12 @@ public sealed class EGuiConsole : EGuiBase
     private int _lastWidth;
     private int _lastHeight;
 
+    // ── Layer stack ──
+    // When non-empty, the top layer owns the screen.
+    // Output/input go to the layer instead of the normal session view.
+    private readonly Stack<IGuiLayer> _layerStack = new();
+    private bool _inLayerMode => _layerStack.Count > 0;
+
     // ═══════════════════════════════════════════════════
     //  INIT / SHUTDOWN
     // ═══════════════════════════════════════════════════
@@ -260,9 +266,14 @@ public sealed class EGuiConsole : EGuiBase
                 lock (_writeLock)
                 {
                     UpdateDimensions();
-                    _fullRepaint = true;
-                    Repaint();
-                    PositionCursorAtInput();
+                    if (_inLayerMode)
+                        _layerStack.Peek().OnResize(this);
+                    else
+                    {
+                        _fullRepaint = true;
+                        Repaint();
+                        PositionCursorAtInput();
+                    }
                     Console.Out.Flush();
                 }
             }
@@ -561,9 +572,13 @@ public sealed class EGuiConsole : EGuiBase
         {
             if (CheckResize()) _fullRepaint = true;
             AddOutputLine(text);
-            UpdateScrollStatus();
-            Repaint();
-            PositionCursorAtInput();
+            // Only repaint session view if no layer is active
+            if (!_inLayerMode)
+            {
+                UpdateScrollStatus();
+                Repaint();
+                PositionCursorAtInput();
+            }
             Console.Out.Flush();
         }
     }
@@ -652,6 +667,84 @@ public sealed class EGuiConsole : EGuiBase
             }
         }
     }
+
+    // ════════════════════════════════════════════════════════
+    //  LAYER STACK
+    // ════════════════════════════════════════════════════════
+
+    /// <summary>Push a new layer onto the view stack. The layer takes over the screen.</summary>
+    public void PushLayer(IGuiLayer layer)
+    {
+        if (!_ansiSupported) return;
+        lock (_writeLock)
+        {
+            _layerStack.Push(layer);
+            layer.OnActivate(this);
+            Console.Out.Flush();
+        }
+    }
+
+    /// <summary>Pop the current layer and restore the previous view.</summary>
+    public void PopLayer()
+    {
+        if (!_ansiSupported) return;
+        lock (_writeLock)
+        {
+            if (_layerStack.Count > 0)
+                _layerStack.Pop();
+
+            if (_layerStack.Count > 0)
+            {
+                _layerStack.Peek().OnActivate(this);
+            }
+            else
+            {
+                // Back to session view — full repaint
+                _fullRepaint = true;
+                Repaint();
+                PositionCursorAtInput();
+            }
+            Console.Out.Flush();
+        }
+    }
+
+    /// <summary>
+    /// Paint a full-screen content array for a layer.
+    /// Each string is one line, written top to bottom.
+    /// </summary>
+    public void PaintLayerScreen(string[] lines)
+    {
+        if (!_ansiSupported) return;
+
+        lock (_writeLock)
+        {
+            Console.Write("\x1b[2J");
+
+            int startRow = 0;
+            // Center vertically if content is shorter than screen
+            int contentHeight = lines.Length;
+            if (contentHeight < _screenHeight)
+                startRow = (_screenHeight - contentHeight) / 4; // near top, not dead center
+
+            for (int i = 0; i < lines.Length && i < _screenHeight; i++)
+            {
+                int row = startRow + i + 1;
+                string line = lines[i];
+                int visibleLen = StripAnsi(line).Length;
+                if (visibleLen > _screenWidth)
+                    line = TruncateAnsi(line, _screenWidth);
+                Console.Write($"\x1b[{row};1H{line}");
+            }
+
+            // Footer hint at bottom
+            Console.Write($"\x1b[{_screenHeight};1H\x1b[2K{_color_Dim}  Press any key to return{_color_Reset}");
+            Console.Out.Flush();
+        }
+    }
+
+    // ── ANSI color shortcuts for layer rendering ──
+    private static string _color_Dim => "\x1b[2m";
+    private static string _color_Reset => "\x1b[0m";
 
     // ════════════════════════════════════════════════════════
     //  CLEAR CANVAS
@@ -743,6 +836,23 @@ public sealed class EGuiConsole : EGuiBase
             {
                 // Fallback: old behavior for non-ANSI terminals
                 return ReadInputLineFallback(key);
+            }
+
+            // ── Layer mode: route keys to the active layer ──
+            if (_inLayerMode)
+            {
+                lock (_writeLock)
+                {
+                    var activeLayer = _layerStack.Peek();
+                    bool handled = activeLayer.OnKey(this, key);
+                    if (!handled)
+                    {
+                        // Layer requested pop
+                        PopLayer();
+                    }
+                    Console.Out.Flush();
+                }
+                continue; // don't return — keep reading input for next prompt
             }
 
             lock (_writeLock)

@@ -166,14 +166,18 @@ public sealed class EGuiConsole : EGuiBase
     }
 
     [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private static extern bool GetConsoleMode(IntPtr hConsoleHandle, out uint lpMode);
     [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private static extern bool SetConsoleMode(IntPtr hConsoleHandle, uint dwMode);
     [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private static extern IntPtr GetStdHandle(int nStdHandle);
     private const int STD_OUTPUT_HANDLE = -11;
     private const uint ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004;
 
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private void EnableWindowsAnsi()
     {
         if (!OperatingSystem.IsWindows()) return;

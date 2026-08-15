@@ -16,27 +16,27 @@ public class ConfigLoaderTests
     [Fact]
     public void Constructor_WithValidFileSystem_CreatesInstance()
     {
-        var loader = new ConfigLoader(new ECAssistant.Services.FileSystemAdapter());
+        var loader = new ConfigLoader(_mockFileSystem.Object);
         Assert.NotNull(loader);
     }
 
     [Fact]
     public void Constructor_WithFileSystemAndColor_CreatesInstance()
     {
-        var loader = new ConfigLoader(new ECAssistant.Services.FileSystemAdapter());
+        var loader = new ConfigLoader(_mockFileSystem.Object);
         Assert.NotNull(loader);
     }
 
     [Fact]
     public void Constructor_WithNullFileSystem_ThrowsArgumentNullException()
     {
-        Assert.Throws<ArgumentNullException>(() => new ConfigLoader(new ECAssistant.Services.FileSystemAdapter()));
+        Assert.Throws<ArgumentNullException>(() => new ConfigLoader(null!));
     }
 
     [Fact]
     public void Constructor_WithNullColorFormatter_CreatesInstance()
     {
-        var loader = new ConfigLoader(new ECAssistant.Services.FileSystemAdapter());
+        var loader = new ConfigLoader(_mockFileSystem.Object);
         Assert.NotNull(loader);
     }
 
@@ -47,7 +47,7 @@ public class ConfigLoaderTests
         _mockFileSystem.Setup(fs => fs.FileExists(It.IsAny<string>())).Returns(true);
         _mockFileSystem.Setup(fs => fs.ReadFile(It.IsAny<string>())).Returns(json);
 
-        var loader = new ConfigLoader(new ECAssistant.Services.FileSystemAdapter());
+        var loader = new ConfigLoader(_mockFileSystem.Object);
         var config = loader.Load("appsettings.json");
 
         Assert.NotNull(config);
@@ -60,7 +60,7 @@ public class ConfigLoaderTests
     {
         _mockFileSystem.Setup(fs => fs.FileExists(It.IsAny<string>())).Returns(false);
 
-        var loader = new ConfigLoader(new ECAssistant.Services.FileSystemAdapter());
+        var loader = new ConfigLoader(_mockFileSystem.Object);
         var config = loader.Load("nonexistent.json");
 
         Assert.NotNull(config);
@@ -73,7 +73,7 @@ public class ConfigLoaderTests
         _mockFileSystem.Setup(fs => fs.FileExists(It.IsAny<string>())).Returns(true);
         _mockFileSystem.Setup(fs => fs.ReadFile(It.IsAny<string>())).Returns("not valid json {{{");
 
-        var loader = new ConfigLoader(new ECAssistant.Services.FileSystemAdapter());
+        var loader = new ConfigLoader(_mockFileSystem.Object);
         var config = loader.Load("appsettings.json");
 
         Assert.NotNull(config);
@@ -86,7 +86,7 @@ public class ConfigLoaderTests
         _mockFileSystem.Setup(fs => fs.FileExists(It.IsAny<string>())).Returns(true);
         _mockFileSystem.Setup(fs => fs.ReadFile(It.IsAny<string>())).Returns("");
 
-        var loader = new ConfigLoader(new ECAssistant.Services.FileSystemAdapter());
+        var loader = new ConfigLoader(_mockFileSystem.Object);
         var config = loader.Load("appsettings.json");
 
         Assert.NotNull(config);
@@ -99,7 +99,7 @@ public class ConfigLoaderTests
         _mockFileSystem.Setup(fs => fs.FileExists(It.IsAny<string>())).Returns(true);
         _mockFileSystem.Setup(fs => fs.ReadFile(It.IsAny<string>())).Returns((string)null!);
 
-        var loader = new ConfigLoader(new ECAssistant.Services.FileSystemAdapter());
+        var loader = new ConfigLoader(_mockFileSystem.Object);
         var config = loader.Load("appsettings.json");
 
         Assert.NotNull(config);
@@ -111,7 +111,7 @@ public class ConfigLoaderTests
         _mockFileSystem.Setup(fs => fs.FileExists(It.IsAny<string>())).Returns(true);
         _mockFileSystem.Setup(fs => fs.ReadFile(It.IsAny<string>())).Returns("null");
 
-        var loader = new ConfigLoader(new ECAssistant.Services.FileSystemAdapter());
+        var loader = new ConfigLoader(_mockFileSystem.Object);
         var config = loader.Load("appsettings.json");
 
         Assert.NotNull(config);
@@ -123,7 +123,7 @@ public class ConfigLoaderTests
     {
         _mockFileSystem.Setup(fs => fs.FileExists("appsettings.json")).Returns(false);
 
-        var loader = new ConfigLoader(new ECAssistant.Services.FileSystemAdapter());
+        var loader = new ConfigLoader(_mockFileSystem.Object);
         loader.Load();
 
         _mockFileSystem.Verify(fs => fs.FileExists("appsettings.json"), Times.Once);
@@ -134,7 +134,7 @@ public class ConfigLoaderTests
     {
         _mockFileSystem.Setup(fs => fs.FileExists("custom.json")).Returns(false);
 
-        var loader = new ConfigLoader(new ECAssistant.Services.FileSystemAdapter());
+        var loader = new ConfigLoader(_mockFileSystem.Object);
         loader.Load("custom.json");
 
         _mockFileSystem.Verify(fs => fs.FileExists("custom.json"), Times.Once);
@@ -146,7 +146,7 @@ public class ConfigLoaderTests
         _mockFileSystem.Setup(fs => fs.FileExists(It.IsAny<string>())).Returns(true);
         _mockFileSystem.Setup(fs => fs.ReadFile(It.IsAny<string>())).Throws(new IOException("disk error"));
 
-        var loader = new ConfigLoader(new ECAssistant.Services.FileSystemAdapter());
+        var loader = new ConfigLoader(_mockFileSystem.Object);
         var config = loader.Load("appsettings.json");
 
         Assert.NotNull(config);

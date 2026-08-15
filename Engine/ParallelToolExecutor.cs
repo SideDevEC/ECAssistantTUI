@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using ECAssistant.Tools;
 using ECAssistant.UI;
+using ECAssistant.Session;
 
 namespace ECAssistant.Engine;
 
@@ -20,6 +21,7 @@ public class ParallelToolExecutor
     private readonly ToolPolicy _toolPolicy;
     private readonly Func<string, Dictionary<string, string?>, Task<EToolResult>> _executeToolFn;
     private readonly Action<string> _log;
+    private readonly ISessionOutput? _out;
 
     /// <summary>
     /// Create the parallel executor.
@@ -28,16 +30,19 @@ public class ParallelToolExecutor
     /// <param name="toolPolicy">Policy checker for approvals</param>
     /// <param name="executeToolFn">Function that executes a single tool by name+args</param>
     /// <param name="log">Optional logging callback</param>
+    /// <param name="sessionOutput">Optional session output for approval requests</param>
     public ParallelToolExecutor(
         EAgentEngine engine,
         ToolPolicy toolPolicy,
         Func<string, Dictionary<string, string?>, Task<EToolResult>> executeToolFn,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        ISessionOutput? sessionOutput = null)
     {
         _engine = engine;
         _toolPolicy = toolPolicy;
         _executeToolFn = executeToolFn;
         _log = log ?? (_ => { });
+        _out = sessionOutput;
     }
 
     /// <summary>
@@ -92,8 +97,8 @@ public class ParallelToolExecutor
                         if (policy.NeedsApproval)
                         {
                             _log($"[Policy] {tc}: {policy.Message}");
-                            var approval = Program.Gui.PromptRaw($"[Policy] Approve {tc.ToolName}#{tc.Index} ({string.Join(", ", tc.Args.Select(kvp => kvp.Key + "=" + EGuiBase.Truncate(kvp.Value ?? "", 60)))})? [y/N] ")?.Trim().ToLower();
-                            if (approval == "y" || approval == "yes")
+                            var isApproved = _out?.RequestApproval($"[Policy] Approve {tc.ToolName}#{tc.Index} ({string.Join(", ", tc.Args.Select(kvp => kvp.Key + "=" + EGuiBase.Truncate(kvp.Value ?? "", 60)))})?") ?? false;
+                            if (isApproved)
                             {
                                 _log($"[Policy] Approved: {tc}");
                                 approved.Add(tc);
@@ -246,9 +251,9 @@ public class ParallelToolExecutor
             if (policyDecision.NeedsApproval)
             {
                 _log($"[Policy] {tc}: {policyDecision.Message}");
-                var approval = Program.Gui.PromptRaw($"[Policy] Approve {tc.ToolName}#{tc.Index} ({string.Join(", ", tc.Args.Select(kvp => kvp.Key + "=" + EGuiBase.Truncate(kvp.Value ?? "", 60)))})? [y/N] ")?.Trim().ToLower();
+                var isApproved = _out?.RequestApproval($"[Policy] Approve {tc.ToolName}#{tc.Index} ({string.Join(", ", tc.Args.Select(kvp => kvp.Key + "=" + EGuiBase.Truncate(kvp.Value ?? "", 60)))})?") ?? false;
 
-                if (approval != "y" && approval != "yes")
+                if (!isApproved)
                 {
                     _log($"[Policy] DENIED by user: {tc}");
                     return new SingleToolResult

@@ -401,7 +401,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                        NativeLibraryConfig.All.WithLogCallback(delegate (LLamaLogLevel level, string message)
                         {
                          if (level == LLamaLogLevel.Error)
-                            Program.Gui.LogInternal($"[LLAMA ERROR] {message}");
+                            _logger.Error("LLAMA", $"[LLAMA ERROR] {message}");
                         });
                    } catch { /* may already be loaded */ }
                }
@@ -514,7 +514,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                     }
               catch (Exception ex)
                    {
-                   Program.Gui.LogInternal($"[Context] Failed to load transcript: {ex.Message}");
+                   _logger.Error("Context", $"Failed to load transcript: {ex.Message}");
                         }
                     }
 
@@ -557,13 +557,13 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                       }
                     else
                          {
-                           Program.Gui.LogInternal($"[!] No system prompt file found — using empty system prompt.");
+                           _logger.Warn("Engine", "No system prompt file found — using empty system prompt.");
                               _systemPromptText = "";
                             }
                           }
              catch (Exception ex)
                   {
-                       Program.Gui.LogInternal($"[!] Failed to load system prompt: {ex.Message}");
+                       _logger.Warn("Engine", $"Failed to load system prompt: {ex.Message}");
                     _systemPromptText = "";
                     }
 
@@ -1315,25 +1315,20 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                     // it would stop early. If model forgets </lm>, generation runs to max_tokens.
                     var stopTags = new[] { "</lm>" };
                     _out?.WriteLine($"── Token Stream (Turn {_turnCount}) ── [ESC to stop] ──", OutputState.Bold);
+                    _out?.StartStream(OutputState.Raw);
                     var tokenCount = 0;
                     await foreach (var token in _executor.InferAsync(incrementalInput, _inferenceParams, cts.Token))
                          {
-                          // v10.21.2: ESC detection via UI layer (no direct Console calls in engine)
-                          if (Program.Gui.IsEscapePressed())
+                          // ESC / cancellation: stop the stream and bail
+                          if (ExecutionToken.IsCancellationRequested)
                           {
                               _escPressed = true;
+                              _out?.StopStream();
                               _out?.BlankLine();
                               _out?.WriteError("[Stop] Generation stopped by user (ESC).");
                               goto inferenceDone;
                           }
-                          // v10.9: Check cancellation token from orchestrator
-                          if (ExecutionToken.IsCancellationRequested)
-                          {
-                              _out?.BlankLine();
-                              _out?.WriteWarning("[Stop] Execution cancelled by user.");
-                              goto inferenceDone;
-                          }
-                          _out?.WriteRawDirect(token);
+                          _out?.Write(token);
                            sb.Append(token);
                            tokenCount++;
                            var soFar = sb.ToString();
@@ -1348,14 +1343,16 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                            }
                               }
                         inferenceDone:
+                    _out?.StopStream();
                     _out?.WriteLine($"── End Token Stream ({tokenCount} tokens) ──", OutputState.Bold);
                     _out?.BlankLine();
                                }
                           catch (OperationCanceledException)
                                  {
                                    timedOut = true;
-                                     _out?.BlankLine();
-                                       _out?.WriteError("[Timeout] Inference timed out (90s). Truncating.");
+                                     _out?.StopStream();
+                                   _out?.BlankLine();
+                                   _out?.WriteError("[Timeout] Inference timed out (90s). Truncating.");
                                            }
 
               var rawResult = sb.ToString().Trim();

@@ -4,16 +4,19 @@ using ECAssistant.Interfaces;
 namespace ECAssistant.Session;
 
 /// <summary>
-/// Console-based IUiRenderer implementation.
+/// Console-based IOutputListener implementation.
 ///
-/// Routes session output through EGuiConsole (which handles ANSI scroll region
-/// cursor management). Without this routing, Console.Write would bypass the
-/// scroll region and garble the input line.
+/// Routes session output through EGuiConsole (which handles ANSI cursor
+/// management for the always-visible input line).
+///
+/// Implements IOutputListener (not the old IUiRenderer) — receives
+/// OnOutput, OnStreamStart, OnStreamStop, OnRequestApproval from the session.
 /// </summary>
-public class ConsoleUiRenderer : IUiRenderer
+public class ConsoleUiRenderer : IOutputListener
 {
     private readonly EGuiBase _gui;
     private readonly IColorFormatter _color;
+    private bool _streaming;
 
     public ConsoleUiRenderer(EGuiBase gui, IColorFormatter color)
     {
@@ -49,73 +52,39 @@ public class ConsoleUiRenderer : IUiRenderer
         _ => null
     };
 
-    public void OnRawDirect(string token)
-    {
-        _gui.WriteRawDirect(token);
-    }
+    // ── IOutputListener implementation ──
 
-    public void OnOutput(OutputEntry entry)
+    public void OnOutput(string text, OutputState state)
     {
-        switch (entry.Type)
+        if (string.IsNullOrEmpty(text))
         {
-            case "raw_token":
-                // No longer sent — tokens batch in session _streamBuffer
-                // and arrive as "stream" entries on flush
-                break;
-
-            case "stream":
-                // Flushed stream buffer — write as a block
-                // v10.22: Tool output uses Dim color to distinguish from LLM output
-                if (!string.IsNullOrEmpty(entry.Text))
-                {
-                    var color = StateToColor(entry.State);
-                    _gui.WriteLineColored(color + entry.Text + _color.Reset);
-                }
-                break;
-
-            case "tool_output":
-                // v10.22: Tool results in dim gray for visual distinction
-                if (!string.IsNullOrEmpty(entry.Text))
-                {
-                    _gui.WriteLineColored(_color.Dim + entry.Text + _color.Reset);
-                }
-                break;
-
-            case "thinking":
-                // v10.22: LLM thinking in italic/dim
-                if (!string.IsNullOrEmpty(entry.Text))
-                {
-                    _gui.WriteLineColored(_color.Dim + "💭 " + entry.Text + _color.Reset);
-                }
-                break;
-
-            case "line":
-                // Discrete line
-                if (string.IsNullOrEmpty(entry.Text))
-                {
-                    _gui.BlankLine();
-                }
-                else
-                {
-                    var color = StateToColor(entry.State);
-                    var tag = StateToTag(entry.State);
-                    if (tag != null)
-                        _gui.WriteLineColored($"{color}[{tag}] {entry.Text}{_color.Reset}");
-                    else
-                        _gui.WriteLineColored($"{color}{entry.Text}{_color.Reset}");
-                }
-                break;
+            _gui.BlankLine();
+            return;
         }
+
+        var color = StateToColor(state);
+        var tag = StateToTag(state);
+        if (tag != null)
+            _gui.WriteLineColored($"{color}[{tag}] {text}{_color.Reset}");
+        else
+            _gui.WriteLineColored($"{color}{text}{_color.Reset}");
     }
 
-    public void OnQueueChanged(List<string> queue)
+    public void OnStreamStart()
     {
-        // Queue display handled by UI loop — not here to avoid console spam
+        _streaming = true;
     }
 
-    public void OnStateChanged(SessionRunState state)
+    public void OnStreamStop()
     {
-        // State display handled by UI loop
+        _streaming = false;
+    }
+
+    public bool OnRequestApproval(string message)
+    {
+        // Use the GUI's prompt to ask the user
+        var response = _gui.PromptRaw($"{_color.Yellow}{message} [y/N] {_color.Reset}")?.Trim().ToLower();
+        return response == "y" || response == "yes";
     }
 
     /// <summary>
@@ -131,18 +100,7 @@ public class ConsoleUiRenderer : IUiRenderer
                 case "stream":
                     if (!string.IsNullOrEmpty(entry.Text))
                     {
-                        var c = entry.State switch
-                        {
-                            OutputState.Info    => color.Cyan,
-                            OutputState.Success => color.Green,
-                            OutputState.Warning => color.Yellow,
-                            OutputState.Error   => color.Red,
-                            OutputState.Dim     => color.Dim,
-                            OutputState.Bold    => color.Bold,
-                            OutputState.Raw     => color.Reset,
-                            OutputState.System  => color.Magenta,
-                            _ => color.Reset
-                        };
+                        var c = StateToColor(entry.State);
                         gui.WriteLineColored(c + entry.Text + color.Reset);
                     }
                     break;
@@ -152,34 +110,13 @@ public class ConsoleUiRenderer : IUiRenderer
                         gui.BlankLine();
                     else
                     {
-                        var c = entry.State switch
-                        {
-                            OutputState.Info    => color.Cyan,
-                            OutputState.Success => color.Green,
-                            OutputState.Warning => color.Yellow,
-                            OutputState.Error   => color.Red,
-                            OutputState.Dim     => color.Dim,
-                            OutputState.Bold    => color.Bold,
-                            OutputState.Raw     => color.Reset,
-                            OutputState.System  => color.Magenta,
-                            _ => color.Reset
-                        };
-                        var tag = entry.State switch
-                        {
-                            OutputState.Success => "OK",
-                            OutputState.Warning => "WARN",
-                            OutputState.Error   => "ERR",
-                            OutputState.System  => "SYS",
-                            _ => null
-                        };
+                        var c = StateToColor(entry.State);
+                        var tag = StateToTag(entry.State);
                         if (tag != null)
                             gui.WriteLineColored($"{c}[{tag}] {entry.Text}{color.Reset}");
                         else
                             gui.WriteLineColored($"{c}{entry.Text}{color.Reset}");
                     }
-                    break;
-
-                case "raw_token":
                     break;
             }
         }

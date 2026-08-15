@@ -29,9 +29,9 @@ namespace ECAssistant.Session;
 /// Sessions share the same loaded model weights (one GGUF in RAM) but are
 /// otherwise completely independent. No shared state, no inter-session communication.
 ///
-/// The session is the UI gateway — all components (orchestrator, engine, tools)
-/// get a reference to the session and call session.Write/WriteLine/WriteRaw for output.
-/// The session writes to a JSONL file (always) and notifies an attached IUiRenderer (if any).
+/// The session is the central hub — all components (orchestrator, engine, tools)
+/// get an ISessionOutput reference and call Write/WriteLine/StartStream/RequestApproval.
+/// The session writes to a JSONL file (always) and notifies attached IOutputListener(s).
 /// </summary>
 public class AgentSession : ISessionOutput, IAsyncDisposable
 {
@@ -53,44 +53,15 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
     private readonly StreamWriter _outputFile;
     private readonly object _fileLock = new();
 
-    // ── Auto-flushing StringBuilder buffer ────────────
+    // ── Stream buffer (for token-by-token streaming) ──
     private readonly StringBuilder _streamBuffer = new();
     private OutputState _currentState = OutputState.Raw;
+    private bool _streaming;
     private readonly object _bufferLock = new();
 
-    // ── v10.22: Timer-based stream flushing ──
-    // Tokens accumulate in _streamBuffer and flush on:
-    // 1. WriteLine() / state change (immediate)
-    // 2. Timer tick (every 150ms — real-time streaming feel without per-token UI writes)
-    private Timer? _streamFlushTimer;
-    private const int StreamFlushIntervalMs = 150;
-    private DateTime _lastFlushTime = DateTime.MinValue;
-
-    /// <summary>Initialize the stream flush timer. Call once after construction.
-    /// Provides real-time token streaming without per-token UI writes.
-    /// </summary>
-    public void StartStreamFlushTimer()
-    {
-        _streamFlushTimer = new Timer(_ =>
-        {
-            try
-            {
-                lock (_bufferLock)
-                {
-                    if (_streamBuffer.Length > 0 &&
-                        (DateTime.UtcNow - _lastFlushTime).TotalMilliseconds >= StreamFlushIntervalMs)
-                    {
-                        FlushBuffer();
-                    }
-                }
-            }
-            catch { /* timer errors must never crash the session */ }
-        }, null, StreamFlushIntervalMs, StreamFlushIntervalMs);
-    }
-
-    // ── Output Buffer + Listeners ─────────────────────
+    // ── Output buffer + Listeners ─────────────────────
     private readonly List<OutputEntry> _outputBuffer = new();
-    private readonly List<IUiRenderer> _listeners = new();
+    private readonly List<IOutputListener> _listeners = new();
     private readonly object _uiLock = new();
 
     // ── Prompt Queue ───────────────────────────────────
@@ -119,15 +90,6 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
     /// <summary>
     /// Create a new fully isolated session with shared model weights.
     /// </summary>
-    /// <param name="key">Unique session key (e.g. "main", "watcher")</param>
-    /// <param name="modelPath">Path to GGUF model file (for logging/metadata)</param>
-    /// <param name="sharedWeights">Pre-loaded shared model weights (one GGUF in RAM)</param>
-    /// <param name="sharedModelParams">Model params used to load the shared weights</param>
-    /// <param name="inferenceParams">Inference params (max tokens, temperature, etc.)</param>
-    /// <param name="workingDir">Working directory for this session</param>
-    /// <param name="inferenceLock">Shared semaphore for serializing inference across sessions</param>
-    /// <param name="subAgentConfig">Sub-agent config (or null to disable)</param>
-    /// <param name="label">Optional human-readable label</param>
     public AgentSession(
         string key,
         string modelPath,
@@ -262,15 +224,31 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
     }
 
     // ═══════════════════════════════════════════════════
-    //  UI OUTPUT METHODS — the session is the UI gateway
+    //  ISessionOutput — STREAMING METHODS
     // ═══════════════════════════════════════════════════
 
     /// <summary>
-    /// Append a raw token to the stream buffer. No UI push — tokens accumulate
-    /// and are flushed to the UI as a batch "stream" entry when WriteLine() is
-    /// called or state changes. This prevents per-token cursor repositioning issues.
+    /// Begin a stream: empty the buffer, set state, notify listeners.
     /// </summary>
-    public void WriteRaw(string token)
+    public void StartStream(OutputState state)
+    {
+        lock (_bufferLock)
+        {
+            _streamBuffer.Clear();
+            _currentState = state;
+            _streaming = true;
+        }
+
+        lock (_uiLock)
+        {
+            foreach (var l in _listeners) { try { l.OnStreamStart(); } catch { } }
+        }
+    }
+
+    /// <summary>
+    /// Append a token to the stream buffer. No file I/O, no listener notification.
+    /// </summary>
+    public void Write(string token)
     {
         lock (_bufferLock)
         {
@@ -278,46 +256,44 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
         }
     }
 
-    /// <summary>Write raw text directly — bypasses cursor tracking for token streaming.</summary>
-    public void WriteRawDirect(string token)
+    /// <summary>
+    /// End the stream: notify listeners that streaming stopped.
+    /// The caller should follow this with WriteLine(buffer, Raw) to flush.
+    /// </summary>
+    public void StopStream()
     {
         lock (_bufferLock)
         {
-            // Flush any buffered content first, then write directly through UI renderer
-            if (_streamBuffer.Length > 0)
-                FlushBuffer();
-            foreach (var l in _listeners) { try { l.OnRawDirect(token); } catch {} };
+            _streaming = false;
         }
-    }
 
-    /// <summary>Write text with a state. If state changes, flush buffer first.</summary>
-    public void Write(string text, OutputState state)
-    {
-        lock (_bufferLock)
+        lock (_uiLock)
         {
-            if (state != _currentState && _streamBuffer.Length > 0)
-            {
-                FlushBuffer();
-            }
-            _currentState = state;
-            _streamBuffer.Append(text);
+            foreach (var l in _listeners) { try { l.OnStreamStop(); } catch { } }
         }
     }
 
-    /// <summary>Write a line with a state. Flushes buffer first if not empty.</summary>
+    // ═══════════════════════════════════════════════════
+    //  ISessionOutput — DISCRETE OUTPUT
+    // ═══════════════════════════════════════════════════
+
+    /// <summary>
+    /// Write a line with a state. If a stream is active, stops it first,
+    /// flushes the buffer as a stream entry, then writes the line.
+    /// </summary>
     public void WriteLine(string text, OutputState state = OutputState.Info)
     {
         lock (_bufferLock)
         {
-            // Flush accumulated stream buffer first (if not empty)
-            if (_streamBuffer.Length > 0)
+            // If streaming, stop and flush buffer first
+            if (_streaming)
             {
-                FlushBuffer();
+                StopStream();
+                FlushStreamBuffer();
             }
 
             _currentState = state;
 
-            // Write the line entry
             var entry = new OutputEntry
             {
                 Type = "line",
@@ -327,27 +303,24 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
             };
 
             WriteEntryToFile(entry);
-            NotifyUi(entry);
+
+            lock (_uiLock)
+            {
+                _outputBuffer.Add(entry);
+                foreach (var listener in _listeners)
+                {
+                    try { listener.OnOutput(text, state); }
+                    catch { /* don't let UI errors crash the session */ }
+                }
+            }
         }
     }
 
     /// <summary>Write a blank line.</summary>
-    public void BlankLine()
-    {
-        WriteLine("", OutputState.Info);
-    }
+    public void BlankLine() => WriteLine("", OutputState.Info);
 
     /// <summary>Write a system-level message.</summary>
-    public void WriteSystem(string text)
-    {
-        WriteLine(text, OutputState.System);
-    }
-
-    /// <summary>Write a colored line (legacy compat — maps to WriteLine with state).</summary>
-    public void WriteLineColored(string text, OutputState state = OutputState.Info)
-    {
-        WriteLine(text, state);
-    }
+    public void WriteSystem(string text) => WriteLine(text, OutputState.System);
 
     /// <summary>Write an info message.</summary>
     public void WriteInfo(string text) => WriteLine(text, OutputState.Info);
@@ -364,17 +337,102 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
     /// <summary>Write dim text.</summary>
     public void WriteDim(string text) => WriteLine(text, OutputState.Dim);
 
+    // ═══════════════════════════════════════════════════
+    //  ISessionOutput — STREAM BUFFER ACCESS
+    // ═══════════════════════════════════════════════════
+
+    /// <summary>Get the current stream buffer content (thread-safe).</summary>
+    public string GetStreamBuffer()
+    {
+        lock (_bufferLock)
+        {
+            return _streamBuffer.ToString();
+        }
+    }
+
+    /// <summary>Get the current stream state (thread-safe).</summary>
+    public OutputState GetStreamState()
+    {
+        lock (_bufferLock)
+        {
+            return _currentState;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  ISessionOutput — USER APPROVAL
+    // ═══════════════════════════════════════════════════
+
     /// <summary>
-    /// Flush the internal stream buffer as a "stream" entry to the file + UI.
-    /// Called internally on state changes, before WriteLine, and by the timer.
+    /// Request user approval. Blocks until the attached listener responds.
+    /// If no listener is attached, waits until one attaches and responds.
     /// </summary>
-    private void FlushBuffer()
+    public bool RequestApproval(string message)
+    {
+        // Write the approval request as an output line first
+        WriteLine(message, OutputState.Warning);
+
+        lock (_uiLock)
+        {
+            if (_listeners.Count > 0)
+            {
+                // Ask the first listener — it handles user interaction
+                try
+                {
+                    return _listeners[0].OnRequestApproval(message);
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+        }
+
+        // No listener attached — wait for one
+        // This handles the case where a session runs in the background
+        // and the user hasn't switched to it yet
+        var waitMs = 100;
+        while (true)
+        {
+            Thread.Sleep(waitMs);
+
+            lock (_uiLock)
+            {
+                if (_listeners.Count > 0)
+                {
+                    try
+                    {
+                        return _listeners[0].OnRequestApproval(message);
+                    }
+                    catch
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            // Check if execution was cancelled while waiting
+            if (_executionCts?.IsCancellationRequested == true)
+            {
+                return false;
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  INTERNAL: FLUSH + FILE I/O
+    // ═══════════════════════════════════════════════════
+
+    /// <summary>
+    /// Flush the stream buffer as a "stream" entry to file + listeners.
+    /// Called internally by WriteLine when a stream is active.
+    /// </summary>
+    private void FlushStreamBuffer()
     {
         if (_streamBuffer.Length == 0) return;
 
         var text = _streamBuffer.ToString();
         _streamBuffer.Clear();
-        _lastFlushTime = DateTime.UtcNow;
 
         var entry = new OutputEntry
         {
@@ -385,7 +443,16 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
         };
 
         WriteEntryToFile(entry);
-        NotifyUi(entry);
+
+        lock (_uiLock)
+        {
+            _outputBuffer.Add(entry);
+            foreach (var listener in _listeners)
+            {
+                try { listener.OnOutput(text, _currentState); }
+                catch { }
+            }
+        }
     }
 
     /// <summary>Write an output entry to the JSONL file (thread-safe).</summary>
@@ -402,44 +469,21 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
         }
     }
 
-    /// <summary>Add entry to output buffer and notify all listeners.</summary>
-    private void NotifyUi(OutputEntry entry)
-    {
-        lock (_uiLock)
-        {
-            _outputBuffer.Add(entry);
-            foreach (var listener in _listeners)
-            {
-                try { listener.OnOutput(entry); }
-                catch { /* don't let UI errors crash the session */ }
-            }
-        }
-    }
-
     // ═══════════════════════════════════════════════════
-    //  UI ATTACHMENT
+    //  LISTENER ATTACHMENT
     // ═══════════════════════════════════════════════════
 
     /// <summary>Add a listener for live output notifications.</summary>
-    public void AddListener(IUiRenderer listener)
+    public void AddListener(IOutputListener listener)
     {
         lock (_uiLock)
         {
             _listeners.Add(listener);
         }
-
-        // Notify current state
-        listener.OnStateChanged(_runState);
-
-        // Notify current queue
-        lock (_queueLock)
-        {
-            listener.OnQueueChanged(_promptQueue.ToList());
-        }
     }
 
     /// <summary>Remove a listener.</summary>
-    public void RemoveListener(IUiRenderer listener)
+    public void RemoveListener(IOutputListener listener)
     {
         lock (_uiLock)
         {
@@ -462,11 +506,13 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
         var entries = new List<OutputEntry>();
         try
         {
-            // Flush any pending buffer first
             lock (_bufferLock)
             {
-                if (_streamBuffer.Length > 0)
-                    FlushBuffer();
+                if (_streaming)
+                {
+                    StopStream();
+                    FlushStreamBuffer();
+                }
             }
 
             lock (_fileLock)
@@ -519,7 +565,6 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
                 {
                     _promptQueue.Enqueue(input);
                 }
-                NotifyQueueChanged();
                 WriteSystem($"[Queued] Prompt added to queue (position {QueueCount})");
             }
         }
@@ -552,22 +597,15 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
         {
             try
             {
-                // v10.22: Show inference waiting indicator if lock is contended
                 if (_inferenceLock.CurrentCount == 0)
                 {
                     WriteDim("[Waiting] Another session is generating — waiting for model...");
                 }
-                // Acquire inference lock (serialize across sessions)
                 await _inferenceLock.WaitAsync(ct);
                 try
                 {
-                    // Prefill static prefix if needed
                     await _engine.PrefillStaticPrefix();
-
-                    // Execute
                     var result = await _orchestrator.ExecuteMultiStep(currentPrompt);
-
-                    // Show final output
                     if (!string.IsNullOrEmpty(result.FinalOutput))
                     {
                         WriteLine(result.FinalOutput, OutputState.Bold);
@@ -602,13 +640,11 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
                 if (_promptQueue.Count > 0)
                 {
                     nextPrompt = _promptQueue.Dequeue();
-                    NotifyQueueChanged();
                 }
             }
 
             if (nextPrompt == null)
             {
-                // Queue empty — go idle
                 break;
             }
 
@@ -616,11 +652,8 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
             currentPrompt = nextPrompt;
             _lastPrompt = currentPrompt;
             LastActivity = DateTime.UtcNow;
-
-            // Continue loop with next prompt
         }
 
-        // Session is now idle
         SetRunState(SessionRunState.Idle);
         _executionCts?.Dispose();
         _executionCts = null;
@@ -637,9 +670,6 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
                 _engine.StopExecution();
                 _executionCts?.Cancel();
                 WriteWarning("Execution stopped by user.");
-
-                // Clear the runner but don't clear the queue
-                // The runner will exit and set state to Idle
             }
         }
     }
@@ -661,7 +691,6 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
 
             _promptQueue.Clear();
             foreach (var p in queueList) _promptQueue.Enqueue(p);
-            NotifyQueueChanged();
             return true;
         }
     }
@@ -672,7 +701,6 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
         lock (_queueLock)
         {
             _promptQueue.Clear();
-            NotifyQueueChanged();
         }
     }
 
@@ -683,25 +711,6 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
     private void SetRunState(SessionRunState state)
     {
         _runState = state;
-        lock (_uiLock)
-        {
-            foreach (var l in _listeners) { try { l.OnStateChanged(state); } catch {} }
-        }
-    }
-
-    private void NotifyQueueChanged()
-    {
-        lock (_uiLock)
-        {
-            try
-            {
-                lock (_queueLock)
-                {
-                    foreach (var l in _listeners) { try { l.OnQueueChanged(_promptQueue.ToList()); } catch {} }
-                }
-            }
-            catch { }
-        }
     }
 
     // ═══════════════════════════════════════════════════
@@ -790,26 +799,26 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        // Stop execution if running
         Stop();
 
-        // Wait for runner to finish
         if (_runnerTask != null)
         {
             try { await _runnerTask; } catch { }
         }
 
-        // Save transcript
         try { SaveTranscript(); } catch { }
 
-        // Flush and close output file
-        lock (_bufferLock) { FlushBuffer(); }
+        lock (_bufferLock)
+        {
+            if (_streaming)
+            {
+                StopStream();
+                FlushStreamBuffer();
+            }
+        }
+
         lock (_fileLock) { try { _outputFile.Dispose(); } catch { } }
 
-        // Dispose timer
-        try { _streamFlushTimer?.Dispose(); _streamFlushTimer = null; } catch { }
-
-        // Dispose engine
         await _engine.DisposeAsync();
         await _orchestrator.DisposeAsync();
     }

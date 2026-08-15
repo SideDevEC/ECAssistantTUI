@@ -347,8 +347,8 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                     _out?.WriteLine($"[Policy] {policyDecision.Message}");
                      // In console mode, ask the user directly
                     _out?.WriteLine($"[Policy] Approve execution of {decision.ToolName} with args: {string.Join(", ", argsDict.Select(kvp => kvp.Key + "=" + (kvp.Value ?? "(null)")))}?");
-                    var approval = Program.Gui.PromptRaw("[y/N] ")?.Trim().ToLower();
-                    if (approval != "y" && approval != "yes")
+                    var approved = _out?.RequestApproval($"[Policy] Approve execution of {decision.ToolName} with args: {string.Join(", ", argsDict.Select(kvp => kvp.Key + "=" + (kvp.Value ?? "(null)")))}?") ?? false;
+                    if (!approved)
                      {
                         _out?.WriteLine($"[Policy] Tool execution DENIED by user: {decision.ToolName}");
                          _engine.AddToolResult(decision.ToolName!, "[DENIED] User did not approve this tool execution.");
@@ -618,13 +618,13 @@ public sealed class AgentOrchestrator : IAsyncDisposable
             var args = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
             var argMatches = Regex.Matches(toolcallContent, @"<([a-zA-Z_][\w]*)>(.*?)</\1>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
-            Program.Gui.WriteLineColored($"[Parse] Toolcall #{index} content: {toolcallContent}");
-            Program.Gui.WriteLineColored($"[Parse] Regex matches: {argMatches.Count}");
+            _logger?.Debug("Parse", $"Toolcall #{index} content: {toolcallContent}");
+            _logger?.Debug("Parse", $"Regex matches: {argMatches.Count}");
             foreach (Match m in argMatches)
                 {
                 var key = m.Groups[1].Value;
                 var value = m.Groups[2].Value;
-                Program.Gui.WriteLineColored($"[Parse] Arg: {key} = {EGuiBase.Truncate(value, 100)}");
+                _logger?.Debug("Parse", $"Arg: {key} = {EGuiBase.Truncate(value, 100)}");
                 if (!string.IsNullOrEmpty(key)) args[key] = value;
                 }
 

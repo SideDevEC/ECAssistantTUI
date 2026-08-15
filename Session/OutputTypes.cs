@@ -42,23 +42,3 @@ public class OutputEntry
     /// <summary>ISO-8601 timestamp</summary>
     public string Ts { get; set; } = DateTime.UtcNow.ToString("O");
 }
-
-/// <summary>
-/// Interface for the UI renderer attached to a session.
-/// The console, canvas, or test harness implements this.
-/// The session calls these methods when output is produced or state changes.
-/// </summary>
-public interface IUiRenderer
-{
-    /// <summary>Called when a new output entry is flushed/written by the session.</summary>
-    void OnOutput(OutputEntry entry);
-
-    /// <summary>Called for raw token streaming — bypasses cursor tracking.</summary>
-    void OnRawDirect(string token);
-
-    /// <summary>Called when the prompt queue changes (add/remove/clear).</summary>
-    void OnQueueChanged(List<string> queue);
-
-    /// <summary>Called when session state changes (Idle ↔ Running).</summary>
-    void OnStateChanged(SessionRunState state);
-}

@@ -40,7 +40,7 @@ public class SubAgentIntegrationTests : IDisposable
         var logger = new Mock<ILogger>();
         var engine = new MockEngine(_tempDir);
         var policy = new ECAssistant.Tools.ToolPolicy();
-        var orchestrator = new AgentOrchestrator(engine, sessionOutput: null, maxTurns: maxTurns, maxFailures: 3, toolPolicy: policy, logger: logger.Object);
+        var orchestrator = new AgentOrchestrator(engine, sessionOutput: new TestSessionOutput(_gui), maxTurns: maxTurns, maxFailures: 3, toolPolicy: policy, logger: logger.Object);
         return (engine, orchestrator);
     }
 
@@ -218,7 +218,7 @@ public class SubAgentIntegrationTests : IDisposable
 
         var engine = new MockEngine(_tempDir);
         var policy = new ECAssistant.Tools.ToolPolicy();
-        var orchestrator = new AgentOrchestrator(engine, sessionOutput: null, maxTurns: maxTurns, maxFailures: 3, toolPolicy: policy, logger: mockLogger.Object);
+        var orchestrator = new AgentOrchestrator(engine, sessionOutput: new TestSessionOutput(_gui), maxTurns: maxTurns, maxFailures: 3, toolPolicy: policy, logger: mockLogger.Object);
         return (engine, orchestrator);
     }
 }

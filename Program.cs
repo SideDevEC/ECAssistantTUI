@@ -193,7 +193,7 @@ public class Program
             if (File.Exists(transPath))
                {
                 // Transcript already auto-saved in loop via "save-context" command
-                 Program.Gui.WriteLineColored($"[Context] Transcript saved at: {transPath}");
+                 _color.TagBold(_color.Cyan, "Context", $"Transcript saved at: {transPath}");
                 }
 
             return 0;
@@ -331,9 +331,6 @@ public class Program
         // ── Attach UI renderer to the session ──
         var uiRenderer = new ConsoleUiRenderer(Gui, _color); _activeUi = uiRenderer;
         session.AddListener(uiRenderer);
-
-        // v10.22: Start timer-based stream flushing for real-time token output
-        session.StartStreamFlushTimer();
 
         // ── Vector Memory (semantic search) ──
         if (_config.VectorMemory.Enabled)

@@ -54,8 +54,9 @@ public class ToolPipelineIntegrationTests : IDisposable
 
         var engine = new MockEngine(_tempDir);
 
+        var sessionOutput = new TestSessionOutput(_gui);
         var policy = new ECAssistant.Tools.ToolPolicy();
-        var orchestrator = new AgentOrchestrator(engine, sessionOutput: null, maxTurns: maxTurns, maxFailures: 3, toolPolicy: policy, logger: logger.Object);
+        var orchestrator = new AgentOrchestrator(engine, sessionOutput: sessionOutput, maxTurns: maxTurns, maxFailures: 3, toolPolicy: policy, logger: logger.Object);
 
         return (engine, orchestrator, procRunner, fileSystem, config, color);
     }

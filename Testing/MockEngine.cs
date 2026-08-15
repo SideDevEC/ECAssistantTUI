@@ -129,7 +129,10 @@ public class MockEngine : EAgentEngine
         OnResponseConsumed?.Invoke(response);
 
         // Simulate streaming by writing the response to session output
-        SessionOutput?.WriteRaw(response);
+        SessionOutput?.StartStream(OutputState.Raw);
+        SessionOutput?.Write(response);
+        SessionOutput?.StopStream();
+        SessionOutput?.WriteLine(response, OutputState.Raw);
 
         return Task.FromResult(response);
     }

@@ -206,7 +206,7 @@ public class ParallelToolExecutorIntegrationTests : IDisposable
         engine.RegisterTool(new EShellAgent(mockProcessRunner.Object, mockConfig.Object, mockColor.Object, _tempDir));
 
         var policy = new ECAssistant.Tools.ToolPolicy();
-        var orchestrator = new AgentOrchestrator(engine, sessionOutput: null, maxTurns: 10, maxFailures: 3, toolPolicy: policy, logger: mockLogger.Object);
+        var orchestrator = new AgentOrchestrator(engine, sessionOutput: new TestSessionOutput(_gui), maxTurns: 10, maxFailures: 3, toolPolicy: policy, logger: mockLogger.Object);
 
         // Two independent tool calls in one response
         engine.AddResponse(
@@ -248,7 +248,7 @@ public class ParallelToolExecutorIntegrationTests : IDisposable
         engine.RegisterTool(new EFileReaderTool(mockFileSystem.Object, mockConfig.Object, mockColor.Object));
 
         var policy = new ECAssistant.Tools.ToolPolicy();
-        var orchestrator = new AgentOrchestrator(engine, sessionOutput: null, maxTurns: 10, maxFailures: 3, toolPolicy: policy, logger: mockLogger.Object);
+        var orchestrator = new AgentOrchestrator(engine, sessionOutput: new TestSessionOutput(_gui), maxTurns: 10, maxFailures: 3, toolPolicy: policy, logger: mockLogger.Object);
 
         // Two dependent tool calls (write then read same file)
         engine.AddResponse(
@@ -285,7 +285,7 @@ public class ParallelToolExecutorIntegrationTests : IDisposable
         engine.RegisterTool(new EShellAgent(mockProcessRunner.Object, mockConfig.Object, mockColor.Object, _tempDir));
 
         var policy = new ECAssistant.Tools.ToolPolicy();
-        var orchestrator = new AgentOrchestrator(engine, sessionOutput: null, maxTurns: 10, maxFailures: 3, toolPolicy: policy, logger: mockLogger.Object);
+        var orchestrator = new AgentOrchestrator(engine, sessionOutput: new TestSessionOutput(_gui), maxTurns: 10, maxFailures: 3, toolPolicy: policy, logger: mockLogger.Object);
 
         engine.AddResponse(
             "<lm><thinking>Run two commands in parallel</thinking>" +
@@ -324,7 +324,7 @@ public class ParallelToolExecutorIntegrationTests : IDisposable
         engine.RegisterTool(new EShellAgent(mockProcessRunner.Object, mockConfig.Object, mockColor.Object, _tempDir));
 
         var policy = new ECAssistant.Tools.ToolPolicy();
-        var orchestrator = new AgentOrchestrator(engine, sessionOutput: null, maxTurns: 10, maxFailures: 3, toolPolicy: policy, logger: mockLogger.Object);
+        var orchestrator = new AgentOrchestrator(engine, sessionOutput: new TestSessionOutput(_gui), maxTurns: 10, maxFailures: 3, toolPolicy: policy, logger: mockLogger.Object);
 
         engine.AddResponse(
             "<lm><thinking>One good one bad command</thinking>" +

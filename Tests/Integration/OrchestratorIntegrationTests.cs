@@ -57,7 +57,7 @@ public class OrchestratorIntegrationTests : IDisposable
         engine.RegisterTool(new EFileReaderTool(mockFileSystem.Object, mockConfig.Object, mockColor.Object));
 
         var policy = new ECAssistant.Tools.ToolPolicy();
-        var orchestrator = new AgentOrchestrator(engine, sessionOutput: null, maxTurns: maxTurns, maxFailures: 3, toolPolicy: policy, logger: mockLogger.Object);
+        var orchestrator = new AgentOrchestrator(engine, sessionOutput: new TestSessionOutput(_gui), maxTurns: maxTurns, maxFailures: 3, toolPolicy: policy, logger: mockLogger.Object);
 
         return (engine, orchestrator, mockProcessRunner, mockFileSystem);
     }

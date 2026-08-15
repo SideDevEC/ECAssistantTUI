@@ -1,31 +1,35 @@
 using System.Text;
 using ECAssistant.Memory;
 using ECAssistant.Interfaces;
+using ECAssistant.Session;
 
 namespace ECAssistant.Engine;
 
 /// <summary>
 /// Interactive Decision Loop — lets the agent ask clarifying questions,
 /// present options, and wait for user input before proceeding.
-/// 
-/// v2: Real user input via EGuiBase, LLM-driven analysis, no hardcoded defaults.
+///
 /// The loop:
 ///   1. Send task to LLM → LLM analyzes and either gives an answer or asks a question
 ///   2. If LLM asks a question (detected via <output> containing "?"), present to user
 ///   3. User responds → feed answer back to LLM → repeat until LLM gives final answer
 ///   4. Or user types "cancel" to abort
+///
+/// All output goes through ISessionOutput — no direct UI calls.
 /// </summary>
 public class EDecisionLoop : IDisposable
 {
     private readonly EAgentEngine _engine;
     private readonly IColorFormatter _color;
+    private readonly ISessionOutput? _out;
     private bool _running = false;
 
-    /// <summary>Create decision loop with engine reference.</summary>
-    public EDecisionLoop(EAgentEngine engine, IColorFormatter color)
+    /// <summary>Create decision loop with engine reference and session output.</summary>
+    public EDecisionLoop(EAgentEngine engine, IColorFormatter color, ISessionOutput? sessionOutput = null)
     {
         _engine = engine;
         _color = color;
+        _out = sessionOutput;
     }
 
     /// <summary>
@@ -35,28 +39,25 @@ public class EDecisionLoop : IDisposable
     public async Task<DecisionResult> ExecuteInteractiveLoop(string taskDescription)
     {
         _color.TagBold(_color.Cyan, "Decision", $"Interactive loop for: {taskDescription}");
-        Program.Gui.BlankLine();
+        _out?.BlankLine();
 
         _running = true;
-        var maxRounds = 5; // Prevent infinite loops
+        var maxRounds = 5;
 
         for (int round = 1; round <= maxRounds && _running; round++)
         {
             _color.TagBold(_color.Cyan, "Round", $"{round}/{maxRounds}");
-            
-            // Ask the LLM to process the task (or continue from user's answer)
-            var llmResponse = await _engine.GenerateAsync(taskDescription);
-            
-            Program.Gui.BlankLine();
 
-            // Check if LLM gave a final answer (<output> tag)
+            var llmResponse = await _engine.GenerateAsync(taskDescription);
+
+            _out?.BlankLine();
+
             if (llmResponse.Contains("<output>", StringComparison.OrdinalIgnoreCase))
             {
-                // Extract the answer
                 var answer = ExtractOutputContent(llmResponse);
                 _color.TagBold(_color.Green, "Decision", "Final answer received.");
-                Program.Gui.WriteLineColored(answer);
-                
+                _out?.WriteLine(answer, OutputState.Bold);
+
                 return new DecisionResult
                 {
                     Success = true,
@@ -65,17 +66,15 @@ public class EDecisionLoop : IDisposable
                 };
             }
 
-            // If no <output>, the LLM might be asking a question or calling a tool
-            // Present whatever it said to the user and ask for input
-            Program.Gui.WriteLineColored($"[Decision] LLM says: {llmResponse}");
-            Program.Gui.BlankLine();
+            _out?.WriteLine($"[Decision] LLM says: {llmResponse}", OutputState.Info);
+            _out?.BlankLine();
 
             if (round < maxRounds)
             {
-                Program.Gui.WriteRaw($"{_color.Yellow}Your response (or 'cancel'): {_color.Reset}");
-                var userInput = Program.Gui.PromptRaw("")?.Trim();
+                // Use RequestApproval as a continue/cancel prompt
+                var approved = _out?.RequestApproval("Continue? (approve to proceed, deny to cancel)") ?? false;
 
-                if (string.IsNullOrEmpty(userInput) || userInput.Equals("cancel", StringComparison.OrdinalIgnoreCase))
+                if (!approved)
                 {
                     _color.Tag(_color.Cyan, "Decision", "Cancelled by user.");
                     _running = false;
@@ -87,8 +86,7 @@ public class EDecisionLoop : IDisposable
                     };
                 }
 
-                // Feed user's answer back as the next task for the LLM
-                taskDescription = $"User answered: {userInput}\n\nNow continue with the original task.";
+                taskDescription = "User approved. Continue with the original task.";
             }
         }
 

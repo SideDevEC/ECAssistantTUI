@@ -67,6 +67,11 @@ public sealed class EGuiConsole : EGuiBase
     // Track what's currently on screen to avoid redundant writes
     private string?[] _screenRows = Array.Empty<string?>();
 
+    // ── Resize watcher ──
+    private Timer? _resizeTimer;
+    private int _lastWidth;
+    private int _lastHeight;
+
     // ═══════════════════════════════════════════════════
     //  INIT / SHUTDOWN
     // ═══════════════════════════════════════════════════
@@ -100,6 +105,9 @@ public sealed class EGuiConsole : EGuiBase
             PositionCursorAtInput();
             Console.Out.Flush();
         }
+
+        // Start background resize watcher
+        StartResizeWatcher();
     }
 
     /// <summary>Flush buffered startup output to the terminal (non-ANSI path).</summary>
@@ -113,6 +121,9 @@ public sealed class EGuiConsole : EGuiBase
 
     public void ShutdownConsole()
     {
+        _resizeTimer?.Dispose();
+        _resizeTimer = null;
+
         if (!_ansiSupported) return;
 
         // Leave alternate screen buffer + show cursor
@@ -217,6 +228,42 @@ public sealed class EGuiConsole : EGuiBase
         }
         catch { }
         return false;
+    }
+
+    /// <summary>
+    /// Background timer that detects terminal resize and triggers a full repaint.
+    /// Polls every 200ms — lightweight, no console writes unless size actually changed.
+    /// </summary>
+    private void StartResizeWatcher()
+    {
+        _lastWidth = _screenWidth;
+        _lastHeight = _screenHeight;
+        _resizeTimer = new Timer(OnResizeCheck, null, 200, 200);
+    }
+
+    private void OnResizeCheck(object? state)
+    {
+        if (!_ansiSupported) return;
+
+        try
+        {
+            int w = Console.WindowWidth;
+            int h = Console.WindowHeight;
+            if (w != _lastWidth || h != _lastHeight)
+            {
+ _lastWidth = w;
+                _lastHeight = h;
+                lock (_writeLock)
+                {
+                    UpdateDimensions();
+                    _fullRepaint = true;
+                    Repaint();
+                    PositionCursorAtInput();
+                    Console.Out.Flush();
+                }
+            }
+        }
+        catch { }
     }
 
     // ═══════════════════════════════════════════════════

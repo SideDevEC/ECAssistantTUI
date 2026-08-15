@@ -21,6 +21,8 @@ public class OrchestratorIntegrationTests : IDisposable
 {
     private readonly string _tempDir;
     private readonly EGuiTestHarness _gui;
+    private readonly List<MockEngine> _engines = new();
+    private readonly List<AgentOrchestrator> _orchestrators = new();
 
     public OrchestratorIntegrationTests()
     {
@@ -32,6 +34,10 @@ public class OrchestratorIntegrationTests : IDisposable
 
     public void Dispose()
     {
+        foreach (var orch in _orchestrators)
+            try { orch.DisposeAsync().AsTask().Wait(1000); } catch { }
+        foreach (var eng in _engines)
+            try { eng.DisposeAsync().AsTask().Wait(1000); } catch { }
         if (Directory.Exists(_tempDir))
             try { Directory.Delete(_tempDir, true); } catch { }
     }
@@ -48,6 +54,7 @@ public class OrchestratorIntegrationTests : IDisposable
         mockConfig.Setup(c => c.GetValue(It.IsAny<string>(), It.IsAny<string>())).Returns<string, string>((_, _) => _tempDir);
 
         var engine = new MockEngine(_tempDir);
+        _engines.Add(engine);
 
         // Register real tools with mocked dependencies
         engine.RegisterTool(new EShellAgent(mockProcessRunner.Object, mockConfig.Object, _tempDir));
@@ -56,6 +63,7 @@ public class OrchestratorIntegrationTests : IDisposable
 
         var policy = new ECAssistant.Tools.ToolPolicy();
         var orchestrator = new AgentOrchestrator(engine, sessionOutput: new TestSessionOutput(_gui), maxTurns: maxTurns, maxFailures: 3, toolPolicy: policy, logger: mockLogger.Object);
+        _orchestrators.Add(orchestrator);
 
         return (engine, orchestrator, mockProcessRunner, mockFileSystem);
     }

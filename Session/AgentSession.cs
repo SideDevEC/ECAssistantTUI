@@ -391,13 +391,16 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
             }
         }
 
-        // No listener attached — wait for one
+        // No listener attached — wait for one (with timeout to prevent infinite hang)
         // This handles the case where a session runs in the background
         // and the user hasn't switched to it yet
         var waitMs = 100;
-        while (true)
+        var maxWaitMs = 30000; // 30 seconds max — then auto-deny
+        var waited = 0;
+        while (waited < maxWaitMs)
         {
             Thread.Sleep(waitMs);
+            waited += waitMs;
 
             lock (_uiLock)
             {
@@ -420,6 +423,9 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
                 return false;
             }
         }
+
+        // Timed out waiting for a listener — auto-deny to prevent infinite hang
+        return false;
     }
 
     // ═══════════════════════════════════════════════════

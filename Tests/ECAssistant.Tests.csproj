@@ -7,6 +7,9 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <RootNamespace>ECAssistant.Tests</RootNamespace>
+    <!-- Global test timeout: 30 seconds per test. Prevents hung tests from eating CPU forever. -->
+    <xUnitCoreSettings>methodTimeout=30000</xUnitCoreSettings>
+    <xUnitReporterSettings>methodTimeout=30000</xUnitReporterSettings>
   </PropertyGroup>
 
   <ItemGroup>

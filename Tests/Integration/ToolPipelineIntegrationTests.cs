@@ -21,6 +21,8 @@ public class ToolPipelineIntegrationTests : IDisposable
 {
     private readonly string _tempDir;
     private readonly EGuiTestHarness _gui;
+    private readonly List<MockEngine> _engines = new();
+    private readonly List<AgentOrchestrator> _orchestrators = new();
 
     public ToolPipelineIntegrationTests()
     {
@@ -32,6 +34,10 @@ public class ToolPipelineIntegrationTests : IDisposable
 
     public void Dispose()
     {
+        foreach (var orch in _orchestrators)
+            try { orch.DisposeAsync().AsTask().Wait(1000); } catch { }
+        foreach (var eng in _engines)
+            try { eng.DisposeAsync().AsTask().Wait(1000); } catch { }
         if (Directory.Exists(_tempDir))
             try { Directory.Delete(_tempDir, true); } catch { }
     }
@@ -51,10 +57,12 @@ public class ToolPipelineIntegrationTests : IDisposable
 
 
         var engine = new MockEngine(_tempDir);
+        _engines.Add(engine);
 
         var sessionOutput = new TestSessionOutput(_gui);
         var policy = new ECAssistant.Tools.ToolPolicy();
         var orchestrator = new AgentOrchestrator(engine, sessionOutput: sessionOutput, maxTurns: maxTurns, maxFailures: 3, toolPolicy: policy, logger: logger.Object);
+        _orchestrators.Add(orchestrator);
 
         return (engine, orchestrator, procRunner, fileSystem, config);
     }

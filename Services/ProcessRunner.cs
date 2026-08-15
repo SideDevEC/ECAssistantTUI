@@ -27,12 +27,16 @@ public class ProcessRunner : IProcessRunner
         using var process = new Process { StartInfo = startInfo };
         process.Start();
 
+        // Default timeout: 60 seconds if no cancellation token provided
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(60));
+
         try
         {
             var stdoutTask = process.StandardOutput.ReadToEndAsync();
             var stderrTask = process.StandardError.ReadToEndAsync();
 
-            await process.WaitForExitAsync(ct);
+            await process.WaitForExitAsync(timeoutCts.Token);
 
             var stdout = await stdoutTask;
             var stderr = await stderrTask;
@@ -41,8 +45,9 @@ public class ProcessRunner : IProcessRunner
         }
         catch (OperationCanceledException)
         {
-            if (!process.HasExited) process.Kill();
-            return new ProcessResult(-1, "", "Process timed out", true);
+            if (!process.HasExited) process.Kill(entireProcessTree: true);
+            var timedOut = !ct.IsCancellationRequested; // If our timeout fired (not external ct)
+            return new ProcessResult(-1, "", timedOut ? "Process timed out (60s)" : "Process cancelled", true);
         }
     }
 }

@@ -166,7 +166,12 @@ public class Program
                     string activeKey = await sessionManager.LoadSessionsFromDiskAsync(async (session) =>
                     {
                         loading.UpdateLabel($"Initializing session '{session.Key}'");
-                        await InitSessionAsync(session, effectiveDir, bgMgr, userConfigDir);
+                        // v10.23: Use SessionBuilder from Core (replaces old InitSessionAsync)
+                        var builder = new SessionBuilder(_config, effectiveDir, userConfigDir, _logger, bgMgr);
+                        // Attach console UI listener before building
+                        var uiRenderer = new ConsoleUiRenderer(Gui, _color); _activeUi = uiRenderer;
+                        session.AddListener(uiRenderer);
+                        await builder.BuildAsync(session);
                     });
 
                     loading.Stop();
@@ -329,85 +334,6 @@ public class Program
     }
 
     /// <summary>
-    /// Initialize a session: attach UI, vector memory, project context, tools, secondary model, sub-agents.
-    /// Called for each session during startup loading.
-    /// </summary>
-    private static async Task InitSessionAsync(AgentSession session, string workingDir,
-        BackgroundProcessManager bgMgr, string userConfigDir)
-    {
-        // ── Attach UI renderer to the session ──
-        var uiRenderer = new ConsoleUiRenderer(Gui, _color); _activeUi = uiRenderer;
-        session.AddListener(uiRenderer);
-
-        // ── Vector Memory (semantic search) ──
-        if (_config.VectorMemory.Enabled)
-        {
-            var vecDir = Path.Combine(workingDir, _config.VectorMemory.Directory);
-            await session.InitializeVectorMemoryAsync(vecDir);
-        }
-
-        // ── Project Context Manager ──
-        await session.InitializeProjectContextAsync();
-
-        // ── Register tools on the session's engine ──
-        var fileSystem = new FileSystemAdapter();
-        var processRunner = new ProcessRunner();
-        var configPath = Path.Combine(userConfigDir, "appsettings.json");
-        var configProvider = new ConfigProvider(fileSystem, configPath);
-        var httpClient = new HttpClientAdapter();
-
-        var psAgent = new EShellAgent(processRunner, configProvider, workingDir);
-        session.RegisterTool(psAgent);
-        session.RegisterTool(new EBackgroundExecTool(bgMgr, processRunner, fileSystem, configProvider));
-        session.RegisterTool(new EWebSearchTool(httpClient, configProvider));
-        session.RegisterTool(new EDotnetBuildTool(processRunner, configProvider));
-        session.RegisterTool(new EGitTool(processRunner, fileSystem, configProvider));
-        session.RegisterTool(new ECodeEditorTool(fileSystem, configProvider));
-
-        // v10.22: EFileReader — controlled file reading with offset/limit/token budget
-        session.RegisterTool(new EFileReaderTool(fileSystem, configProvider));
-
-        // v10.22: EWebFetch — fetch URL content as plain text
-        session.RegisterTool(new EWebFetchTool(httpClient, configProvider));
-
-        // EFileResearchTool
-        {
-            session.RegisterTool(new EFileResearchTool(fileSystem, configProvider));
-        }
-
-        // ── Secondary Model (optional) ──
-        if (_config.SecondaryModel.Enabled && !string.IsNullOrEmpty(_config.SecondaryModel.ModelPath))
-        {
-            var secPath = _config.SecondaryModel.ModelPath;
-            if (!Path.IsPathRooted(secPath))
-            {
-                var secInWork = Path.Combine(userConfigDir, secPath);
-                var secInBuild = Path.Combine(AppContext.BaseDirectory, secPath);
-                secPath = File.Exists(secInWork) ? secInWork : (File.Exists(secInBuild) ? secInBuild : secInWork);
-            }
-            var secondary = SecondaryModelLoader.Load(secPath,
-                contextSize: _config.SecondaryModel.ContextSize,
-                gpuLayers: _config.SecondaryModel.GpuLayers,
-                temperature: _config.SecondaryModel.Temperature,
-                topP: _config.SecondaryModel.TopP,
-                topK: _config.SecondaryModel.TopK,
-                repeatPenalty: _config.SecondaryModel.RepeatPenalty,
-                maxTokens: _config.SecondaryModel.MaxTokens,
-                antiPrompts: _config.SecondaryModel.AntiPrompts, logger: _logger);
-            if (secondary != null)
-            {
-                session.SetSecondaryModel(secondary);
-            }
-        }
-
-        // ── Sub-agents (only if enabled) ──
-        if (_config.SubAgent.Enabled)
-        {
-            await session.InitializeSubAgentsAsync();
-        }
-    }
-
-/// <summary>
     /// Process a single user input (command or prompt). Called by the console input loop.
     /// </summary>
     private static async Task ProcessInputAsync(
@@ -539,7 +465,11 @@ public class Program
                 try
                 {
                     var newSession = sessionManager.CreateSession(name, label: arg);
-                    await InitSessionAsync(newSession, workingDir, bgMgr, userConfigDir);
+                    var builder = new SessionBuilder(_config, workingDir, userConfigDir, _logger, bgMgr);
+                    // Attach console UI listener
+                    var uiRenderer = new ConsoleUiRenderer(Gui, _color); _activeUi = uiRenderer;
+                    newSession.AddListener(uiRenderer);
+                    await builder.BuildAsync(newSession);
                     Gui.BlankLine();
                     Gui.WriteLineColored(_color.Green + _color.Bold + "[Session] " + ($"Created [{name}]. Use 'session <index>' to switch.") + _color.Reset);
                     Gui.BlankLine();

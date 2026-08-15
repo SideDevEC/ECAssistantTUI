@@ -61,6 +61,33 @@ public class EAgentEngine : IAsyncDisposable
     private int _turnCount = 0;
     private string? _systemPromptText;
 
+    // ── Injectable system prompt path (for library consumers) ──
+    // When set, overrides the default OS-specific SystemPrompt.md lookup.
+    // Set to null to use the default file-based loading behavior.
+    private string? _systemPromptPathOverride;
+    /// <summary>
+    /// Override the system prompt file path. Set before calling LoadContext().
+    /// When null (default), the engine loads OS-specific SystemPrompt.md from
+    /// working dir or build dir. When set, loads from this exact path.
+    /// Library consumers can also set SystemPromptText directly to inject
+    /// a prompt string without any file I/O.
+    /// </summary>
+    public string? SystemPromptPath
+    {
+        get => _systemPromptPathOverride;
+        set => _systemPromptPathOverride = value;
+    }
+
+    /// <summary>
+    /// Directly set the system prompt text. Overrides file-based loading entirely.
+    /// Set before calling LoadContext(). Set to null to revert to file-based loading.
+    /// </summary>
+    public string? SystemPromptText
+    {
+        get => _systemPromptText;
+        set => _systemPromptText = value;
+    }
+
        // -- Session Output (v10.18: replaces direct Gui calls) ----
     private ISessionOutput? _out;
     public ISessionOutput? SessionOutput { get => _out; set => _out = value; }
@@ -535,8 +562,31 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
              // v10.16: Load OS-specific system prompt at startup
             // Windows: SystemPrompt.Windows.md, Mac: SystemPrompt.Mac.md
             // Fallback: SystemPrompt.md (generic/legacy)
+            // v10.23: If SystemPromptText is already set (by library consumer), skip file loading
             try
              {
+                // If text was pre-set via SystemPromptText property, use it directly
+                if (_systemPromptText != null)
+                {
+                    _out?.WriteInfo($"[Config] System prompt provided programmatically ({_systemPromptText.Length} chars)");
+                }
+                // If a custom path was set via SystemPromptPath property, load from there
+                else if (!string.IsNullOrEmpty(_systemPromptPathOverride))
+                {
+                    if (File.Exists(_systemPromptPathOverride))
+                    {
+                        _systemPromptText = File.ReadAllText(_systemPromptPathOverride);
+                        _out?.WriteInfo($"[Config] System prompt loaded from: {_systemPromptPathOverride} ({_systemPromptText.Length} chars)");
+                    }
+                    else
+                    {
+                        _logger?.Warn("Engine", $"System prompt path not found: {_systemPromptPathOverride} — using empty system prompt.");
+                        _systemPromptText = "";
+                    }
+                }
+                // Default: OS-specific file-based loading
+                else
+                {
                 var promptFileName = OperatingSystem.IsMacOS() ? "SystemPrompt.Mac.md"
                                    : OperatingSystem.IsWindows() ? "SystemPrompt.Windows.md"
                                    : "SystemPrompt.md";
@@ -560,6 +610,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                               _systemPromptText = "";
                             }
                           }
+                }
              catch (Exception ex)
                   {
                        _logger?.Warn("Engine", $"Failed to load system prompt: {ex.Message}");

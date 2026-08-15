@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OutputType>Library</OutputType>
+    <RootNamespace>ECAssistant</RootNamespace>
+    <AssemblyName>ECAssistant.Core</AssemblyName>
+    <IsPackable>true</IsPackable>
+    <PackageId>ECAssistant.Core</PackageId>
+    <Description>ECAssistant Core — local AI agent engine, tools, session management, and memory system. Library for embedding ECAssistant into any .NET application.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="e-assistant" />
+    <InternalsVisibleTo Include="ECAssistant.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Exclude Program.cs (App project) and Tests -->
+    <Compile Remove="Program.cs" />
+    <Compile Remove="Tests/**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="LLamaSharp" Version="0.27.0" />
+    <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.27.0" />
+    <PackageReference Include="LLamaSharp.Backend.Cuda12" Version="0.27.0" Condition="'$(OS)' == 'WINDOWS'" />
+    <PackageReference Include="LLamaSharp.Backend.Vulkan" Version="0.27.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="SystemPrompt.md" Pack="true" PackagePath="content/" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="SystemPrompt.Windows.md" Pack="true" PackagePath="content/" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="SystemPrompt.Mac.md" Pack="true" PackagePath="content/" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="appsettings.json" Pack="true" PackagePath="content/" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

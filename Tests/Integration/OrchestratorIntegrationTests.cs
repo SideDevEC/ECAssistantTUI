@@ -29,7 +29,7 @@ public class OrchestratorIntegrationTests : IDisposable
         _tempDir = Path.Combine(Path.GetTempPath(), "ECAInteg_Orch_" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(_tempDir);
         _gui = new EGuiTestHarness();
-        Program.Gui = _gui;
+        TestRunner.TestGui = _gui;
     }
 
     public void Dispose()

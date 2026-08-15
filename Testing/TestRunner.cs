@@ -107,6 +107,12 @@ public sealed class TestRunner : IAsyncDisposable
     private EShellAgent? _shellAgent;
     private readonly ILogger _logger;
 
+    /// <summary>
+    /// v10.23: Static GUI reference for test harness. Replaces the old Program.Gui coupling.
+    /// Components that need the GUI during tests read from this instead of Program.Gui.
+    /// </summary>
+    public static EGuiTestHarness? TestGui { get; set; }
+
     public List<TestResult> Results { get; } = new();
 
     /// <summary>v10.17.2: Verbose mode — dump full captured log for each test (including token stream).</summary>
@@ -159,7 +165,8 @@ public sealed class TestRunner : IAsyncDisposable
 
             // Set up the non-interactive GUI harness
             _testGui = new EGuiTestHarness();
-            Program.Gui = _testGui;
+            // v10.23: Set Gui on TestRunner instead of Program.Gui (decoupled from App)
+            TestGui = _testGui;
 
             // Queue scripted inputs (for approval prompts)
             _testGui.QueueInputs(scenario.ScriptedInputs);

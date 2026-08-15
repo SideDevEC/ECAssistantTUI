@@ -3,54 +3,39 @@ using System.Text;
 namespace ECAssistant.UI;
 
 /// <summary>
-/// Console-based EGuiBase with ANSI scroll region.
-/// Output scrolls above a fixed input line at the bottom.
+/// Console-based EGuiBase.
+/// Uses a simple approach: output writes to console normally,
+/// input prompt is shown before blocking on ReadLine.
 /// 
-/// Strategy: Track only the output ROW (not column). Before writing output
-/// when returning from input line, position cursor at (outputRow, 1). Write
-/// text and let the terminal flow the cursor. Count newlines to update outputRow.
-/// Don't count columns — ANSI color codes break column tracking.
-/// 
-/// For token streaming (WriteRaw, no newlines): the cursor stays on the same
-/// row, text appends naturally. We just need to know which row to return to.
+/// For concurrent input while streaming: the output thread writes
+/// tokens directly to stdout. The main thread blocks on ReadKey in
+/// the input loop. A lock prevents interleaving.
 /// </summary>
 public sealed class EGuiConsole : EGuiBase
 {
     private bool _ansiSupported;
-    private int _scrollBottom;
-    private int _inputRow;
-
     private readonly object _cursorLock = new();
     private StringBuilder _inputBuffer = new();
     private string _inputPrompt = "> ";
     private bool _inputActive;
-
-    // Output cursor row tracking (1-based, within scroll region)
-    private int _outputRow = 1;
-    private bool _cursorOnInputLine;
 
     public void InitConsole()
     {
         _ansiSupported = DetectAnsiSupport();
         if (_ansiSupported)
         {
-            UpdateTerminalSize();
-            SetupScrollRegion();
+            try { Console.CursorVisible = true; } catch { }
         }
     }
 
     public void ShutdownConsole()
     {
         if (!_ansiSupported) return;
-        Console.Write("\x1b[r");
-        Console.Write("\x1b[2J");
-        Console.Write("\x1b[1;1H");
+        try { Console.CursorVisible = true; } catch { }
     }
 
     private bool DetectAnsiSupport()
     {
-        // Windows: enable ANSI via SetConsoleMode, then check if not redirected.
-        // Windows doesn't use TERM, so check it first.
         if (OperatingSystem.IsWindows())
         {
             try { EnableWindowsAnsi(); } catch { }
@@ -58,7 +43,6 @@ public sealed class EGuiConsole : EGuiBase
             return true;
         }
 
-        // macOS/Linux: check TERM environment variable
         var term = Environment.GetEnvironmentVariable("TERM");
         if (string.IsNullOrEmpty(term) || term == "dumb") return false;
         try { if (Console.IsOutputRedirected) return false; } catch { return false; }
@@ -85,29 +69,6 @@ public sealed class EGuiConsole : EGuiBase
         }
     }
 
-    private void UpdateTerminalSize()
-    {
-        try
-        {
-            _scrollBottom = Console.WindowHeight - 1;
-            _inputRow = Console.WindowHeight;
-        }
-        catch
-        {
-            _scrollBottom = 23;
-            _inputRow = 24;
-        }
-    }
-
-    private void SetupScrollRegion()
-    {
-        Console.Write($"\x1b[1;{_scrollBottom}r");
-        Console.Write("\x1b[2J");
-        Console.Write("\x1b[1;1H");
-        _outputRow = 1;
-        _cursorOnInputLine = false;
-    }
-
     // ── Output ──
 
     private void WriteOutput(string text)
@@ -120,42 +81,30 @@ public sealed class EGuiConsole : EGuiBase
 
         lock (_cursorLock)
         {
-            if (_cursorOnInputLine)
-            {
-                // Return cursor to scroll region at the output row, column 1
-                Console.Write($"\x1b[{_outputRow};1H");
-                _cursorOnInputLine = false;
-            }
-            // If not on input line, cursor is already where output left off — just write
-
-            Console.Write(text);
-
-            // Update output row: count newlines in text
-            int newlines = 0;
-            foreach (char c in text)
-                if (c == '\n') newlines++;
-            _outputRow += newlines;
-            if (_outputRow > _scrollBottom)
-                _outputRow = _scrollBottom;  // scrolled — cursor at bottom of region
-
+            // If input is active, temporarily move cursor to a new line for output
             if (_inputActive)
             {
-                RedrawInputLine();  // moves cursor to input row, sets _cursorOnInputLine
+                // Save cursor, move to next line after input, write output
+                // Then redraw input on its own line
+                Console.Write("\x1b[s");  // save cursor position
+                Console.Write("\r");       // return to start of current line
+                Console.Write("\x1b[A");   // move up one line (above input)
+                Console.Write("\n");       // new line — pushes input down
+                Console.Write(text);
+                Console.Write("\n");       // ensure output ends on its own line
+                // Redraw input prompt on the new line below
+                Console.Write(_inputPrompt);
+                Console.Write(_inputBuffer.ToString());
+                Console.Write("\x1b[u");  // restore cursor
+            }
+            else
+            {
+                Console.Write(text);
             }
         }
     }
 
     private void WriteOutputLine(string text) => WriteOutput(text + "\n");
-
-    private void RedrawInputLine()
-    {
-        if (!_ansiSupported) return;
-        Console.Write($"\x1b[{_inputRow};1H");
-        Console.Write("\x1b[2K");
-        Console.Write(_inputPrompt);
-        Console.Write(_inputBuffer.ToString());
-        _cursorOnInputLine = true;
-    }
 
     // ── EGuiBase ──
 
@@ -167,7 +116,7 @@ public sealed class EGuiConsole : EGuiBase
     public override void WarningColored(string coloredText) => WriteOutputLine(coloredText);
     public override void WriteRawDirect(string text)
     {
-        // Direct streaming — bypass cursor tracking and input line redraw
+        // Direct streaming — same as WriteOutput but without input line management
         // This prevents line break issues during token streaming
         if (!_ansiSupported)
         {
@@ -177,25 +126,22 @@ public sealed class EGuiConsole : EGuiBase
 
         lock (_cursorLock)
         {
-            if (_cursorOnInputLine)
+            if (_inputActive)
             {
-                Console.Write($"\x1b[{_outputRow};1H");
-                _cursorOnInputLine = false;
+                // Write output on the line above the input, then restore input
+                Console.Write("\x1b[s");
+                Console.Write("\r\x1b[A\n");
+                Console.Write(text);
+                Console.Write("\x1b[u");
             }
-            // Write directly without tracking newlines or redrawing input line
-            Console.Write(text);
-            // Update output row for newlines
-            foreach (char c in text)
-                if (c == '\n') _outputRow++;
-            if (_outputRow > _scrollBottom) _outputRow = _scrollBottom;
+            else
+            {
+                Console.Write(text);
+            }
         }
     }
     public override void LogInternal(string text) => WriteOutputLine(text);
 
-    /// <summary>
-    /// Check if ESC was pressed (non-blocking). Checks Console.KeyAvailable + ReadKey.
-    /// Returns false if no real console (redirected/piped) or no key available.
-    /// </summary>
     public override bool IsEscapePressed()
     {
         try
@@ -204,7 +150,7 @@ public sealed class EGuiConsole : EGuiBase
         }
         catch (InvalidOperationException)
         {
-            return false;  // No real console (test mode, redirected input)
+            return false;
         }
     }
 
@@ -236,11 +182,11 @@ public sealed class EGuiConsole : EGuiBase
             }
         }
 
-        // ANSI mode
+        // ANSI mode — simple approach: just print prompt and read
         lock (_cursorLock)
         {
             _inputActive = true;
-            RedrawInputLine();
+            Console.Write(prompt);
         }
 
         while (true)
@@ -264,18 +210,7 @@ public sealed class EGuiConsole : EGuiBase
                     var result = _inputBuffer.ToString();
                     _inputBuffer.Clear();
                     _inputActive = false;
-
-                    // Clear input line
-                    Console.Write($"\x1b[{_inputRow};1H");
-                    Console.Write("\x1b[2K");
-                    _cursorOnInputLine = false;
-
-                    // Echo submitted line into scroll region at current output position
-                    Console.Write($"\x1b[{_outputRow};1H");
-                    Console.WriteLine($"{prompt}{result}");
-                    _outputRow++;
-                    if (_outputRow > _scrollBottom) _outputRow = _scrollBottom;
-
+                    Console.WriteLine();
                     return result;
                 }
                 else if (key.Key == ConsoleKey.Backspace)
@@ -283,18 +218,20 @@ public sealed class EGuiConsole : EGuiBase
                     if (_inputBuffer.Length > 0)
                     {
                         _inputBuffer.Remove(_inputBuffer.Length - 1, 1);
-                        RedrawInputLine();
+                        Console.Write("\b \b");
                     }
                 }
                 else if (key.Key == ConsoleKey.Escape)
                 {
                     _inputBuffer.Clear();
-                    RedrawInputLine();
+                    // Clear current line and redraw prompt
+                    Console.Write("\r\x1b[2K");
+                    Console.Write(prompt);
                 }
                 else if (key.KeyChar != '\0')
                 {
                     _inputBuffer.Append(key.KeyChar);
-                    RedrawInputLine();
+                    Console.Write(key.KeyChar);
                 }
             }
         }

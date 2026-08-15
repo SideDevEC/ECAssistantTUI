@@ -680,7 +680,6 @@ public class Program
             if (string.IsNullOrEmpty(input)) continue;
 
             await ProcessInputAsync(input, activeSession, sessionManager, workingDir, bgMgr, fileWatcher, userConfigDir);
-            Gui.BlankLine(); // Ensure clean separation before next prompt
 
             // Check if active session changed (e.g. session switch)
             var currentActive = sessionManager.ActiveSession;

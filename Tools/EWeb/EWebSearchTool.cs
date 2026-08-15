@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using ECAssistant.Config;
 using ECAssistant.Interfaces;
 
 namespace ECAssistant.Tools.Web;
@@ -12,41 +13,46 @@ namespace ECAssistant.Tools.Web;
 /// Web Search Tool — lets the LLM search the web using DuckDuckGo Instant Answer API.
 /// No API key needed, no authentication, no rate limits for reasonable use.
 /// </summary>
-public class EWebSearchTool : ITool
+public class EWebSearchTool : EToolBase
 {
     private readonly IHttpClient _httpClient;
-    private readonly IConfigProvider _configProvider;
+    private readonly JsonElement? _toolConfig;
 
-    public EWebSearchTool(IHttpClient httpClient, IConfigProvider configProvider)
-    {
-        _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
-        _configProvider = configProvider ?? throw new ArgumentNullException(nameof(configProvider));
-    }
+    public override string Name => "EWebSearch";
 
-    public string Name => "EWebSearch";
-
-    public string Description =>
+    public override string Description =>
         "Search the web using DuckDuckGo. Returns search results with titles, URLs, and snippets. " +
         "Use for: finding documentation, looking up APIs, getting code examples, researching topics. " +
         "No authentication needed.";
 
-    public ECAssistant.Interfaces.ToolPolicy GetPolicy() => ECAssistant.Interfaces.ToolPolicy.Approved(Name);
+    public override string UsageExample => "<toolcall>EWebSearch<query>dotnet 8 async streams</query></toolcall>";
 
-    public async Task<string> ExecuteAsync(string input, CancellationToken ct = default)
+    public override bool IsEnabled { get; protected set; } = true;
+
+    public EWebSearchTool(IHttpClient httpClient, EAgentConfig config)
     {
-        var args = ParseInput(input);
-        var query = args.GetValueOrDefault("query", "");
-        var maxResults = int.TryParse(args.GetValueOrDefault("max_results", "5"), out var mr) ? mr : 5;
+        _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+        config.Tools.TryGetValue(Name, out var tc);
+        _toolConfig = tc.ValueKind == JsonValueKind.Undefined ? null : tc;
+        IsEnabled = ReadCfg(_toolConfig, "enabled", true);
+    }
+
+    public override object GetConfigSection() => new { enabled = true };
+
+    public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments, CancellationToken cancellationToken = default)
+    {
+        var query = arguments.GetValueOrDefault("query")?.Trim() ?? "";
+        var maxResults = int.TryParse(arguments.GetValueOrDefault("max_results"), out var mr) ? mr : 5;
 
         if (string.IsNullOrWhiteSpace(query))
-            return $"[FAILED] {Name}: Missing 'query' argument.";
+            return EToolResult.Failure(Name, "Missing 'query' argument.");
 
         try
         {
             var encodedQuery = Uri.EscapeDataString(query);
             var apiUrl = $"https://api.duckduckgo.com/?q={encodedQuery}&format=json&no_html=1";
 
-            var json = await _httpClient.GetAsync(apiUrl, ct);
+            var json = await _httpClient.GetAsync(apiUrl, cancellationToken);
             var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
@@ -76,7 +82,6 @@ public class EWebSearchTool : ITool
 
                     var text = topic.TryGetProperty("Text", out var t) ? t.GetString() ?? "" : "";
                     var firstUrl = topic.TryGetProperty("FirstURL", out var u) ? u.GetString() ?? "" : "";
-                    var icon = topic.TryGetProperty("Icon", out var iconEl) ? iconEl.TryGetProperty("URL", out var iconUrl) ? iconUrl.GetString() ?? "" : "" : "";
 
                     if (!string.IsNullOrEmpty(text))
                     {
@@ -87,7 +92,6 @@ public class EWebSearchTool : ITool
                         count++;
                     }
 
-                    // Check for nested topics
                     if (topic.TryGetProperty("Topics", out var nested) && nested.ValueKind == JsonValueKind.Array)
                     {
                         foreach (var nestedTopic in nested.EnumerateArray())
@@ -112,40 +116,25 @@ public class EWebSearchTool : ITool
             }
 
             if (count == 0)
-            {
                 results.AppendLine("No results found.");
-            }
 
-            return $"[SUCCESS] {Name}: Found {count} results for '{query}'\n\n{results.ToString().Trim()}";
+            return EToolResult.Success(Name, $"Found {count} results for '{query}'\n\n{results.ToString().Trim()}");
         }
         catch (Exception ex)
         {
-            return $"[FAILED] {Name}: Search error: {ex.Message}";
+            return EToolResult.Failure(Name, $"Search error: {ex.Message}");
         }
     }
 
-    private Dictionary<string, string> ParseInput(string input)
+    private static T ReadCfg<T>(JsonElement? section, string key, T defaultValue)
     {
-        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-        if (string.IsNullOrWhiteSpace(input))
-            return result;
-
-        // XML tag format from ToolAdapter: <query>...</query>
-        var xmlMatches = System.Text.RegularExpressions.Regex.Matches(input, @"<(\w+)>(.*?)</\1>");
-        foreach (System.Text.RegularExpressions.Match m in xmlMatches)
-            result[m.Groups[1].Value] = m.Groups[2].Value;
-
-        if (result.Count > 0) return result;
-
-        var matches = System.Text.RegularExpressions.Regex.Matches(input, @"(\w+)\s*=\s*""([^""]*)""|(\w+)\s*=\s*(\S+)");
-        foreach (System.Text.RegularExpressions.Match match in matches)
+        if (section.HasValue && section.Value.ValueKind == JsonValueKind.Object)
         {
-            var key = match.Groups[1].Success ? match.Groups[1].Value : match.Groups[3].Value;
-            var value = match.Groups[2].Success ? match.Groups[2].Value : match.Groups[4].Value;
-            result[key] = value;
+            if (section.Value.TryGetProperty(key, out var prop))
+            {
+                try { return prop.Deserialize<T>() ?? defaultValue; } catch { return defaultValue; }
+            }
         }
-
-        return result;
+        return defaultValue;
     }
 }

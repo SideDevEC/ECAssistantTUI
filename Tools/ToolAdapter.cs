@@ -44,6 +44,9 @@ public sealed class ToolAdapter : EToolBase
 
     public override string GetExtendedSystemPrompt() => _inner.Description;
 
+    /// <summary>v10.24: Pass through GetConfigSection() from the wrapped ITool.</summary>
+    public override object GetConfigSection() => _inner.GetConfigSection();
+
     /// <summary>
     /// Convert dictionary arguments to XML tag format for ITool consumption.
     /// E.g., {"command": "date"} → "&lt;command&gt;date&lt;/command&gt;"

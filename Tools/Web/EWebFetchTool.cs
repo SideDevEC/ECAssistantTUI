@@ -4,7 +4,9 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using ECAssistant.Config;
 using ECAssistant.Interfaces;
+using System.Text.Json;
 
 namespace ECAssistant.Tools.Web;
 
@@ -12,82 +14,73 @@ namespace ECAssistant.Tools.Web;
 /// EWebFetch — fetch a URL's content and convert HTML to plain text.
 /// Simple HTTP GET with HTML-to-text conversion. No JavaScript execution.
 /// </summary>
-public class EWebFetchTool : ITool
+public class EWebFetchTool : EToolBase
 {
     private readonly IHttpClient _httpClient;
-    private readonly IConfigProvider _configProvider;
+    private readonly JsonElement? _toolConfig;
 
-    public EWebFetchTool(IHttpClient httpClient, IConfigProvider configProvider)
-    {
-        _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
-        _configProvider = configProvider ?? throw new ArgumentNullException(nameof(configProvider));
-    }
+    public override string Name => "EWebFetch";
 
-    public string Name => "EWebFetch";
-
-    public string Description =>
+    public override string Description =>
         "Fetch a web page URL and return its content as plain text. " +
         "Handles HTTP/HTTPS, strips HTML tags, extracts readable text. " +
         "Use for: documentation, articles, API reference pages, plain text content.";
 
-    public ECAssistant.Interfaces.ToolPolicy GetPolicy() => ECAssistant.Interfaces.ToolPolicy.Approved(Name);
+    public override string UsageExample => "<toolcall>EWebFetch<url>https://example.com</url></toolcall>";
 
-    public async Task<string> ExecuteAsync(string input, CancellationToken ct = default)
+    public override bool IsEnabled { get; protected set; } = true;
+
+    public EWebFetchTool(IHttpClient httpClient, EAgentConfig config)
     {
-        var args = ParseInput(input);
-        var url = args.TryGetValue("url", out var urlVal) ? urlVal : "";
-        var maxChars = int.TryParse(args.GetValueOrDefault("maxchars", "6000"), out var mc) ? mc : 6000;
+        _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+        config.Tools.TryGetValue(Name, out var tc);
+        _toolConfig = tc.ValueKind == JsonValueKind.Undefined ? null : tc;
+        IsEnabled = ReadCfg(_toolConfig, "enabled", true);
+    }
+
+    public override object GetConfigSection() => new { enabled = true };
+
+    public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments, CancellationToken cancellationToken = default)
+    {
+        var url = arguments.GetValueOrDefault("url")?.Trim() ?? "";
+        var maxChars = int.TryParse(arguments.GetValueOrDefault("maxchars"), out var mc) ? mc : 6000;
 
         if (string.IsNullOrWhiteSpace(url))
-            return $"[FAILED] {Name}: Missing required argument: url";
+            return EToolResult.Failure(Name, "Missing required argument: url");
 
         if (!Uri.TryCreate(url, UriKind.Absolute, out _))
-            return $"[FAILED] {Name}: Invalid URL: {url}";
+            return EToolResult.Failure(Name, $"Invalid URL: {url}");
 
         try
         {
-            var html = await _httpClient.GetAsync(url, ct);
+            var html = await _httpClient.GetAsync(url, cancellationToken);
             var text = HtmlToText(html);
 
             if (text.Length > maxChars)
                 text = text.Substring(0, maxChars) + "\n\n... [truncated]";
 
-            return $"[SUCCESS] {Name}: Fetched {url} ({text.Length} chars)\n\n{text}";
+            return EToolResult.Success(Name, $"Fetched {url} ({text.Length} chars)\n\n{text}");
         }
         catch (TaskCanceledException)
         {
-            return $"[FAILED] {Name}: Request timed out (15s): {url}";
+            return EToolResult.Failure(Name, $"Request timed out: {url}");
         }
         catch (Exception ex)
         {
-            return $"[FAILED] {Name}: Error fetching URL: {ex.Message}";
+            return EToolResult.Failure(Name, $"Error fetching URL: {ex.Message}");
         }
     }
 
-    private Dictionary<string, string> ParseInput(string input)
+    private static T ReadCfg<T>(JsonElement? section, string key, T defaultValue)
     {
-        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-        if (string.IsNullOrWhiteSpace(input))
-            return result;
-
-        // XML tag format from ToolAdapter: <url>...</url>
-        var xmlMatches = Regex.Matches(input, @"<(\w+)>(.*?)</\1>");
-        foreach (Match m in xmlMatches)
-            result[m.Groups[1].Value] = m.Groups[2].Value;
-
-        if (result.Count > 0) return result;
-
-        // Try key=value or key="value" format
-        var matches = Regex.Matches(input, @"(\w+)\s*=\s*""([^""]*)""|(\w+)\s*=\s*(\S+)");
-        foreach (Match match in matches)
+        if (section.HasValue && section.Value.ValueKind == JsonValueKind.Object)
         {
-            var key = match.Groups[1].Success ? match.Groups[1].Value : match.Groups[3].Value;
-            var value = match.Groups[2].Success ? match.Groups[2].Value : match.Groups[4].Value;
-            result[key] = value;
+            if (section.Value.TryGetProperty(key, out var prop))
+            {
+                try { return prop.Deserialize<T>() ?? defaultValue; } catch { return defaultValue; }
+            }
         }
-
-        return result;
+        return defaultValue;
     }
 
     private string HtmlToText(string html)
@@ -95,20 +88,11 @@ public class EWebFetchTool : ITool
         if (string.IsNullOrEmpty(html))
             return string.Empty;
 
-        // Remove script and style content
         var text = Regex.Replace(html, @"<script[^>]*>.*?</script>", "", RegexOptions.Singleline | RegexOptions.IgnoreCase);
         text = Regex.Replace(text, @"<style[^>]*>.*?</style>", "", RegexOptions.Singleline | RegexOptions.IgnoreCase);
-
-        // Remove HTML tags
         text = Regex.Replace(text, "<[^>]+>", " ");
-
-        // Decode HTML entities
         text = WebUtility.HtmlDecode(text);
-
-        // Clean up whitespace
         text = Regex.Replace(text, @"\s+", " ");
-
-        // Preserve line breaks for block elements
         text = text.Replace("<br>", "\n").Replace("<br/>", "\n").Replace("<br />", "\n");
         text = text.Replace("</p>", "\n\n").Replace("</div>", "\n");
         text = text.Replace("<p>", "").Replace("<div>", "");

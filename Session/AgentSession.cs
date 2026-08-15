@@ -85,6 +85,7 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
 
     // ── Tool policy ───────────────────────────────────
     private readonly ECAssistant.Tools.ToolPolicy _toolPolicy;
+    private readonly EAgentConfig? _config;  // v10.24: for tool config registration
     private readonly ILogger _logger;
 
     /// <summary>
@@ -110,6 +111,7 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
         _inferenceLock = inferenceLock;
         _subAgentConfig = subAgentConfig ?? new SubAgentConfig();
         _toolPolicy = new ECAssistant.Tools.ToolPolicy();
+        _config = config;
 
         // Create session directory
         _sessionDir = Path.Combine(workingDir, ".sessions", key);
@@ -727,15 +729,42 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
     //  REGISTRATION (tools, vector memory, project context)
     // ═══════════════════════════════════════════════════
 
-    /// <summary>Register a tool for this session's engine.</summary>
+    /// <summary>Register a tool for this session's engine.
+    /// v10.24: If tool's config section is not in EAgentConfig.Tools, adds it via GetConfigSection()
+    /// and calls AgentConfigBuilder.Update() to persist to appsettings.json.
+    /// </summary>
     public void RegisterTool(EToolBase tool)
     {
+        // v10.24: Auto-register tool config section if not present
+        if (_config != null)
+        {
+            if (!_config.Tools.ContainsKey(tool.Name))
+            {
+                var section = tool.GetConfigSection();
+                var jsonElement = System.Text.Json.JsonSerializer.SerializeToElement(section);
+                _config.Tools[tool.Name] = jsonElement;
+                AgentConfigBuilder.Update(_config);
+            }
+        }
         _engine.RegisterTool(tool);
     }
 
-    /// <summary>Register an ITool implementation (wrapped via ToolAdapter).</summary>
+    /// <summary>Register an ITool implementation (wrapped via ToolAdapter).
+    /// v10.24: Auto-registers tool config section if not present.
+    /// </summary>
     public void RegisterTool(ECAssistant.Interfaces.ITool tool)
     {
+        // v10.24: Auto-register tool config section if not present
+        if (_config != null)
+        {
+            if (!_config.Tools.ContainsKey(tool.Name))
+            {
+                var section = tool.GetConfigSection();
+                var jsonElement = System.Text.Json.JsonSerializer.SerializeToElement(section);
+                _config.Tools[tool.Name] = jsonElement;
+                AgentConfigBuilder.Update(_config);
+            }
+        }
         _engine.RegisterTool(tool);
     }
 

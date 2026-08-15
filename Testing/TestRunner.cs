@@ -473,24 +473,23 @@ public sealed class TestRunner : IAsyncDisposable
         // Register tools
         var processRunner = new ProcessRunner();
         var fileSystem = new FileSystemAdapter();
-        var configProvider = new ConfigProvider(fileSystem, configPath);
-        
         var httpClient = new HttpClientAdapter();
 
-        _shellAgent = new EShellAgent(processRunner, configProvider, workingDir);
+        // v10.24: Pass EAgentConfig to tools instead of ConfigProvider
+        _shellAgent = new EShellAgent(processRunner, config, workingDir);
         engine.RegisterTool(_shellAgent);
-        engine.RegisterTool(new EBackgroundExecTool(_bgMgr, processRunner, fileSystem, configProvider));
-        engine.RegisterTool(new EWebSearchTool(httpClient, configProvider));
-        engine.RegisterTool(new EDotnetBuildTool(processRunner, configProvider));
-        engine.RegisterTool(new EGitTool(processRunner, fileSystem, configProvider));
-        engine.RegisterTool(new ECodeEditorTool(fileSystem, configProvider));
+        engine.RegisterTool(new EBackgroundExecTool(_bgMgr, processRunner, fileSystem, config));
+        engine.RegisterTool(new EWebSearchTool(httpClient, config));
+        engine.RegisterTool(new EDotnetBuildTool(processRunner, config));
+        engine.RegisterTool(new EGitTool(processRunner, fileSystem, config));
+        engine.RegisterTool(new ECodeEditorTool(fileSystem, config));
 
         // v10.22: EFileReader + EWebFetch
-        engine.RegisterTool(new EFileReaderTool(fileSystem, configProvider));
-        engine.RegisterTool(new EWebFetchTool(httpClient, configProvider));
+        engine.RegisterTool(new EFileReaderTool(fileSystem, config));
+        engine.RegisterTool(new EWebFetchTool(httpClient, config));
 
         // File research tool
-        engine.RegisterTool(new EFileResearchTool(fileSystem, configProvider));
+        engine.RegisterTool(new EFileResearchTool(fileSystem, config));
 
         // Prefill KV cache (no-op for mock engine)
         if (!UseMockEngine)

@@ -284,20 +284,19 @@ public sealed class SubAgentManager : IDisposable
             var bgMgr = new Services.BackgroundProcessManager();
             var processRunner = new Services.ProcessRunner();
             var fileSystem = new Services.FileSystemAdapter();
-            // v10.23: Use injected config path, not hardcoded ~/ECAssistant/appsettings.json
-            var configProvider = new Services.ConfigProvider(fileSystem, _config);
             var httpClient = new Services.HttpClientAdapter();
 
-            childEngine.RegisterTool(new Tools.Shell.EShellAgent(processRunner, configProvider, workingDir));
-            childEngine.RegisterTool(new Tools.Background.EBackgroundExecTool(bgMgr, processRunner, fileSystem, configProvider));
-            childEngine.RegisterTool(new Tools.Web.EWebSearchTool(httpClient, configProvider));
-            childEngine.RegisterTool(new Tools.Build.EDotnetBuildTool(processRunner, configProvider));
-            childEngine.RegisterTool(new Tools.Git.EGitTool(processRunner, fileSystem, configProvider));
-            childEngine.RegisterTool(new Tools.Code.ECodeEditorTool(fileSystem, configProvider));
+            // v10.24: Pass EAgentConfig to tools instead of ConfigProvider
+            childEngine.RegisterTool(new Tools.Shell.EShellAgent(processRunner, _config, workingDir));
+            childEngine.RegisterTool(new Tools.Background.EBackgroundExecTool(bgMgr, processRunner, fileSystem, _config));
+            childEngine.RegisterTool(new Tools.Web.EWebSearchTool(httpClient, _config));
+            childEngine.RegisterTool(new Tools.Build.EDotnetBuildTool(processRunner, _config));
+            childEngine.RegisterTool(new Tools.Git.EGitTool(processRunner, fileSystem, _config));
+            childEngine.RegisterTool(new Tools.Code.ECodeEditorTool(fileSystem, _config));
 
             var researchExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 { ".cs", ".md", ".json", ".txt", ".xml", ".sql", ".html", ".css", ".js", ".sh" };
-            childEngine.RegisterTool(new Tools.Research.EFileResearchTool(fileSystem, configProvider));
+            childEngine.RegisterTool(new Tools.Research.EFileResearchTool(fileSystem, _config));
 
             await childEngine.PrefillStaticPrefix();
 

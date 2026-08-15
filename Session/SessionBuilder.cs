@@ -142,19 +142,18 @@ public class SessionBuilder
     {
         var fileSystem = new FileSystemAdapter();
         var processRunner = new ProcessRunner();
-        var configPath = Path.Combine(_userConfigDir, "appsettings.json");
-        var configProvider = new ConfigProvider(fileSystem, configPath);
         var httpClient = new HttpClientAdapter();
 
-        session.RegisterTool(new EShellAgent(processRunner, configProvider, _workingDir));
-        session.RegisterTool(new EBackgroundExecTool(_bgManager, processRunner, fileSystem, configProvider));
-        session.RegisterTool(new EWebSearchTool(httpClient, configProvider));
-        session.RegisterTool(new EDotnetBuildTool(processRunner, configProvider));
-        session.RegisterTool(new EGitTool(processRunner, fileSystem, configProvider));
-        session.RegisterTool(new ECodeEditorTool(fileSystem, configProvider));
-        session.RegisterTool(new EFileReaderTool(fileSystem, configProvider));
-        session.RegisterTool(new EWebFetchTool(httpClient, configProvider));
-        session.RegisterTool(new EFileResearchTool(fileSystem, configProvider));
+        // v10.24: Pass EAgentConfig to tools instead of IConfigProvider
+        session.RegisterTool(new EShellAgent(processRunner, _config, _workingDir));
+        session.RegisterTool(new EBackgroundExecTool(_bgManager, processRunner, fileSystem, _config));
+        session.RegisterTool(new EWebSearchTool(httpClient, _config));
+        session.RegisterTool(new EDotnetBuildTool(processRunner, _config));
+        session.RegisterTool(new EGitTool(processRunner, fileSystem, _config));
+        session.RegisterTool(new ECodeEditorTool(fileSystem, _config));
+        session.RegisterTool(new EFileReaderTool(fileSystem, _config));
+        session.RegisterTool(new EWebFetchTool(httpClient, _config));
+        session.RegisterTool(new EFileResearchTool(fileSystem, _config));
     }
 
     /// <summary>

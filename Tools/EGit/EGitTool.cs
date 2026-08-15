@@ -1,122 +1,90 @@
 using System.Text;
 using System.Text.Json;
+using ECAssistant.Config;
 using ECAssistant.Interfaces;
 
 namespace ECAssistant.Tools.Git;
 
 /// <summary>
 /// Git Integration Tool — wraps common git operations with structured output.
-/// Returns clean, parsed results instead of raw git output.
-///
-/// Usage:
-///   EGitTool(action="status")
-///   EGitTool(action="diff")
-///   EGitTool(action="commit", message="fix: update config")
-///   EGitTool(action="log", max_entries="5")
 /// </summary>
-public class EGitTool : ITool
+public class EGitTool : EToolBase
 {
     private readonly IProcessRunner _processRunner;
     private readonly IFileSystem _fileSystem;
-    private readonly IConfigProvider _configProvider;
+    private readonly JsonElement? _toolConfig;
+    private readonly string _workingDir;
 
-    private string WorkingDir => _configProvider.GetValue("git.workingDir", Environment.CurrentDirectory);
+    public override string Name => "EGitTool";
 
-    public EGitTool(IProcessRunner processRunner, IFileSystem fileSystem, IConfigProvider configProvider)
-    {
-        _processRunner = processRunner;
-        _fileSystem = fileSystem;
-        _configProvider = configProvider;
-    }
-
-    public string Name => "EGitTool";
-
-    public string Description =>
+    public override string Description =>
         "Git operations with structured output. Actions: init, status, diff, commit, push, pull, log, " +
         "add, branch, checkout. Better than raw shell for git — parses output into clean format.";
 
-    public Interfaces.ToolPolicy GetPolicy() => Interfaces.ToolPolicy.Allowed(Name);
+    public override string UsageExample =>
+        "<toolcall>EGitTool<action>status</action></toolcall>";
 
-    public async Task<string> ExecuteAsync(string input, CancellationToken ct = default)
+    public override bool IsEnabled { get; protected set; } = true;
+
+    public EGitTool(IProcessRunner processRunner, IFileSystem fileSystem, EAgentConfig config)
     {
-        var args = ParseInput(input);
-        var action = args.GetValueOrDefault("action")?.ToLower().Trim();
+        _processRunner = processRunner;
+        _fileSystem = fileSystem;
+        config.Tools.TryGetValue(Name, out var tc);
+        _toolConfig = tc.ValueKind == JsonValueKind.Undefined ? null : tc;
+        IsEnabled = ReadCfg(_toolConfig, "enabled", true);
+        _workingDir = ReadCfg(_toolConfig, "workingDir", Environment.CurrentDirectory);
+    }
+
+    public override object GetConfigSection() => new { enabled = true };
+
+    public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments, CancellationToken cancellationToken = default)
+    {
+        var action = arguments.GetValueOrDefault("action")?.ToLower().Trim();
 
         if (string.IsNullOrEmpty(action))
-            return $"[{Name}] ERROR: Missing 'action' argument.";
+            return EToolResult.Failure(Name, "Missing 'action' argument.");
 
-        var cmd = BuildGitCommand(action, args);
+        var cmd = BuildGitCommand(action, arguments);
         if (string.IsNullOrEmpty(cmd))
-            return $"[{Name}] ERROR: Unknown git action: {action}";
+            return EToolResult.Failure(Name, $"Unknown git action: {action}");
 
         try
         {
-            var result = await _processRunner.ExecuteAsync($"git {cmd}", WorkingDir, ct);
+            var result = await _processRunner.ExecuteAsync($"git {cmd}", _workingDir, cancellationToken);
 
             if (result.ExitCode != 0 && !string.IsNullOrWhiteSpace(result.StdErr))
-                return $"[{Name}] ERROR: git {action} failed (exit {result.ExitCode}):\n{result.StdErr.Trim()}";
+                return EToolResult.Failure(Name, $"git {action} failed (exit {result.ExitCode}):\n{result.StdErr.Trim()}");
 
             var output = ParseGitOutput(action, result.StdOut);
-            return $"[{Name}] {output}";
+            return EToolResult.Success(Name, output);
         }
         catch (Exception ex)
         {
-            return $"[{Name}] ERROR: git error: {ex.Message}";
+            return EToolResult.Failure(Name, $"git error: {ex.Message}");
         }
     }
 
-    private Dictionary<string, string> ParseInput(string input)
+    private static T ReadCfg<T>(JsonElement? section, string key, T defaultValue)
     {
-        if (string.IsNullOrWhiteSpace(input))
-            return new Dictionary<string, string>();
-
-        try
+        if (section.HasValue && section.Value.ValueKind == JsonValueKind.Object)
         {
-            using var doc = JsonDocument.Parse(input);
-            var dict = new Dictionary<string, string>();
-            foreach (var prop in doc.RootElement.EnumerateObject())
+            if (section.Value.TryGetProperty(key, out var prop))
             {
-                if (prop.Value.ValueKind == JsonValueKind.String)
-                    dict[prop.Name] = prop.Value.GetString() ?? string.Empty;
-                else
-                    dict[prop.Name] = prop.Value.ToString();
+                try { return prop.Deserialize<T>() ?? defaultValue; } catch { return defaultValue; }
             }
-            return dict;
         }
-        catch
-        {
-            var dict = new Dictionary<string, string>();
-
-            // XML tag format from ToolAdapter: <action>status</action>
-            var xmlMatches = System.Text.RegularExpressions.Regex.Matches(input, @"<(\w+)>(.*?)</\1>");
-            foreach (System.Text.RegularExpressions.Match m in xmlMatches)
-                dict[m.Groups[1].Value] = m.Groups[2].Value;
-
-            if (dict.Count > 0) return dict;
-
-            var pairs = input.Split('&');
-            foreach (var pair in pairs)
-            {
-                var eq = pair.IndexOf('=');
-                if (eq > 0)
-                    dict[pair[..eq].Trim()] = pair[(eq + 1)..].Trim();
-            }
-            return dict;
-        }
+        return defaultValue;
     }
 
-    private string BuildGitCommand(string action, Dictionary<string, string> args)
+    private string BuildGitCommand(string action, Dictionary<string, string?> args)
     {
         switch (action)
         {
-            case "init":
-                return "init";
-            case "status":
-                return "status --porcelain";
-            case "diff":
-                return "diff";
-            case "diff-staged":
-                return "diff --cached";
+            case "init": return "init";
+            case "status": return "status --porcelain";
+            case "diff": return "diff";
+            case "diff-staged": return "diff --cached";
             case "add":
             {
                 var files = args.GetValueOrDefault("files") ?? ".";
@@ -129,27 +97,22 @@ public class EGitTool : ITool
                 if (string.IsNullOrEmpty(msg)) return "";
                 return $"commit -m \"{msg.Replace("\"", "\\\"")}\"";
             }
-            case "push":
-                return "push";
-            case "pull":
-                return "pull";
+            case "push": return "push";
+            case "pull": return "pull";
             case "log":
             {
                 var max = args.GetValueOrDefault("max_entries") ?? "10";
                 return $"log --oneline -{max}";
             }
-            case "branch":
-                return "branch -a";
+            case "branch": return "branch -a";
             case "checkout":
             {
                 var branch = args.GetValueOrDefault("branch") ?? "";
                 if (string.IsNullOrEmpty(branch)) return "";
                 return $"checkout {branch}";
             }
-            case "current-branch":
-                return "rev-parse --abbrev-ref HEAD";
-            default:
-                return "";
+            case "current-branch": return "rev-parse --abbrev-ref HEAD";
+            default: return "";
         }
     }
 
@@ -177,15 +140,10 @@ public class EGitTool : ITool
                     foreach (var line in lines)
                     {
                         var status = line.Length >= 2 ? line.Substring(0, 2).Trim() : "??";
-                    var file = line.Length > 3 ? line.Substring(3).Trim() : line;
+                        var file = line.Length > 3 ? line.Substring(3).Trim() : line;
                         var icon = status switch
                         {
-                            "M" => "📝",
-                            "A" => "➕",
-                            "D" => "➖",
-                            "R" => "📦",
-                            "??" => "❓",
-                            _ => "📝"
+                            "M" => "📝", "A" => "➕", "D" => "➖", "R" => "📦", "??" => "❓", _ => "📝"
                         };
                         sb.AppendLine($"  {icon} [{status}] {file}");
                     }

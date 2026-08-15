@@ -18,8 +18,9 @@ public class EAgentConfig
     [JsonPropertyName("workspace")]
     public WorkspaceConfig Workspace { get; set; } = new();
 
+    // v10.24: Tools is now a dynamic dictionary — any tool can add its config section
     [JsonPropertyName("tools")]
-    public ToolsConfig Tools { get; set; } = new();
+    public Dictionary<string, JsonElement> Tools { get; set; } = new();
 
     [JsonPropertyName("llm")]
     public LlmConfig Llm { get; set; } = new();

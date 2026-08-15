@@ -1,5 +1,5 @@
 using System.Text.Json;
-using ECAssistant;
+using ECAssistant.Config;
 
 namespace ECAssistant.Tools;
 
@@ -16,6 +16,9 @@ public abstract class EToolBase
           /// <summary>Human-readable description for system prompt injection</summary>
     public abstract string Description { get; }
 
+          /// <summary>Whether this tool is enabled. Read from config.Tools[Name].enabled.</summary>
+    public virtual bool IsEnabled { get; protected set; } = true;
+
                /// <summary>Example usage text shown to the LLM in the system prompt</summary>
     public abstract string UsageExample { get; }
 
@@ -24,6 +27,14 @@ public abstract class EToolBase
                  /// </summary>
              /// <param name="arguments">Dictionary of argument key/value pairs from the LLM</param>
     public abstract Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// v10.24: Returns the default config section for this tool.
+    /// Called when the tool is registered and its config section is not yet in appsettings.json.
+    /// Every tool returns at minimum { enabled = true }.
+    /// Override to add tool-specific parameters.
+    /// </summary>
+    public virtual object GetConfigSection() => new { enabled = true };
 
                 /// <summary>
                 /// Override to provide additional tool-specific system prompt text.
@@ -78,6 +89,31 @@ public abstract class EToolBase
 
             return sb.ToString();
            }
+
+    // ── v10.24: Config helpers ──
+
+    /// <summary>
+    /// Read a value from the tool's config section in EAgentConfig.Tools.
+    /// Returns defaultValue if the key is not found or the section doesn't exist.
+    /// </summary>
+    protected static T ReadConfig<T>(Dictionary<string, JsonElement> tools, string toolName, string key, T defaultValue)
+    {
+        if (tools.TryGetValue(toolName, out var section) && section.ValueKind == JsonValueKind.Object)
+        {
+            if (section.TryGetProperty(key, out var prop))
+            {
+                try { return prop.Deserialize<T>() ?? defaultValue; }
+                catch { return defaultValue; }
+            }
+        }
+        return defaultValue;
+    }
+
+    /// <summary>
+    /// Check if a tool is enabled in the config.
+    /// </summary>
+    protected static bool IsToolEnabled(Dictionary<string, JsonElement> tools, string toolName)
+        => ReadConfig(tools, toolName, "enabled", true);
 }
 
 /// <summary>

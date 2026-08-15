@@ -1,6 +1,8 @@
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Text.RegularExpressions;
+using ECAssistant.Config;
 using ECAssistant.Interfaces;
 
 namespace ECAssistant.Tools.Shell;
@@ -8,111 +10,116 @@ namespace ECAssistant.Tools.Shell;
 /// <summary>
 /// Shell Agent Tool — the primary tool for all file and system operations.
 /// </summary>
-public class EShellAgent : ITool
+public class EShellAgent : EToolBase
 {
     private readonly IProcessRunner _processRunner;
-    private readonly IConfigProvider _configProvider;
     private readonly string _workingDirectory;
     private readonly bool _isWindows = OperatingSystem.IsWindows();
+    private readonly JsonElement? _toolConfig;
+    private readonly bool _usePwshCore;
+    private readonly bool _fallbackToPwshExe;
+    private readonly int _maxOutputChars;
 
-    public EShellAgent(IProcessRunner processRunner, IConfigProvider configProvider, string workingDirectory)
-    {
-        _processRunner = processRunner;
-        _configProvider = configProvider;
-        _workingDirectory = Path.GetFullPath(workingDirectory);
-    }
+    public override string Name => "EShellAgent";
 
-    public string Name => "EShellAgent";
-
-    public string Description =>
+    public override string Description =>
         "Full filesystem and shell command execution. " +
         "Can read/write/copy/move/delete files and folders, run any shell command, " +
         "compile code, search files, manage projects. " +
         "Working directory is set automatically — use relative paths.";
 
-    public async Task<string> ExecuteAsync(string input, CancellationToken ct = default)
+    public override string UsageExample =>
+        "<toolcall>EShellAgent<command>Get-ChildItem</command></toolcall>";
+
+    public override bool IsEnabled { get; protected set; } = true;
+
+    public EShellAgent(IProcessRunner processRunner, EAgentConfig config, string workingDirectory)
     {
-        var command = ExtractCommand(input);
+        _processRunner = processRunner;
+        _workingDirectory = Path.GetFullPath(workingDirectory);
+        config.Tools.TryGetValue(Name, out var tc);
+        _toolConfig = tc.ValueKind == JsonValueKind.Undefined ? null : tc;
+        IsEnabled = ReadCfg(_toolConfig, "enabled", true);
+        _usePwshCore = ReadCfg(_toolConfig, "use_pwsh_core", true);
+        _fallbackToPwshExe = ReadCfg(_toolConfig, "fallback_to_powershell_exe", true);
+        _maxOutputChars = ReadCfg(_toolConfig, "max_output_chars", 50000);
+    }
+
+    public override object GetConfigSection() => new
+    {
+        enabled = true,
+        use_pwsh_core = true,
+        fallback_to_powershell_exe = true,
+        max_output_chars = 50000
+    };
+
+    public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments, CancellationToken cancellationToken = default)
+    {
+        var command = arguments.GetValueOrDefault("command")?.Trim();
         if (string.IsNullOrWhiteSpace(command))
-            return $"[{Name}] Missing command argument.";
+            return EToolResult.Failure(Name, "Missing command argument.");
 
         try
         {
-            var result = await RunShellAsync(command, _workingDirectory, ct);
+            var result = await RunShellAsync(command, _workingDirectory, cancellationToken);
 
             var hasStderrOutput = !string.IsNullOrWhiteSpace(result.StandardError);
 
             if (result.ExitCode == 0 && !hasStderrOutput)
             {
-                var safeOutput = EscapeXml(result.StandardOutput);
-                return string.IsNullOrEmpty(result.StandardOutput)
-                    ? $"[Shell Success] Command completed (no output)."
-                    : $"[Shell Success]\n{safeOutput}";
+                var output = string.IsNullOrEmpty(result.StandardOutput)
+                    ? "Command completed (no output)."
+                    : result.StandardOutput;
+                if (output.Length > _maxOutputChars)
+                    output = output.Substring(0, _maxOutputChars) + "\n... [truncated]";
+                return EToolResult.Success(Name, output);
             }
             else if (result.ExitCode == 0 && hasStderrOutput)
             {
-                var safeOutput = EscapeXml(result.StandardOutput);
-                var safeErr = EscapeXml(result.StandardError);
-                return string.IsNullOrEmpty(result.StandardOutput)
-                    ? $"[Shell Warning] Command completed but produced error output:\nSTDERR: {safeErr}"
-                    : $"[Shell Warning]\n{safeOutput}\n\nSTDERR: {safeErr}";
+                var output = string.IsNullOrEmpty(result.StandardOutput)
+                    ? $"Command completed but produced error output:\nSTDERR: {result.StandardError}"
+                    : $"{result.StandardOutput}\n\nSTDERR: {result.StandardError}";
+                if (output.Length > _maxOutputChars)
+                    output = output.Substring(0, _maxOutputChars) + "\n... [truncated]";
+                return EToolResult.Success(Name, output);
             }
             else
             {
-                var safeErr = EscapeXml(result.StandardError);
-                var safeCmd = EscapeXml(command);
-                return $"[Shell Error (Exit {result.ExitCode})]\nSTDERR: {safeErr}\nCommand: {safeCmd}";
+                return EToolResult.Failure(Name, $"Shell Error (Exit {result.ExitCode})\nSTDERR: {result.StandardError}\nCommand: {command}");
             }
         }
         catch (Exception ex)
         {
-            return $"[{Name}] Execution failed: {ex.GetType().Name}: {ex.Message}";
+            return EToolResult.Failure(Name, $"Execution failed: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
-    public ECAssistant.Interfaces.ToolPolicy GetPolicy() => ECAssistant.Interfaces.ToolPolicy.Approved(Name);
+    private static T ReadCfg<T>(JsonElement? section, string key, T defaultValue)
+    {
+        if (section.HasValue && section.Value.ValueKind == JsonValueKind.Object)
+        {
+            if (section.Value.TryGetProperty(key, out var prop))
+            {
+                try { return prop.Deserialize<T>() ?? defaultValue; } catch { return defaultValue; }
+            }
+        }
+        return defaultValue;
+    }
 
     private async Task<ShellProcessResult> RunShellAsync(string command, string workingDir, CancellationToken cancellationToken = default)
     {
         string shellCommand;
 
         if (_isWindows)
-            shellCommand = $"powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{command}\"";
+        {
+            var shell = _usePwshCore ? "pwsh" : "powershell.exe";
+            shellCommand = $"{shell} -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{command}\"";
+        }
         else
             shellCommand = $"/bin/zsh -c \"{command}\"";
 
         var result = await _processRunner.ExecuteAsync(shellCommand, workingDir, cancellationToken);
         return new ShellProcessResult(result.StdOut, result.StdErr, result.ExitCode);
-    }
-
-    /// <summary>
-    /// Extract the command from the input string.
-    /// Handles XML tag format from ToolAdapter: <command>date</command>
-    /// Also handles raw command text and key=value format.
-    /// </summary>
-    private string ExtractCommand(string input)
-    {
-        if (string.IsNullOrWhiteSpace(input))
-            return string.Empty;
-
-        input = input.Trim();
-
-        // XML tag format from ToolAdapter
-        var xmlMatch = Regex.Match(input, @"<command>(.*?)</command>", RegexOptions.IgnoreCase);
-        if (xmlMatch.Success)
-            return xmlMatch.Groups[1].Value.Trim();
-
-        // key="value" format (fallback)
-        var kvMatch = Regex.Match(input, @"command\s*=\s*""([^""]*)""");
-        if (kvMatch.Success)
-            return kvMatch.Groups[1].Value;
-
-        // key=value without quotes
-        if (input.StartsWith("command=", StringComparison.OrdinalIgnoreCase))
-            return input.Substring("command=".Length).Trim().Trim('"');
-
-        // Raw input — just return as-is
-        return input;
     }
 
     private string EscapeXml(string text)

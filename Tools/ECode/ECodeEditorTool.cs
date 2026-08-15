@@ -1,5 +1,7 @@
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
+using ECAssistant.Config;
 using ECAssistant.Interfaces;
 
 namespace ECAssistant.Tools.Code;
@@ -7,57 +9,70 @@ namespace ECAssistant.Tools.Code;
 /// <summary>
 /// Code Editor Tool — surgical code edits with diff preview, multi-line replacement,
 /// cross-file search & replace, and syntax-aware editing.
-/// 
-/// Actions:
-///   create       — create a new file with content
-///   diff         — show diff between current file and new content
-///   patch        — apply a multi-line patch (old_text → new_text)
-///   search       — find pattern across all files
-///   replace-all  — replace pattern across all files
-///   insert       — insert text at a specific line number
-///   delete-lines — delete a range of lines
 /// </summary>
-public class ECodeEditorTool : ITool
+public class ECodeEditorTool : EToolBase
 {
     private readonly IFileSystem _fileSystem;
+    private readonly JsonElement? _toolConfig;
     private readonly string _workingDir;
 
-    public ECodeEditorTool(IFileSystem fileSystem, IConfigProvider configProvider)
-    {
-        _fileSystem = fileSystem;
-        _workingDir = configProvider.GetValue("workingDir", Directory.GetCurrentDirectory());
-    }
+    public override string Name => "ECodeEditor";
 
-    public string Name => "ECodeEditor";
-
-    public string Description =>
+    public override string Description =>
         "Surgical code editing: create files, multi-line patch, diff preview, cross-file search & replace, " +
         "line insertion/deletion. Better than shell echo for code changes.";
 
-    public Task<string> ExecuteAsync(string input, CancellationToken ct = default)
+    public override string UsageExample =>
+        "<toolcall>ECodeEditor<action>patch</action><file>Program.cs</file><old_text>bug</old_text><new_text>fix</new_text></toolcall>";
+
+    public override bool IsEnabled { get; protected set; } = true;
+
+    public ECodeEditorTool(IFileSystem fileSystem, EAgentConfig config)
     {
-        return ExecuteCore(ParseInput(input), ct);
+        _fileSystem = fileSystem;
+        config.Tools.TryGetValue(Name, out var tc);
+        _toolConfig = tc.ValueKind == JsonValueKind.Undefined ? null : tc;
+        IsEnabled = ReadCfg(_toolConfig, "enabled", true);
+        _workingDir = config.AgentSettings.WorkingDirectory;
     }
 
-    public Interfaces.ToolPolicy GetPolicy() => Interfaces.ToolPolicy.Approved(Name);
+    public override object GetConfigSection() => new { enabled = true };
 
-    private async Task<string> ExecuteCore(Dictionary<string, string?> arguments, CancellationToken ct)
+    public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments, CancellationToken cancellationToken = default)
     {
         var action = arguments.GetValueOrDefault("action")?.ToLower().Trim();
         if (string.IsNullOrEmpty(action))
-            return $"ECodeEditor: Missing 'action' argument.";
+            return EToolResult.Failure(Name, "Missing 'action' argument.");
 
-        return action switch
+        var result = action switch
         {
-            "create" => await DoCreate(arguments, ct),
-            "diff" => await DoDiff(arguments, ct),
-            "patch" => await DoPatch(arguments, ct),
-            "search" => await DoSearch(arguments, ct),
-            "replace-all" => await DoReplaceAll(arguments, ct),
-            "insert" => await DoInsert(arguments, ct),
-            "delete-lines" => await DoDeleteLines(arguments, ct),
+            "create" => await DoCreate(arguments, cancellationToken),
+            "diff" => await DoDiff(arguments, cancellationToken),
+            "patch" => await DoPatch(arguments, cancellationToken),
+            "search" => await DoSearch(arguments, cancellationToken),
+            "replace-all" => await DoReplaceAll(arguments, cancellationToken),
+            "insert" => await DoInsert(arguments, cancellationToken),
+            "delete-lines" => await DoDeleteLines(arguments, cancellationToken),
             _ => $"ECodeEditor: Unknown action: {action}"
         };
+
+        if (result.StartsWith("✅"))
+            return EToolResult.Success(Name, result);
+        if (result.StartsWith("ECodeEditor:") || result.Contains("not found") || result.Contains("Missing"))
+            return EToolResult.Failure(Name, result);
+        return EToolResult.Success(Name, result);
+    }
+
+    private static T ReadCfg<T>(JsonElement? section, string key, T defaultValue)
+    {
+        if (section.HasValue && section.Value.ValueKind == JsonValueKind.Object)
+        {
+            if (section.Value.TryGetProperty(key, out var prop))
+            {
+                try { return prop.Deserialize<T>() ?? defaultValue; } catch { return defaultValue; }
+            }
+        }
+        return defaultValue;
     }
 
     // ─── Create: create a new file with content ───────────────
@@ -117,7 +132,6 @@ public class ECodeEditorTool : ITool
             return msg;
         }
 
-        // Count occurrences — warn if multiple
         var count = CountOccurrences(content, oldText);
         if (count > 1)
         {
@@ -125,10 +139,7 @@ public class ECodeEditorTool : ITool
                 $"or use action=replace-all for intentional multi-replacement.";
         }
 
-        // Apply patch
         var newContent = content.Replace(oldText, newText);
-
-        // Generate diff
         var diff = GenerateDiff(content, newContent, file);
 
         await Task.Run(() => _fileSystem.WriteFile(fullPath, newContent));
@@ -311,9 +322,7 @@ public class ECodeEditorTool : ITool
 
         var subDirs = Directory.GetDirectories(directory);
         foreach (var subDir in subDirs)
-        {
             result.AddRange(ListFilesRecursive(subDir));
-        }
 
         return result;
     }
@@ -374,14 +383,5 @@ public class ECodeEditorTool : ITool
             sb.AppendLine("(no changes)");
 
         return sb.ToString();
-    }
-
-    private Dictionary<string, string?> ParseInput(string input)
-    {
-        var args = new Dictionary<string, string?>();
-        var matches = Regex.Matches(input, @"<(\w+)>(.*?)</\1>");
-        foreach (Match match in matches)
-            args[match.Groups[1].Value] = match.Groups[2].Value;
-        return args;
     }
 }

@@ -193,4 +193,17 @@ public class AgentConfigBuilder
 
         return freshConfig;
     }
+
+    /// <summary>
+    /// v10.24: Write an updated EAgentConfig back to appsettings.json.
+    /// Uses config.RootPath to locate the file. Called when new tools are registered
+    /// and their config sections are added to the Tools dictionary.
+    /// </summary>
+    public static void Update(EAgentConfig config)
+    {
+        var jsonPath = Path.Combine(config.RootPath, "appsettings.json");
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, PropertyNameCaseInsensitive = true };
+        var json = JsonSerializer.Serialize(config, jsonOptions);
+        File.WriteAllText(jsonPath, json);
+    }
 }

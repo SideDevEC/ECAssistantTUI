@@ -85,6 +85,7 @@ public sealed class EGuiConsole : EGuiBase
         Console.Write("\r\x1b[2K");
         Console.Write(PromptStr);
         Console.Write(_inputBuffer.ToString());
+        Console.Out.Flush();
     }
 
     /// <summary>

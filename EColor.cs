@@ -20,7 +20,7 @@ public class EColor : IColorFormatter
     public string Cyan      => "\x1b[36m";
     public string White    => "\x1b[37m";
 
-    // ── Variant helpers — returns combo of color + bold for readability ──
+    // ── Variant helpers ──
     public string Cfg()          => Yellow;
     public string Info()         => Cyan;
     public string Success()      => Green;
@@ -30,24 +30,31 @@ public class EColor : IColorFormatter
     public string ToolCall()     => Magenta;
     public string Token()        => Dim;
 
-    // ── Output redirect ──
-    // Route EColor output through a delegate so EGuiConsole can
-    // intercept it for ANSI scroll region cursor management.
-    // Default: Console.WriteLine/Write (fallback when no UI is set)
+    // ── Static output redirect ──
+    // Shared across ALL EColor instances so that EColor objects created
+    // deep in the engine (SubAgentManager, EMemoryManager, etc.) also
+    // route through the UI — not just the one in Program.cs.
+    public static Action<string>? StaticWriteHandler { get; set; }
+    public static Action<string>? StaticWriteLineHandler { get; set; }
+
+    // ── Instance-level redirect (takes priority over static) ──
     public Action<string>? WriteHandler { get; set; }
     public Action<string>? WriteLineHandler { get; set; }
 
-    // ── IColorFormatter.Format (existing) ──
+    // ── IColorFormatter.Format ──
     public string Format(string color, string text)
     {
         return $"{color}{text}{Reset}";
     }
 
     // ── Write / WriteLine ──
+    // Uses instance handler if set, then static handler, then Console fallback.
     public void Write(string color, string text)
     {
         if (WriteHandler != null)
             WriteHandler(color + text + Reset);
+        else if (StaticWriteHandler != null)
+            StaticWriteHandler(color + text + Reset);
         else
             Console.Write(color + text + Reset);
     }
@@ -56,6 +63,8 @@ public class EColor : IColorFormatter
     {
         if (WriteLineHandler != null)
             WriteLineHandler(color + text + Reset);
+        else if (StaticWriteLineHandler != null)
+            StaticWriteLineHandler(color + text + Reset);
         else
             Console.WriteLine(color + text + Reset);
     }

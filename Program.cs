@@ -48,6 +48,9 @@ public class Program
             // Route EColor output through Gui for scroll region cursor management
             _color.WriteLineHandler = (s) => Gui.WriteLineColored(s);
             _color.WriteHandler = (s) => Gui.WriteRaw(s);
+            // Set static handlers so ALL EColor instances (SubAgentManager, EMemoryManager, etc.) route through Gui
+            EColor.StaticWriteLineHandler = (s) => Gui.WriteLineColored(s);
+            EColor.StaticWriteHandler = (s) => Gui.WriteRaw(s);
 
             // ── Initialize structured logging (P2) ──
             var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "ECAssistant.log");

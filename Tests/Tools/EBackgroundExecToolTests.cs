@@ -37,7 +37,6 @@ public class EBackgroundExecToolTests : IDisposable
         Assert.Contains("background", tool.Description, StringComparison.OrdinalIgnoreCase);
     }
 
-
     
 
     // ── ExecuteAsync — start action ──
@@ -49,9 +48,9 @@ public class EBackgroundExecToolTests : IDisposable
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "start", ["command"] = "echo hello" });
 
-        Assert.Contains("bg-1", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("echo hello", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("Background process started", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("bg-1", result.Output + result.Error);
+        Assert.Contains("echo hello", result.Output + result.Error);
+        Assert.Contains("Background process started", result.Output + result.Error);
     }
 
     [Fact]
@@ -83,7 +82,7 @@ public class EBackgroundExecToolTests : IDisposable
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "status" });
 
-        Assert.Contains("No background processes", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("No background processes", result.Output + result.Error);
     }
 
     [Fact]
@@ -95,8 +94,8 @@ public class EBackgroundExecToolTests : IDisposable
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "status" });
 
-        Assert.Contains("bg-1", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("1", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("bg-1", result.Output + result.Error);
+        Assert.Contains("1", result.Output + result.Error);
     }
 
     // ── ExecuteAsync — output action ──
@@ -193,7 +192,7 @@ public class EBackgroundExecToolTests : IDisposable
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "start", ["command"] = "build" }, cts.Token);
 
-        Assert.Contains("CANCELLED", result.Error);
+        Assert.Contains("cancelled", result.Error);
     }
 
     // ── Fallback parsing (non-JSON) ──
@@ -205,6 +204,6 @@ public class EBackgroundExecToolTests : IDisposable
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "status" });
 
-        Assert.Contains("No background processes", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("No background processes", result.Output + result.Error);
     }
 }

@@ -32,6 +32,7 @@ public class EWebSearchTool : EToolBase
     public EWebSearchTool(IHttpClient httpClient, EAgentConfig config)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+        _ = config ?? throw new ArgumentNullException(nameof(config));
         config.Tools.TryGetValue(Name, out var tc);
         _toolConfig = tc.ValueKind == JsonValueKind.Undefined ? null : tc;
         IsEnabled = ReadCfg(_toolConfig, "enabled", true);

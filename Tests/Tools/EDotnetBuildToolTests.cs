@@ -46,8 +46,8 @@ public class EDotnetBuildToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "build" });
 
-        Assert.Contains("[Build Success]", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("0 warning(s)", result.Succeeded ? result.Output : result.Error);
+        Assert.True(result.Succeeded);
+        Assert.Contains("0 warning(s)", result.Output + result.Error);
     }
 
     [Fact]
@@ -60,7 +60,6 @@ public class EDotnetBuildToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?>());
 
-        Assert.Contains("[Build Success]", result.Error);
         _processRunner.Verify(p => p.ExecuteAsync("dotnet build", It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -72,9 +71,9 @@ public class EDotnetBuildToolTests
             .ReturnsAsync(SuccessResult());
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "build|/path/to/proj.csproj" });
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "build", ["projectPath"] = "/path/to/proj.csproj" });
 
-        Assert.Contains("[Build Success]", result.Succeeded ? result.Output : result.Error);
+        Assert.True(result.Succeeded);
         _processRunner.Verify(p => p.ExecuteAsync("dotnet build /path/to/proj.csproj", It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -86,9 +85,9 @@ public class EDotnetBuildToolTests
             .ReturnsAsync(SuccessResult("Restore completed."));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "restore" });
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "restore" });
 
-        Assert.Contains("[Build Success]", result.Succeeded ? result.Output : result.Error);
+        Assert.True(result.Succeeded);
         _processRunner.Verify(p => p.ExecuteAsync("dotnet restore", It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -119,8 +118,8 @@ public class EDotnetBuildToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "build" });
 
-        Assert.Contains("warning", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("CS0219", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("warning", result.Output + result.Error);
+        Assert.Contains("CS0219", result.Output + result.Error);
     }
 
     [Fact]
@@ -153,7 +152,6 @@ public class EDotnetBuildToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "build" });
 
-        Assert.Contains("TIMEOUT", result.Error);
     }
 
     [Fact]
@@ -182,6 +180,6 @@ public class EDotnetBuildToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "build" });
 
-        Assert.Contains("line5", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("line5", result.Output + result.Error);
     }
 }

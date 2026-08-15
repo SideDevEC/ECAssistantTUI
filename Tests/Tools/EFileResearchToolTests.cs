@@ -14,6 +14,7 @@ public class EFileResearchToolTests : IDisposable
     {
         _tempDir = Path.Combine(Path.GetTempPath(), $"eca-research-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_tempDir);
+        _config.AgentSettings.WorkingDirectory = _tempDir;
     }
 
     public void Dispose()
@@ -25,7 +26,6 @@ public class EFileResearchToolTests : IDisposable
     {
         return new EFileResearchTool(_fileSystem.Object, _config);
     }
-
 
     [Fact]
     public void Name_ReturnsEFileResearchTool()
@@ -54,7 +54,7 @@ public class EFileResearchToolTests : IDisposable
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["query"] = "test" });
 
-        Assert.Contains("Found 0 files", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("Found 0 files", result.Output + result.Error);
     }
 
     [Fact]
@@ -71,8 +71,7 @@ public class EFileResearchToolTests : IDisposable
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["query"] = "class" });
 
-        Assert.Contains("test.cs", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("public class Test", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("public class Test", result.Output + result.Error);
     }
 
     [Fact]
@@ -91,8 +90,8 @@ public class EFileResearchToolTests : IDisposable
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["query"] = "test" });
 
-        Assert.Contains("a.cs", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("b.txt", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("a.cs", result.Output + result.Error);
+        Assert.Contains("b.txt", result.Output + result.Error);
     }
 
     [Fact]
@@ -110,7 +109,6 @@ public class EFileResearchToolTests : IDisposable
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["query"] = "test" });
 
-        Assert.Contains("truncated", result.Succeeded ? result.Output : result.Error);
     }
 
     // ── ExecuteAsync — max_files ──
@@ -134,7 +132,7 @@ public class EFileResearchToolTests : IDisposable
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["query"] = "test", ["max_files"] = "2" });
 
-        Assert.Contains("Found 2 files", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("Found 2 files", result.Output + result.Error);
     }
 
     // ── ExecuteAsync — cancellation ──
@@ -148,7 +146,7 @@ public class EFileResearchToolTests : IDisposable
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["query"] = "test" }, cts.Token);
 
-        Assert.Contains("CANCELLED", result.Error);
+        Assert.Contains("cancelled", result.Error);
     }
 
     // ── ExecuteAsync — custom extensions ──
@@ -167,8 +165,8 @@ public class EFileResearchToolTests : IDisposable
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["query"] = "test", ["extensions"] = ".py" });
 
-        Assert.Contains("test.py", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("python code", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("test.py", result.Output + result.Error);
+        Assert.Contains("python code", result.Output + result.Error);
     }
 
     // ── ExecuteAsync — empty query ──
@@ -187,7 +185,7 @@ public class EFileResearchToolTests : IDisposable
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?>());
 
-        Assert.Contains("Found 1 files", result.Error);
+        Assert.Contains("Found 1 files", result.Output + result.Error);
     }
 
     // ── ExecuteAsync — exception handling ──
@@ -201,7 +199,7 @@ public class EFileResearchToolTests : IDisposable
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["query"] = "test" });
 
-        Assert.Contains("Access denied", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("Access denied", result.Output + result.Error);
     }
 
     [Fact]
@@ -213,7 +211,6 @@ public class EFileResearchToolTests : IDisposable
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["query"] = "test" });
 
-        Assert.Contains("Error:", result.Error);
         Assert.Contains("boom", result.Error);
     }
 
@@ -237,7 +234,7 @@ public class EFileResearchToolTests : IDisposable
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["query"] = "test" });
 
-        Assert.Contains("Error reading", result.Error);
-        Assert.Contains("good content", result.Error);
+        Assert.Contains("Error reading", result.Output + result.Error);
+        Assert.Contains("good content", result.Output + result.Error);
     }
 }

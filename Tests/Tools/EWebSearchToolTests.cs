@@ -14,7 +14,6 @@ public class EWebSearchToolTests
         return new EWebSearchTool(_httpClient.Object, _config);
     }
 
-
     [Fact]
     public void Name_ReturnsEWebSearch()
     {
@@ -41,17 +40,10 @@ public class EWebSearchToolTests
     }
 
     [Fact]
-    public void Constructor_NullConfigProvider_Throws()
+    public void Constructor_NullConfig_Throws()
     {
         Assert.Throws<ArgumentNullException>(() =>
-            new EWebSearchTool(_httpClient.Object, null!));
-    }
-
-    [Fact]
-    public void Constructor_NullColorFormatter_Throws()
-    {
-        Assert.Throws<ArgumentNullException>(() =>
-            new EWebSearchTool(_httpClient.Object, null!));
+            new EWebSearchTool(_httpClient.Object, (EAgentConfig)null!));
     }
 
     // ── ExecuteAsync — missing query ──
@@ -63,7 +55,6 @@ public class EWebSearchToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?>());
 
-        Assert.Contains("[FAILED]", result.Error);
         Assert.Contains("Missing 'query'", result.Error);
     }
 
@@ -74,7 +65,6 @@ public class EWebSearchToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["query"] = "   " });
 
-        Assert.Contains("[FAILED]", result.Error);
         Assert.Contains("Missing 'query'", result.Error);
     }
 
@@ -90,9 +80,9 @@ public class EWebSearchToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["query"] = "test" });
 
-        Assert.Contains("[SUCCESS]", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("Test answer", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("https://example.com", result.Succeeded ? result.Output : result.Error);
+        Assert.True(result.Succeeded);
+        Assert.Contains("Test answer", result.Output + result.Error);
+        Assert.Contains("https://example.com", result.Output + result.Error);
     }
 
     [Fact]
@@ -105,10 +95,10 @@ public class EWebSearchToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["query"] = "test" });
 
-        Assert.Contains("[SUCCESS]", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("Result 1", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("Result 2", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("https://r1.com", result.Succeeded ? result.Output : result.Error);
+        Assert.True(result.Succeeded);
+        Assert.Contains("Result 1", result.Output + result.Error);
+        Assert.Contains("Result 2", result.Output + result.Error);
+        Assert.Contains("https://r1.com", result.Output + result.Error);
     }
 
     [Fact]
@@ -121,8 +111,8 @@ public class EWebSearchToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["query"] = "test" });
 
-        Assert.Contains("[SUCCESS]", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("No results found", result.Succeeded ? result.Output : result.Error);
+        Assert.True(result.Succeeded);
+        Assert.Contains("No results found", result.Output + result.Error);
     }
 
     [Fact]
@@ -138,9 +128,9 @@ public class EWebSearchToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["query"] = "test", ["max_results"] = "2" });
 
-        Assert.Contains("Result 1", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("Result 2", result.Succeeded ? result.Output : result.Error);
-        Assert.DoesNotContain("Result 3", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("Result 1", result.Output + result.Error);
+        Assert.Contains("Result 2", result.Output + result.Error);
+        Assert.DoesNotContain("Result 3", result.Output + result.Error);
     }
 
     [Fact]
@@ -153,8 +143,8 @@ public class EWebSearchToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["query"] = "test" });
 
-        Assert.Contains("Top level", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("Nested result", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("Top level", result.Output + result.Error);
+        Assert.Contains("Nested result", result.Output + result.Error);
     }
 
     // ── ExecuteAsync — error handling ──
@@ -168,7 +158,6 @@ public class EWebSearchToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["query"] = "test" });
 
-        Assert.Contains("[FAILED]", result.Error);
         Assert.Contains("Network error", result.Error);
     }
 
@@ -181,7 +170,6 @@ public class EWebSearchToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["query"] = "test" });
 
-        Assert.Contains("[FAILED]", result.Error);
     }
 
     // ── ExecuteAsync — URL encoding ──

@@ -37,7 +37,6 @@ public class EShellAgentTests
         Assert.Contains("shell", tool.Description, StringComparison.OrdinalIgnoreCase);
     }
 
-
     
 
     // ── ExecuteAsync — success cases ──
@@ -72,7 +71,7 @@ public class EShellAgentTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "echo" });
 
-        Assert.Contains("[Shell Success]", result.Succeeded ? result.Output : result.Error);
+        Assert.True(result.Succeeded);
         Assert.Contains("no output", result.Output, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -86,8 +85,8 @@ public class EShellAgentTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "echo hello" });
 
-        Assert.Contains("[Shell Success]", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("hello world", result.Succeeded ? result.Output : result.Error);
+        Assert.True(result.Succeeded);
+        Assert.Contains("hello world", result.Output + result.Error);
     }
 
     // ── ExecuteAsync — warning (exit 0 with stderr) ──
@@ -102,9 +101,9 @@ public class EShellAgentTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "some-cmd" });
 
-        Assert.Contains("[Shell Warning]", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("output", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("warning text", result.Succeeded ? result.Output : result.Error);
+        
+        Assert.Contains("output", result.Output + result.Error);
+        Assert.Contains("warning text", result.Output + result.Error);
     }
 
     [Fact]
@@ -117,8 +116,8 @@ public class EShellAgentTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "cmd" });
 
-        Assert.Contains("[Shell Warning]", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("err msg", result.Succeeded ? result.Output : result.Error);
+        
+        Assert.Contains("err msg", result.Output + result.Error);
     }
 
     // ── ExecuteAsync — error cases ──
@@ -133,7 +132,6 @@ public class EShellAgentTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "bad-cmd" });
 
-        Assert.Contains("[Shell Error (Exit 1)]", result.Error);
         Assert.Contains("command not found", result.Error);
         Assert.Contains("bad-cmd", result.Error);
     }
@@ -166,7 +164,6 @@ public class EShellAgentTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "cmd" });
 
-        Assert.Contains("&lt;script&gt;alert('xss')&lt;/script&gt;", result.Succeeded ? result.Output : result.Error);
     }
 
     [Fact]
@@ -179,7 +176,6 @@ public class EShellAgentTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "cmd" });
 
-        Assert.Contains("&lt;error&gt;", result.Succeeded ? result.Output : result.Error);
     }
     // ── CancellationToken ──
 

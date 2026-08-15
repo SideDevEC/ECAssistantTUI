@@ -33,6 +33,7 @@ public class EDotnetBuildTool : EToolBase
 
     public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments, CancellationToken cancellationToken = default)
     {
+        arguments ??= new Dictionary<string, string?>();
         var action = arguments.GetValueOrDefault("action")?.Trim().ToLower() ?? "build";
         var projectPath = arguments.GetValueOrDefault("projectPath")?.Trim()
                        ?? arguments.GetValueOrDefault("project")?.Trim()

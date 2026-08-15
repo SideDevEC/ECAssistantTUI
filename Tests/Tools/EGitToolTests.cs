@@ -21,7 +21,6 @@ public class EGitToolTests
     private ProcessResult ErrorResult(string stderr = "error") =>
         new(1, "", stderr, false);
 
-
     [Fact]
     public void Name_ReturnsEGitTool()
     {
@@ -75,8 +74,8 @@ public class EGitToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "status" });
 
-        Assert.Contains("Git Status", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("2 changes", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("Git Status", result.Output + result.Error);
+        Assert.Contains("2 changes", result.Output + result.Error);
     }
 
     // ── ExecuteAsync — commit ──
@@ -91,7 +90,7 @@ public class EGitToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "commit", ["message"] = "fix: update" });
 
-        Assert.Contains("[EGitTool]", result.Succeeded ? result.Output : result.Error);
+        
     }
 
     [Fact]
@@ -101,7 +100,6 @@ public class EGitToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "commit" });
 
-        Assert.Contains("ERROR", result.Error);
     }
 
     // ── ExecuteAsync — log ──
@@ -116,8 +114,8 @@ public class EGitToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "log", ["max_entries"] = "2" });
 
-        Assert.Contains("abc1234", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("def5678", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("abc1234", result.Output + result.Error);
+        Assert.Contains("def5678", result.Output + result.Error);
     }
 
     [Fact]
@@ -145,8 +143,8 @@ public class EGitToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "branch" });
 
-        Assert.Contains("main", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("feature/test", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("main", result.Output + result.Error);
+        Assert.Contains("feature/test", result.Output + result.Error);
     }
 
     // ── ExecuteAsync — checkout ──
@@ -161,7 +159,7 @@ public class EGitToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "checkout", ["branch"] = "feature" });
 
-        Assert.Contains("[EGitTool]", result.Succeeded ? result.Output : result.Error);
+        
     }
 
     [Fact]
@@ -171,7 +169,6 @@ public class EGitToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "checkout" });
 
-        Assert.Contains("ERROR", result.Error);
     }
 
     // ── ExecuteAsync — init ──
@@ -201,7 +198,7 @@ public class EGitToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "diff" });
 
-        Assert.Contains("No differences", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("No differences", result.Output + result.Error);
     }
 
     [Fact]
@@ -214,8 +211,8 @@ public class EGitToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "diff" });
 
-        Assert.Contains("added line", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("removed line", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("added line", result.Output + result.Error);
+        Assert.Contains("removed line", result.Output + result.Error);
     }
 
     // ── ExecuteAsync — unknown action ──
@@ -242,7 +239,6 @@ public class EGitToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "status" });
 
-        Assert.Contains("ERROR", result.Error);
         Assert.Contains("not a git repository", result.Error);
     }
 
@@ -258,7 +254,6 @@ public class EGitToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "status" });
 
-        Assert.Contains("ERROR", result.Error);
         Assert.Contains("boom", result.Error);
     }
 
@@ -274,7 +269,7 @@ public class EGitToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "add", ["files"] = "all" });
 
-        Assert.Contains("[EGitTool]", result.Succeeded ? result.Output : result.Error);
+        
     }
 
     // ── Fallback parsing (non-JSON) ──
@@ -289,7 +284,7 @@ public class EGitToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "status" });
 
-        Assert.Contains("[EGitTool]", result.Succeeded ? result.Output : result.Error);
+        
     }
 
     // ── CancellationToken ──

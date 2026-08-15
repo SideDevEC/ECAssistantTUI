@@ -55,6 +55,7 @@ public class EShellAgent : EToolBase
 
     public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments, CancellationToken cancellationToken = default)
     {
+        arguments ??= new Dictionary<string, string?>();
         var command = arguments.GetValueOrDefault("command")?.Trim();
         if (string.IsNullOrWhiteSpace(command))
             return EToolResult.Failure(Name, "Missing command argument.");

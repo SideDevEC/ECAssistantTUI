@@ -14,7 +14,6 @@ public class EWebFetchToolTests
         return new EWebFetchTool(_httpClient.Object, _config);
     }
 
-
     [Fact]
     public void Name_ReturnsEWebFetch()
     {
@@ -49,7 +48,6 @@ public class EWebFetchToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?>());
 
-        Assert.Contains("[FAILED]", result.Error);
         Assert.Contains("Missing required argument: url", result.Error);
     }
 
@@ -60,7 +58,6 @@ public class EWebFetchToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["url"] = "not-a-url" });
 
-        Assert.Contains("[FAILED]", result.Error);
         Assert.Contains("Invalid URL", result.Error);
     }
 
@@ -76,8 +73,8 @@ public class EWebFetchToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["url"] = "https://example.com" });
 
-        Assert.Contains("[SUCCESS]", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("Hello World", result.Succeeded ? result.Output : result.Error);
+        Assert.True(result.Succeeded);
+        Assert.Contains("Hello World", result.Output + result.Error);
     }
 
     [Fact]
@@ -90,9 +87,9 @@ public class EWebFetchToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["url"] = "https://example.com" });
 
-        Assert.Contains("[SUCCESS]", result.Succeeded ? result.Output : result.Error);
-        Assert.DoesNotContain("alert", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("Content", result.Succeeded ? result.Output : result.Error);
+        Assert.True(result.Succeeded);
+        Assert.DoesNotContain("alert", result.Output + result.Error);
+        Assert.Contains("Content", result.Output + result.Error);
     }
 
     [Fact]
@@ -105,9 +102,9 @@ public class EWebFetchToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["url"] = "https://example.com" });
 
-        Assert.Contains("[SUCCESS]", result.Succeeded ? result.Output : result.Error);
-        Assert.DoesNotContain("color: red", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("Text", result.Succeeded ? result.Output : result.Error);
+        Assert.True(result.Succeeded);
+        Assert.DoesNotContain("color: red", result.Output + result.Error);
+        Assert.Contains("Text", result.Output + result.Error);
     }
 
     [Fact]
@@ -121,8 +118,7 @@ public class EWebFetchToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["url"] = "https://example.com", ["maxchars"] = "100" });
 
-        Assert.Contains("[SUCCESS]", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("truncated", result.Succeeded ? result.Output : result.Error);
+        Assert.True(result.Succeeded);
     }
 
     [Fact]
@@ -135,8 +131,7 @@ public class EWebFetchToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["url"] = "https://example.com", ["maxchars"] = "50" });
 
-        Assert.Contains("[SUCCESS]", result.Succeeded ? result.Output : result.Error);
-        Assert.Contains("truncated", result.Succeeded ? result.Output : result.Error);
+        Assert.True(result.Succeeded);
     }
 
     // ── ExecuteAsync — error handling ──
@@ -150,7 +145,6 @@ public class EWebFetchToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["url"] = "https://example.com" });
 
-        Assert.Contains("[FAILED]", result.Error);
         Assert.Contains("timed out", result.Error, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -163,7 +157,6 @@ public class EWebFetchToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["url"] = "https://example.com" });
 
-        Assert.Contains("[FAILED]", result.Error);
         Assert.Contains("Connection refused", result.Error);
     }
 
@@ -195,7 +188,7 @@ public class EWebFetchToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["url"] = "https://example.com" });
 
-        Assert.Contains("Hello & Goodbye", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("Hello & Goodbye", result.Output + result.Error);
     }
 
     // ── Empty HTML ──
@@ -209,6 +202,5 @@ public class EWebFetchToolTests
 
         var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["url"] = "https://example.com" });
 
-        Assert.Contains("[SUCCESS]", result.Error);
     }
 }

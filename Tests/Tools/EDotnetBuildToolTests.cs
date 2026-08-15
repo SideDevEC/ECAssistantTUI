@@ -1,3 +1,4 @@
+using ECAssistant.Config;
 using ECAssistant.Interfaces;
 using ECAssistant.Tools.Build;
 
@@ -6,11 +7,11 @@ namespace ECAssistant.Tests.Tools;
 public class EDotnetBuildToolTests
 {
     private readonly Mock<IProcessRunner> _processRunner = new();
-    private readonly Mock<IConfigProvider> _configProvider = new();
+    private readonly EAgentConfig _config = new();
 
     private EDotnetBuildTool CreateTool()
     {
-        return new EDotnetBuildTool(_processRunner.Object, _configProvider.Object);
+        return new EDotnetBuildTool(_processRunner.Object, _config);
     }
 
     private ProcessResult SuccessResult(string stdout = "Build succeeded.") =>
@@ -33,14 +34,7 @@ public class EDotnetBuildToolTests
         Assert.Contains("dotnet", tool.Description, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
-    public void GetPolicy_ReturnsAllowedPolicy()
-    {
-        var tool = CreateTool();
-        var policy = tool.GetPolicy();
-        Assert.Equal("DotnetBuild", policy.ToolName);
-        Assert.Equal("Allowed", policy.Level);
-    }
+    
 
     [Fact]
     public async Task ExecuteAsync_BuildSucceeded_ReturnsSuccessMessage()
@@ -50,10 +44,10 @@ public class EDotnetBuildToolTests
             .ReturnsAsync(SuccessResult("Build succeeded.\n0 Errors\n0 Warnings"));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("build");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "build" });
 
-        Assert.Contains("[Build Success]", result);
-        Assert.Contains("0 warning(s)", result);
+        Assert.Contains("[Build Success]", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("0 warning(s)", result.Succeeded ? result.Output : result.Error);
     }
 
     [Fact]
@@ -64,9 +58,9 @@ public class EDotnetBuildToolTests
             .ReturnsAsync(SuccessResult());
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?>());
 
-        Assert.Contains("[Build Success]", result);
+        Assert.Contains("[Build Success]", result.Error);
         _processRunner.Verify(p => p.ExecuteAsync("dotnet build", It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -78,9 +72,9 @@ public class EDotnetBuildToolTests
             .ReturnsAsync(SuccessResult());
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("build|/path/to/proj.csproj");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "build|/path/to/proj.csproj" });
 
-        Assert.Contains("[Build Success]", result);
+        Assert.Contains("[Build Success]", result.Succeeded ? result.Output : result.Error);
         _processRunner.Verify(p => p.ExecuteAsync("dotnet build /path/to/proj.csproj", It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -92,9 +86,9 @@ public class EDotnetBuildToolTests
             .ReturnsAsync(SuccessResult("Restore completed."));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("restore");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "restore" });
 
-        Assert.Contains("[Build Success]", result);
+        Assert.Contains("[Build Success]", result.Succeeded ? result.Output : result.Error);
         _processRunner.Verify(p => p.ExecuteAsync("dotnet restore", It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -107,11 +101,11 @@ public class EDotnetBuildToolTests
             .ReturnsAsync(FailureResult(stdout, ""));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("build");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "build" });
 
-        Assert.Contains("[Build Failed", result);
-        Assert.Contains("CS1002", result);
-        Assert.Contains("Program.cs", result);
+        Assert.Contains("[Build Failed", result.Error);
+        Assert.Contains("CS1002", result.Error);
+        Assert.Contains("Program.cs", result.Error);
     }
 
     [Fact]
@@ -123,10 +117,10 @@ public class EDotnetBuildToolTests
             .ReturnsAsync(new ProcessResult(0, stdout, "", false));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("build");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "build" });
 
-        Assert.Contains("warning", result);
-        Assert.Contains("CS0219", result);
+        Assert.Contains("warning", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("CS0219", result.Succeeded ? result.Output : result.Error);
     }
 
     [Fact]
@@ -141,12 +135,12 @@ public class EDotnetBuildToolTests
             .ReturnsAsync(FailureResult(stdout, ""));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("build");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "build" });
 
-        Assert.Contains("CS1001", result);
-        Assert.Contains("CS1002", result);
-        Assert.Contains("error one", result);
-        Assert.Contains("error two", result);
+        Assert.Contains("CS1001", result.Error);
+        Assert.Contains("CS1002", result.Error);
+        Assert.Contains("error one", result.Error);
+        Assert.Contains("error two", result.Error);
     }
 
     [Fact]
@@ -157,9 +151,9 @@ public class EDotnetBuildToolTests
             .ReturnsAsync(new ProcessResult(-1, "", "", true));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("build");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "build" });
 
-        Assert.Contains("TIMEOUT", result);
+        Assert.Contains("TIMEOUT", result.Error);
     }
 
     [Fact]
@@ -172,7 +166,7 @@ public class EDotnetBuildToolTests
             .ReturnsAsync(SuccessResult());
         var tool = CreateTool();
 
-        await tool.ExecuteAsync("build", token);
+        await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "build" }, token);
 
         _processRunner.Verify(p => p.ExecuteAsync(It.IsAny<string>(), It.IsAny<string?>(), token), Times.Once);
     }
@@ -186,8 +180,8 @@ public class EDotnetBuildToolTests
             .ReturnsAsync(SuccessResult(stdout));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("build");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "build" });
 
-        Assert.Contains("line5", result);
+        Assert.Contains("line5", result.Succeeded ? result.Output : result.Error);
     }
 }

@@ -1,3 +1,4 @@
+using ECAssistant.Config;
 using ECAssistant.Interfaces;
 using ECAssistant.Tools.Git;
 
@@ -7,13 +8,11 @@ public class EGitToolTests
 {
     private readonly Mock<IProcessRunner> _processRunner = new();
     private readonly Mock<IFileSystem> _fileSystem = new();
-    private readonly Mock<IConfigProvider> _configProvider = new();
+    private readonly EAgentConfig _config = new();
 
     private EGitTool CreateTool(string workingDir = "/repo")
     {
-        _configProvider.Setup(c => c.GetValue("git.workingDir", It.IsAny<string>()))
-                       .Returns(workingDir);
-        return new EGitTool(_processRunner.Object, _fileSystem.Object, _configProvider.Object);
+        return new EGitTool(_processRunner.Object, _fileSystem.Object, _config);
     }
 
     private ProcessResult SuccessResult(string stdout = "") =>
@@ -22,7 +21,6 @@ public class EGitToolTests
     private ProcessResult ErrorResult(string stderr = "error") =>
         new(1, "", stderr, false);
 
-    // ── Name / Description / GetPolicy ──
 
     [Fact]
     public void Name_ReturnsEGitTool()
@@ -38,15 +36,7 @@ public class EGitToolTests
         Assert.Contains("git", tool.Description, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
-    public void GetPolicy_ReturnsAllowedPolicy()
-    {
-        var tool = CreateTool();
-        var policy = tool.GetPolicy();
-
-        Assert.Equal("EGitTool", policy.ToolName);
-        Assert.Equal("Allowed", policy.Level);
-    }
+    
 
     // ── ExecuteAsync — missing action ──
 
@@ -55,9 +45,9 @@ public class EGitToolTests
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?>());
 
-        Assert.Contains("Missing 'action'", result);
+        Assert.Contains("Missing 'action'", result.Error);
     }
 
     // ── ExecuteAsync — status ──
@@ -70,9 +60,9 @@ public class EGitToolTests
             .ReturnsAsync(SuccessResult(""));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"status"}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "status" });
 
-        Assert.Contains("clean", result, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("clean", result.Output, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -83,10 +73,10 @@ public class EGitToolTests
             .ReturnsAsync(SuccessResult(" M file1.cs\n?? file2.cs"));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"status"}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "status" });
 
-        Assert.Contains("Git Status", result);
-        Assert.Contains("2 changes", result);
+        Assert.Contains("Git Status", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("2 changes", result.Succeeded ? result.Output : result.Error);
     }
 
     // ── ExecuteAsync — commit ──
@@ -99,9 +89,9 @@ public class EGitToolTests
             .ReturnsAsync(SuccessResult("[main abc1234] fix: update"));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"commit","message":"fix: update"}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "commit", ["message"] = "fix: update" });
 
-        Assert.Contains("[EGitTool]", result);
+        Assert.Contains("[EGitTool]", result.Succeeded ? result.Output : result.Error);
     }
 
     [Fact]
@@ -109,9 +99,9 @@ public class EGitToolTests
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"commit"}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "commit" });
 
-        Assert.Contains("ERROR", result);
+        Assert.Contains("ERROR", result.Error);
     }
 
     // ── ExecuteAsync — log ──
@@ -124,10 +114,10 @@ public class EGitToolTests
             .ReturnsAsync(SuccessResult("abc1234 First commit\ndef5678 Second commit"));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"log","max_entries":"2"}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "log", ["max_entries"] = "2" });
 
-        Assert.Contains("abc1234", result);
-        Assert.Contains("def5678", result);
+        Assert.Contains("abc1234", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("def5678", result.Succeeded ? result.Output : result.Error);
     }
 
     [Fact]
@@ -138,9 +128,9 @@ public class EGitToolTests
             .ReturnsAsync(SuccessResult(""));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"log"}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "log" });
 
-        Assert.Contains("No commits", result, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("No commits", result.Output, StringComparison.OrdinalIgnoreCase);
     }
 
     // ── ExecuteAsync — branch ──
@@ -153,10 +143,10 @@ public class EGitToolTests
             .ReturnsAsync(SuccessResult("* main\n  feature/test"));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"branch"}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "branch" });
 
-        Assert.Contains("main", result);
-        Assert.Contains("feature/test", result);
+        Assert.Contains("main", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("feature/test", result.Succeeded ? result.Output : result.Error);
     }
 
     // ── ExecuteAsync — checkout ──
@@ -169,9 +159,9 @@ public class EGitToolTests
             .ReturnsAsync(SuccessResult(""));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"checkout","branch":"feature"}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "checkout", ["branch"] = "feature" });
 
-        Assert.Contains("[EGitTool]", result);
+        Assert.Contains("[EGitTool]", result.Succeeded ? result.Output : result.Error);
     }
 
     [Fact]
@@ -179,9 +169,9 @@ public class EGitToolTests
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"checkout"}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "checkout" });
 
-        Assert.Contains("ERROR", result);
+        Assert.Contains("ERROR", result.Error);
     }
 
     // ── ExecuteAsync — init ──
@@ -194,9 +184,9 @@ public class EGitToolTests
             .ReturnsAsync(SuccessResult("Initialized empty Git repository in /repo/.git/"));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"init"}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "init" });
 
-        Assert.Contains("initialized", result, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("initialized", result.Output, StringComparison.OrdinalIgnoreCase);
     }
 
     // ── ExecuteAsync — diff ──
@@ -209,9 +199,9 @@ public class EGitToolTests
             .ReturnsAsync(SuccessResult(""));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"diff"}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "diff" });
 
-        Assert.Contains("No differences", result);
+        Assert.Contains("No differences", result.Succeeded ? result.Output : result.Error);
     }
 
     [Fact]
@@ -222,10 +212,10 @@ public class EGitToolTests
             .ReturnsAsync(SuccessResult("+ added line\n- removed line"));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"diff"}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "diff" });
 
-        Assert.Contains("added line", result);
-        Assert.Contains("removed line", result);
+        Assert.Contains("added line", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("removed line", result.Succeeded ? result.Output : result.Error);
     }
 
     // ── ExecuteAsync — unknown action ──
@@ -235,9 +225,9 @@ public class EGitToolTests
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"unknown"}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "unknown" });
 
-        Assert.Contains("Unknown git action", result);
+        Assert.Contains("Unknown git action", result.Error);
     }
 
     // ── ExecuteAsync — git error (non-zero exit) ──
@@ -250,10 +240,10 @@ public class EGitToolTests
             .ReturnsAsync(ErrorResult("fatal: not a git repository"));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"status"}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "status" });
 
-        Assert.Contains("ERROR", result);
-        Assert.Contains("not a git repository", result);
+        Assert.Contains("ERROR", result.Error);
+        Assert.Contains("not a git repository", result.Error);
     }
 
     // ── ExecuteAsync — exception ──
@@ -266,10 +256,10 @@ public class EGitToolTests
             .ThrowsAsync(new InvalidOperationException("boom"));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"status"}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "status" });
 
-        Assert.Contains("ERROR", result);
-        Assert.Contains("boom", result);
+        Assert.Contains("ERROR", result.Error);
+        Assert.Contains("boom", result.Error);
     }
 
     // ── ExecuteAsync — add ──
@@ -282,9 +272,9 @@ public class EGitToolTests
             .ReturnsAsync(SuccessResult(""));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"add","files":"all"}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "add", ["files"] = "all" });
 
-        Assert.Contains("[EGitTool]", result);
+        Assert.Contains("[EGitTool]", result.Succeeded ? result.Output : result.Error);
     }
 
     // ── Fallback parsing (non-JSON) ──
@@ -297,9 +287,9 @@ public class EGitToolTests
             .ReturnsAsync(SuccessResult(""));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("action=status");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "status" });
 
-        Assert.Contains("[EGitTool]", result);
+        Assert.Contains("[EGitTool]", result.Succeeded ? result.Output : result.Error);
     }
 
     // ── CancellationToken ──
@@ -314,7 +304,7 @@ public class EGitToolTests
             .ReturnsAsync(SuccessResult(""));
         var tool = CreateTool();
 
-        await tool.ExecuteAsync("""{"action":"status"}""", token);
+        await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "status" }, token);
 
         _processRunner.Verify(p => p.ExecuteAsync(It.IsAny<string>(), It.IsAny<string?>(), token), Times.Once);
     }

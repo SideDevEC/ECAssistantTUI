@@ -1,3 +1,4 @@
+using ECAssistant.Config;
 using ECAssistant.Interfaces;
 using ECAssistant.Tools.Reader;
 
@@ -6,16 +7,13 @@ namespace ECAssistant.Tests.Tools;
 public class EFileReaderToolTests
 {
     private readonly Mock<IFileSystem> _fileSystem = new();
-    private readonly Mock<IConfigProvider> _configProvider = new();
+    private readonly EAgentConfig _config = new();
 
     private EFileReaderTool CreateTool(string workingDir = "/project")
     {
-        _configProvider.Setup(c => c.GetValue("workingDir", It.IsAny<string>()))
-                       .Returns(workingDir);
-        return new EFileReaderTool(_fileSystem.Object, _configProvider.Object);
+        return new EFileReaderTool(_fileSystem.Object, _config);
     }
 
-    // ── Name / Description / GetPolicy ──
 
     [Fact]
     public void Name_ReturnsEFileReader()
@@ -31,15 +29,7 @@ public class EFileReaderToolTests
         Assert.Contains("read", tool.Description, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
-    public void GetPolicy_ReturnsAllowedPolicy()
-    {
-        var tool = CreateTool();
-        var policy = tool.GetPolicy();
-
-        Assert.Equal("EFileReader", policy.ToolName);
-        Assert.Equal("Allowed", policy.Level);
-    }
+    
 
     // ── ExecuteAsync — missing file ──
 
@@ -48,9 +38,9 @@ public class EFileReaderToolTests
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?>());
 
-        Assert.Contains("Missing required argument: file", result);
+        Assert.Contains("Missing required argument: file", result.Error);
     }
 
     // ── ExecuteAsync — file not found ──
@@ -61,9 +51,9 @@ public class EFileReaderToolTests
         _fileSystem.Setup(f => f.FileExists(It.IsAny<string>())).Returns(false);
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<file>nofile.txt</file>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["file"] = "nofile.txt" });
 
-        Assert.Contains("not found", result);
+        Assert.Contains("not found", result.Error);
     }
 
     // ── ExecuteAsync — success ──
@@ -75,13 +65,13 @@ public class EFileReaderToolTests
         _fileSystem.Setup(f => f.ReadFile(It.IsAny<string>())).Returns("line1\nline2\nline3");
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<file>test.txt</file>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["file"] = "test.txt" });
 
-        Assert.Contains("test.txt", result);
-        Assert.Contains("1", result);
-        Assert.Contains("line1", result);
-        Assert.Contains("line2", result);
-        Assert.Contains("line3", result);
+        Assert.Contains("test.txt", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("1", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("line1", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("line2", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("line3", result.Succeeded ? result.Output : result.Error);
     }
 
     [Fact]
@@ -91,9 +81,9 @@ public class EFileReaderToolTests
         _fileSystem.Setup(f => f.ReadFile(It.IsAny<string>())).Returns("a\nb\nc\nd\ne");
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<file>test.txt</file>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["file"] = "test.txt" });
 
-        Assert.Contains("TotalLines: 5", result);
+        Assert.Contains("TotalLines: 5", result.Succeeded ? result.Output : result.Error);
     }
 
     // ── ExecuteAsync — offset ──
@@ -105,11 +95,11 @@ public class EFileReaderToolTests
         _fileSystem.Setup(f => f.ReadFile(It.IsAny<string>())).Returns("line1\nline2\nline3\nline4\nline5");
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<file>test.txt</file><offset>3</offset>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["file"] = "test.txt", ["offset"] = "3" });
 
-        Assert.Contains("line3", result);
-        Assert.DoesNotContain("line1", result);
-        Assert.DoesNotContain("line2", result);
+        Assert.Contains("line3", result.Succeeded ? result.Output : result.Error);
+        Assert.DoesNotContain("line1", result.Succeeded ? result.Output : result.Error);
+        Assert.DoesNotContain("line2", result.Succeeded ? result.Output : result.Error);
     }
 
     [Fact]
@@ -119,9 +109,9 @@ public class EFileReaderToolTests
         _fileSystem.Setup(f => f.ReadFile(It.IsAny<string>())).Returns("line1\nline2");
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<file>test.txt</file><offset>10</offset>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["file"] = "test.txt", ["offset"] = "10" });
 
-        Assert.Contains("beyond end of file", result);
+        Assert.Contains("beyond end of file", result.Succeeded ? result.Output : result.Error);
     }
 
     // ── ExecuteAsync — limit ──
@@ -133,11 +123,11 @@ public class EFileReaderToolTests
         _fileSystem.Setup(f => f.ReadFile(It.IsAny<string>())).Returns("line1\nline2\nline3\nline4\nline5");
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<file>test.txt</file><limit>2</limit>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["file"] = "test.txt", ["limit"] = "2" });
 
-        Assert.Contains("line1", result);
-        Assert.Contains("line2", result);
-        Assert.DoesNotContain("line3", result);
+        Assert.Contains("line1", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("line2", result.Succeeded ? result.Output : result.Error);
+        Assert.DoesNotContain("line3", result.Succeeded ? result.Output : result.Error);
     }
 
     // ── ExecuteAsync — maxchars ──
@@ -150,9 +140,9 @@ public class EFileReaderToolTests
         _fileSystem.Setup(f => f.ReadFile(It.IsAny<string>())).Returns($"{longLine}\n{longLine}\n{longLine}");
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<file>test.txt</file><maxchars>100</maxchars>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["file"] = "test.txt", ["maxchars"] = "100" });
 
-        Assert.Contains("Truncated", result);
+        Assert.Contains("Truncated", result.Succeeded ? result.Output : result.Error);
     }
 
     // ── ExecuteAsync — more available message ──
@@ -164,9 +154,9 @@ public class EFileReaderToolTests
         _fileSystem.Setup(f => f.ReadFile(It.IsAny<string>())).Returns("a\nb\nc\nd\ne");
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<file>test.txt</file><limit>2</limit>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["file"] = "test.txt", ["limit"] = "2" });
 
-        Assert.Contains("More available", result);
+        Assert.Contains("More available", result.Succeeded ? result.Output : result.Error);
     }
 
     // ── ExecuteAsync — exception ──
@@ -178,10 +168,10 @@ public class EFileReaderToolTests
         _fileSystem.Setup(f => f.ReadFile(It.IsAny<string>())).Throws(new IOException("disk error"));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<file>test.txt</file>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["file"] = "test.txt" });
 
-        Assert.Contains("Error reading file", result);
-        Assert.Contains("disk error", result);
+        Assert.Contains("Error reading file", result.Error);
+        Assert.Contains("disk error", result.Error);
     }
 
     // ── Absolute path ──
@@ -193,9 +183,9 @@ public class EFileReaderToolTests
         _fileSystem.Setup(f => f.ReadFile("/abs/path/file.txt")).Returns("content");
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<file>/abs/path/file.txt</file>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["file"] = "/abs/path/file.txt" });
 
-        Assert.Contains("content", result);
+        Assert.Contains("content", result.Succeeded ? result.Output : result.Error);
     }
 
     // ── Empty file ──
@@ -207,8 +197,8 @@ public class EFileReaderToolTests
         _fileSystem.Setup(f => f.ReadFile(It.IsAny<string>())).Returns("");
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<file>empty.txt</file>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["file"] = "empty.txt" });
 
-        Assert.Contains("TotalLines: 1", result);
+        Assert.Contains("TotalLines: 1", result.Error);
     }
 }

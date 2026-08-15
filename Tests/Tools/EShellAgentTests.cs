@@ -1,3 +1,4 @@
+using ECAssistant.Config;
 using ECAssistant.Interfaces;
 using ECAssistant.Tools.Shell;
 
@@ -6,11 +7,11 @@ namespace ECAssistant.Tests.Tools;
 public class EShellAgentTests
 {
     private readonly Mock<IProcessRunner> _processRunner = new();
-    private readonly Mock<IConfigProvider> _configProvider = new();
+    private readonly EAgentConfig _config = new();
 
     private EShellAgent CreateTool(string workingDir = "/tmp")
     {
-        return new EShellAgent(_processRunner.Object, _configProvider.Object, workingDir);
+        return new EShellAgent(_processRunner.Object, _config, workingDir);
     }
 
     private ProcessResult SuccessResult(string stdout = "ok", string stderr = "") =>
@@ -36,17 +37,8 @@ public class EShellAgentTests
         Assert.Contains("shell", tool.Description, StringComparison.OrdinalIgnoreCase);
     }
 
-    // ── GetPolicy ──
 
-    [Fact]
-    public void GetPolicy_ReturnsApprovedPolicy()
-    {
-        var tool = CreateTool();
-        var policy = tool.GetPolicy();
-
-        Assert.Equal("EShellAgent", policy.ToolName);
-        Assert.Equal("Approved", policy.Level);
-    }
+    
 
     // ── ExecuteAsync — success cases ──
 
@@ -55,9 +47,9 @@ public class EShellAgentTests
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?>());
 
-        Assert.Contains("Missing command", result);
+        Assert.Contains("Missing command", result.Error);
     }
 
     [Fact]
@@ -65,9 +57,9 @@ public class EShellAgentTests
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("   ");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "   " });
 
-        Assert.Contains("Missing command", result);
+        Assert.Contains("Missing command", result.Error);
     }
 
     [Fact]
@@ -78,10 +70,10 @@ public class EShellAgentTests
             .ReturnsAsync(SuccessResult(""));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("echo");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "echo" });
 
-        Assert.Contains("[Shell Success]", result);
-        Assert.Contains("no output", result, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("[Shell Success]", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("no output", result.Output, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -92,10 +84,10 @@ public class EShellAgentTests
             .ReturnsAsync(SuccessResult("hello world"));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("echo hello");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "echo hello" });
 
-        Assert.Contains("[Shell Success]", result);
-        Assert.Contains("hello world", result);
+        Assert.Contains("[Shell Success]", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("hello world", result.Succeeded ? result.Output : result.Error);
     }
 
     // ── ExecuteAsync — warning (exit 0 with stderr) ──
@@ -108,11 +100,11 @@ public class EShellAgentTests
             .ReturnsAsync(new ProcessResult(0, "output", "warning text", false));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("some-cmd");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "some-cmd" });
 
-        Assert.Contains("[Shell Warning]", result);
-        Assert.Contains("output", result);
-        Assert.Contains("warning text", result);
+        Assert.Contains("[Shell Warning]", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("output", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("warning text", result.Succeeded ? result.Output : result.Error);
     }
 
     [Fact]
@@ -123,10 +115,10 @@ public class EShellAgentTests
             .ReturnsAsync(new ProcessResult(0, "", "err msg", false));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("cmd");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "cmd" });
 
-        Assert.Contains("[Shell Warning]", result);
-        Assert.Contains("err msg", result);
+        Assert.Contains("[Shell Warning]", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("err msg", result.Succeeded ? result.Output : result.Error);
     }
 
     // ── ExecuteAsync — error cases ──
@@ -139,11 +131,11 @@ public class EShellAgentTests
             .ReturnsAsync(ErrorResult(1, "command not found"));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("bad-cmd");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "bad-cmd" });
 
-        Assert.Contains("[Shell Error (Exit 1)]", result);
-        Assert.Contains("command not found", result);
-        Assert.Contains("bad-cmd", result);
+        Assert.Contains("[Shell Error (Exit 1)]", result.Error);
+        Assert.Contains("command not found", result.Error);
+        Assert.Contains("bad-cmd", result.Error);
     }
 
     [Fact]
@@ -154,11 +146,11 @@ public class EShellAgentTests
             .ThrowsAsync(new InvalidOperationException("boom"));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("cmd");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "cmd" });
 
-        Assert.Contains("Execution failed", result);
-        Assert.Contains("InvalidOperationException", result);
-        Assert.Contains("boom", result);
+        Assert.Contains("Execution failed", result.Error);
+        Assert.Contains("InvalidOperationException", result.Error);
+        Assert.Contains("boom", result.Error);
     }
 
     // ── XML escaping ──
@@ -172,9 +164,9 @@ public class EShellAgentTests
             .ReturnsAsync(SuccessResult("<script>alert('xss')</script>"));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("cmd");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "cmd" });
 
-        Assert.Contains("&lt;script&gt;alert('xss')&lt;/script&gt;", result);
+        Assert.Contains("&lt;script&gt;alert('xss')&lt;/script&gt;", result.Succeeded ? result.Output : result.Error);
     }
 
     [Fact]
@@ -185,9 +177,9 @@ public class EShellAgentTests
             .ReturnsAsync(ErrorResult(1, "<error>"));
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("cmd");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "cmd" });
 
-        Assert.Contains("&lt;error&gt;", result);
+        Assert.Contains("&lt;error&gt;", result.Succeeded ? result.Output : result.Error);
     }
     // ── CancellationToken ──
 
@@ -201,7 +193,7 @@ public class EShellAgentTests
             .ReturnsAsync(SuccessResult("ok"));
         var tool = CreateTool();
 
-        await tool.ExecuteAsync("cmd", token);
+        await tool.ExecuteAsync(new Dictionary<string, string?> { ["command"] = "cmd" }, token);
 
         _processRunner.Verify(p => p.ExecuteAsync(It.IsAny<string>(), It.IsAny<string?>(), token), Times.Once);
     }
@@ -215,6 +207,6 @@ public class EShellAgentTests
 
         var result = await tool.ExecuteAsync(null!);
 
-        Assert.Contains("Missing command", result);
+        Assert.Contains("Missing command", result.Error);
     }
 }

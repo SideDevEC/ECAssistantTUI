@@ -749,25 +749,6 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
         _engine.RegisterTool(tool);
     }
 
-    /// <summary>Register an ITool implementation (wrapped via ToolAdapter).
-    /// v10.24: Auto-registers tool config section if not present.
-    /// </summary>
-    public void RegisterTool(ECAssistant.Interfaces.ITool tool)
-    {
-        // v10.24: Auto-register tool config section if not present
-        if (_config != null)
-        {
-            if (!_config.Tools.ContainsKey(tool.Name))
-            {
-                var section = tool.GetConfigSection();
-                var jsonElement = System.Text.Json.JsonSerializer.SerializeToElement(section);
-                _config.Tools[tool.Name] = jsonElement;
-                AgentConfigBuilder.Update(_config);
-            }
-        }
-        _engine.RegisterTool(tool);
-    }
-
     /// <summary>Initialize vector memory for this session.</summary>
     public async Task InitializeVectorMemoryAsync(string storeDir)
     {

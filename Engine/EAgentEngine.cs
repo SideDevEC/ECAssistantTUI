@@ -968,14 +968,6 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
              _out?.WriteInfo($"[Tool] Registered: {tool.Name}");
                 }
 
-   /// <summary>Register an ITool implementation (wrapped via ToolAdapter).</summary>
-   public void RegisterTool(ECAssistant.Interfaces.ITool tool)
-   {
-       var adapter = new ToolAdapter(tool);
-       _tools.Add(adapter);
-       _out?.WriteInfo($"[Tool] Registered: {tool.Name}");
-   }
-
       /// <summary>Add tool result to both transcript and context window.</summary>
       public virtual void AddToolResult(string toolName, string output)
         {

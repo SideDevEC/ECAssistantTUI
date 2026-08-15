@@ -1,3 +1,4 @@
+using ECAssistant.Config;
 using ECAssistant;
 using ECAssistant.Engine;
 using ECAssistant.Interfaces;
@@ -210,10 +211,10 @@ public class SubAgentIntegrationTests : IDisposable
     // ── Helper: create engine with mocked tool deps ──
     private (MockEngine engine, AgentOrchestrator orchestrator) CreateEngineWithMockedTools(int maxTurns = 5)
     {
-        var mockConfig = new Mock<IConfigProvider>();
+        var config = new EAgentConfig();
+        config.AgentSettings.WorkingDirectory = _tempDir;
         var mockLogger = new Mock<ILogger>();
 
-        mockConfig.Setup(c => c.GetValue(It.IsAny<string>(), It.IsAny<string>())).Returns<string, string>((_, _) => _tempDir);
 
         var engine = new MockEngine(_tempDir);
         _engines.Add(engine);

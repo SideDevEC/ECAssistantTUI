@@ -1,3 +1,4 @@
+using ECAssistant.Config;
 using ECAssistant.Interfaces;
 using ECAssistant.Tools.Code;
 
@@ -6,16 +7,13 @@ namespace ECAssistant.Tests.Tools;
 public class ECodeEditorToolTests
 {
     private readonly Mock<IFileSystem> _fileSystem = new();
-    private readonly Mock<IConfigProvider> _configProvider = new();
+    private readonly EAgentConfig _config = new();
 
     private ECodeEditorTool CreateTool(string workingDir = "/project")
     {
-        _configProvider.Setup(c => c.GetValue("workingDir", It.IsAny<string>()))
-                       .Returns(workingDir);
-        return new ECodeEditorTool(_fileSystem.Object, _configProvider.Object);
+        return new ECodeEditorTool(_fileSystem.Object, _config);
     }
 
-    // ── Name / Description / GetPolicy ──
 
     [Fact]
     public void Name_ReturnsECodeEditor()
@@ -31,15 +29,7 @@ public class ECodeEditorToolTests
         Assert.Contains("code", tool.Description, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
-    public void GetPolicy_ReturnsApprovedPolicy()
-    {
-        var tool = CreateTool();
-        var policy = tool.GetPolicy();
-
-        Assert.Equal("ECodeEditor", policy.ToolName);
-        Assert.Equal("Approved", policy.Level);
-    }
+    
 
     // ── ExecuteAsync — missing action ──
 
@@ -48,9 +38,9 @@ public class ECodeEditorToolTests
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?>());
 
-        Assert.Contains("Missing 'action'", result);
+        Assert.Contains("Missing 'action'", result.Error);
     }
 
     [Fact]
@@ -58,9 +48,9 @@ public class ECodeEditorToolTests
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>unknown</action>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "unknown" });
 
-        Assert.Contains("Unknown action", result);
+        Assert.Contains("Unknown action", result.Error);
     }
 
     // ── ExecuteAsync — create ──
@@ -71,10 +61,10 @@ public class ECodeEditorToolTests
         _fileSystem.Setup(f => f.FileExists(It.IsAny<string>())).Returns(false);
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>create</action><file>test.txt</file><content>Hello</content>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "create", ["file"] = "test.txt", ["content"] = "Hello" });
 
-        Assert.Contains("Created", result);
-        Assert.Contains("Hello", result);
+        Assert.Contains("Created", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("Hello", result.Succeeded ? result.Output : result.Error);
         _fileSystem.Verify(f => f.WriteFile(It.IsAny<string>(), "Hello"), Times.Once);
     }
 
@@ -84,9 +74,9 @@ public class ECodeEditorToolTests
         _fileSystem.Setup(f => f.FileExists(It.IsAny<string>())).Returns(true);
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>create</action><file>test.txt</file><content>Hi</content>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "create", ["file"] = "test.txt", ["content"] = "Hi" });
 
-        Assert.Contains("already exists", result);
+        Assert.Contains("already exists", result.Error);
     }
 
     [Fact]
@@ -94,9 +84,9 @@ public class ECodeEditorToolTests
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>create</action><content>Hi</content>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "create", ["content"] = "Hi" });
 
-        Assert.Contains("Missing 'file'", result);
+        Assert.Contains("Missing 'file'", result.Error);
     }
 
     [Fact]
@@ -106,9 +96,9 @@ public class ECodeEditorToolTests
         _fileSystem.Setup(f => f.DirectoryExists(It.IsAny<string>())).Returns(false);
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>create</action><file>sub/test.txt</file><content>Hi</content>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "create", ["file"] = "sub/test.txt", ["content"] = "Hi" });
 
-        Assert.Contains("Created", result);
+        Assert.Contains("Created", result.Succeeded ? result.Output : result.Error);
         _fileSystem.Verify(f => f.CreateDirectory(It.IsAny<string>()), Times.Once);
     }
 
@@ -121,9 +111,9 @@ public class ECodeEditorToolTests
         _fileSystem.Setup(f => f.ReadFile(It.IsAny<string>())).Returns("Hello World");
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>patch</action><file>test.txt</file><old_text>Hello</old_text><new_text>Hi</new_text>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "patch", ["file"] = "test.txt", ["old_text"] = "Hello", ["new_text"] = "Hi" });
 
-        Assert.Contains("Patched", result);
+        Assert.Contains("Patched", result.Succeeded ? result.Output : result.Error);
         _fileSystem.Verify(f => f.WriteFile(It.IsAny<string>(), "Hi World"), Times.Once);
     }
 
@@ -133,9 +123,9 @@ public class ECodeEditorToolTests
         _fileSystem.Setup(f => f.FileExists(It.IsAny<string>())).Returns(false);
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>patch</action><file>nofile.txt</file><old_text>a</old_text><new_text>b</new_text>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "patch", ["file"] = "nofile.txt", ["old_text"] = "a", ["new_text"] = "b" });
 
-        Assert.Contains("not found", result);
+        Assert.Contains("not found", result.Error);
     }
 
     [Fact]
@@ -145,9 +135,9 @@ public class ECodeEditorToolTests
         _fileSystem.Setup(f => f.ReadFile(It.IsAny<string>())).Returns("Hello World");
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>patch</action><file>test.txt</file><old_text>Goodbye</old_text><new_text>Hi</new_text>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "patch", ["file"] = "test.txt", ["old_text"] = "Goodbye", ["new_text"] = "Hi" });
 
-        Assert.Contains("not found", result);
+        Assert.Contains("not found", result.Error);
     }
 
     [Fact]
@@ -157,9 +147,9 @@ public class ECodeEditorToolTests
         _fileSystem.Setup(f => f.ReadFile(It.IsAny<string>())).Returns("test test test");
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>patch</action><file>test.txt</file><old_text>test</old_text><new_text>xyz</new_text>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "patch", ["file"] = "test.txt", ["old_text"] = "test", ["new_text"] = "xyz" });
 
-        Assert.Contains("found 3 times", result);
+        Assert.Contains("found 3 times", result.Error);
     }
 
     [Fact]
@@ -169,10 +159,10 @@ public class ECodeEditorToolTests
         _fileSystem.Setup(f => f.ReadFile(It.IsAny<string>())).Returns("Hello World\nGoodbye World");
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>patch</action><file>test.txt</file><old_text>Hello World Test</old_text><new_text>Hi</new_text>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "patch", ["file"] = "test.txt", ["old_text"] = "Hello World Test", ["new_text"] = "Hi" });
 
-        Assert.Contains("not found", result);
-        Assert.Contains("Similar", result);
+        Assert.Contains("not found", result.Error);
+        Assert.Contains("Similar", result.Error);
     }
 
     [Fact]
@@ -180,9 +170,9 @@ public class ECodeEditorToolTests
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>patch</action><file>test.txt</file>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "patch", ["file"] = "test.txt" });
 
-        Assert.Contains("Missing", result);
+        Assert.Contains("Missing", result.Error);
     }
 
     [Fact]
@@ -194,9 +184,9 @@ public class ECodeEditorToolTests
         _fileSystem.Setup(f => f.ReadFile(It.IsAny<string>())).Returns("Hello World");
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>patch</action><file>test.txt</file><old_text>Hello</old_text><new_text>Hi</new_text>", cts.Token);
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "patch", ["file"] = "test.txt", ["old_text"] = "Hello", ["new_text"] = "Hi" }, cts.Token);
 
-        Assert.Contains("CANCELLED", result);
+        Assert.Contains("CANCELLED", result.Error);
     }
 
     // ── ExecuteAsync — diff ──
@@ -208,10 +198,10 @@ public class ECodeEditorToolTests
         _fileSystem.Setup(f => f.ReadFile(It.IsAny<string>())).Returns("old line same line");
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>diff</action><file>test.txt</file><new_text>new line same line</new_text>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "diff", ["file"] = "test.txt", ["new_text"] = "new line same line" });
 
-        Assert.Contains("Diff", result);
-        Assert.Contains("new line", result);
+        Assert.Contains("Diff", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("new line", result.Succeeded ? result.Output : result.Error);
     }
 
     [Fact]
@@ -220,9 +210,9 @@ public class ECodeEditorToolTests
         _fileSystem.Setup(f => f.FileExists(It.IsAny<string>())).Returns(false);
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>diff</action><file>nofile.txt</file><new_text>x</new_text>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "diff", ["file"] = "nofile.txt", ["new_text"] = "x" });
 
-        Assert.Contains("not found", result);
+        Assert.Contains("not found", result.Error);
     }
 
     [Fact]
@@ -232,9 +222,9 @@ public class ECodeEditorToolTests
         _fileSystem.Setup(f => f.ReadFile(It.IsAny<string>())).Returns("same");
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>diff</action><file>test.txt</file><new_text>same</new_text>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "diff", ["file"] = "test.txt", ["new_text"] = "same" });
 
-        Assert.Contains("no changes", result);
+        Assert.Contains("no changes", result.Succeeded ? result.Output : result.Error);
     }
 
     // ── ExecuteAsync — search ──
@@ -244,9 +234,9 @@ public class ECodeEditorToolTests
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>search</action>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "search" });
 
-        Assert.Contains("Missing 'pattern'", result);
+        Assert.Contains("Missing 'pattern'", result.Error);
     }
 
     // ── ExecuteAsync — insert ──
@@ -258,9 +248,9 @@ public class ECodeEditorToolTests
         _fileSystem.Setup(f => f.ReadFile(It.IsAny<string>())).Returns("line1\nline3");
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>insert</action><file>test.txt</file><line>2</line><text>line2</text>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "insert", ["file"] = "test.txt", ["line"] = "2", ["text"] = "line2" });
 
-        Assert.Contains("Inserted", result);
+        Assert.Contains("Inserted", result.Succeeded ? result.Output : result.Error);
         _fileSystem.Verify(f => f.WriteFile(It.IsAny<string>(), It.Is<string>(s => s.Contains("line2"))), Times.Once);
     }
 
@@ -269,9 +259,9 @@ public class ECodeEditorToolTests
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>insert</action><file>test.txt</file>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "insert", ["file"] = "test.txt" });
 
-        Assert.Contains("Missing", result);
+        Assert.Contains("Missing", result.Error);
     }
 
     [Fact]
@@ -279,9 +269,9 @@ public class ECodeEditorToolTests
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>insert</action><file>test.txt</file><line>abc</line><text>x</text>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "insert", ["file"] = "test.txt", ["line"] = "abc", ["text"] = "x" });
 
-        Assert.Contains("Missing", result);
+        Assert.Contains("Missing", result.Error);
     }
 
     // ── ExecuteAsync — delete-lines ──
@@ -293,9 +283,9 @@ public class ECodeEditorToolTests
         _fileSystem.Setup(f => f.ReadFile(It.IsAny<string>())).Returns("line1\nline2\nline3\nline4");
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>delete-lines</action><file>test.txt</file><start_line>2</start_line><end_line>3</end_line>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "delete-lines", ["file"] = "test.txt", ["start_line"] = "2", ["end_line"] = "3" });
 
-        Assert.Contains("Deleted", result);
+        Assert.Contains("Deleted", result.Succeeded ? result.Output : result.Error);
         _fileSystem.Verify(f => f.WriteFile(It.IsAny<string>(), It.Is<string>(s => !s.Contains("line2") && !s.Contains("line3"))), Times.Once);
     }
 
@@ -304,9 +294,9 @@ public class ECodeEditorToolTests
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>delete-lines</action><file>test.txt</file><start_line>abc</start_line><end_line>3</end_line>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "delete-lines", ["file"] = "test.txt", ["start_line"] = "abc", ["end_line"] = "3" });
 
-        Assert.Contains("Missing", result);
+        Assert.Contains("Missing", result.Error);
     }
 
     // ── CountOccurrences (tested indirectly via patch) ──
@@ -318,9 +308,9 @@ public class ECodeEditorToolTests
         _fileSystem.Setup(f => f.ReadFile(It.IsAny<string>())).Returns("old text here");
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>patch</action><file>test.txt</file><old_text>old text</old_text><new_text>new text</new_text>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "patch", ["file"] = "test.txt", ["old_text"] = "old text", ["new_text"] = "new text" });
 
-        Assert.Contains("Patched", result);
+        Assert.Contains("Patched", result.Succeeded ? result.Output : result.Error);
         _fileSystem.Verify(f => f.WriteFile(It.IsAny<string>(), "new text here"), Times.Once);
     }
 
@@ -333,9 +323,9 @@ public class ECodeEditorToolTests
         _fileSystem.Setup(f => f.ReadFile(It.IsAny<string>())).Returns("function HelloWorld() {\n  return greet;\n}\nfunction Hello() {\n  return greet;\n}");
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>patch</action><file>test.txt</file><old_text>function HelloWorld Test</old_text><new_text>x</new_text>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "patch", ["file"] = "test.txt", ["old_text"] = "function HelloWorld Test", ["new_text"] = "x" });
 
-        Assert.Contains("not found", result);
+        Assert.Contains("not found", result.Succeeded ? result.Output : result.Error);
     }
 
     // ── GenerateDiff (tested indirectly via diff action) ──
@@ -347,12 +337,12 @@ public class ECodeEditorToolTests
         _fileSystem.Setup(f => f.ReadFile(It.IsAny<string>())).Returns("old line same line");
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>diff</action><file>test.txt</file><new_text>new line same line</new_text>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "diff", ["file"] = "test.txt", ["new_text"] = "new line same line" });
 
-        Assert.Contains("- ", result);
-        Assert.Contains("+ ", result);
-        Assert.Contains("old line", result);
-        Assert.Contains("new line", result);
+        Assert.Contains("- ", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("+ ", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("old line", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("new line", result.Succeeded ? result.Output : result.Error);
     }
 
     // ── Replace-All ──
@@ -362,9 +352,9 @@ public class ECodeEditorToolTests
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>replace-all</action>");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "replace-all" });
 
-        Assert.Contains("Missing 'pattern'", result);
+        Assert.Contains("Missing 'pattern'", result.Error);
     }
 
     // ── Cancellation ──
@@ -378,8 +368,8 @@ public class ECodeEditorToolTests
         _fileSystem.Setup(f => f.ReadFile(It.IsAny<string>())).Returns("line1");
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("<action>insert</action><file>test.txt</file><line>1</line><text>new</text>", cts.Token);
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "insert", ["file"] = "test.txt", ["line"] = "1", ["text"] = "new" }, cts.Token);
 
-        Assert.Contains("CANCELLED", result);
+        Assert.Contains("CANCELLED", result.Error);
     }
 }

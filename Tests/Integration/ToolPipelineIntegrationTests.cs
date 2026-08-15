@@ -1,4 +1,5 @@
 using ECAssistant;
+using ECAssistant.Config;
 using ECAssistant.Engine;
 using ECAssistant.Interfaces;
 using ECAssistant.Orchestration;
@@ -43,17 +44,14 @@ public class ToolPipelineIntegrationTests : IDisposable
     }
 
     /// <summary>Setup mock dependencies with common defaults.</summary>
-    private (MockEngine engine, AgentOrchestrator orchestrator, Mock<IProcessRunner> procRunner, Mock<IFileSystem> fileSystem, Mock<IConfigProvider> config) CreatePipeline(int maxTurns = 10)
+    private (MockEngine engine, AgentOrchestrator orchestrator, Mock<IProcessRunner> procRunner, Mock<IFileSystem> fileSystem, EAgentConfig config) CreatePipeline(int maxTurns = 10)
     {
         var procRunner = new Mock<IProcessRunner>();
         var fileSystem = new Mock<IFileSystem>();
-        var config = new Mock<IConfigProvider>();
+        var config = new EAgentConfig();
         var logger = new Mock<ILogger>();
 
-        config.Setup(c => c.GetValue("workingDir", It.IsAny<string>())).Returns(_tempDir);
-        config.Setup(c => c.GetValue(It.IsAny<string>(), It.IsAny<string>())).Returns<string, string>((_, _) => _tempDir);
-        config.Setup(c => c.GetInt(It.IsAny<string>(), It.IsAny<int>())).Returns(0);
-        config.Setup(c => c.GetBool(It.IsAny<string>(), It.IsAny<bool>())).Returns(false);
+        config.AgentSettings.WorkingDirectory = _tempDir;
 
 
         var engine = new MockEngine(_tempDir);
@@ -73,7 +71,7 @@ public class ToolPipelineIntegrationTests : IDisposable
     public async Task EShellAgent_ThroughOrchestrator_ProcessRunnerCalledWithCorrectCommand()
     {
         var (engine, orchestrator, procRunner, fileSystem, config) = CreatePipeline();
-        engine.RegisterTool(new EShellAgent(procRunner.Object, config.Object, _tempDir));
+        engine.RegisterTool(new EShellAgent(procRunner.Object, config, _tempDir));
 
         engine.AddResponse("<lm><thinking>Run echo</thinking><toolcall>EShellAgent<command>echo pipeline-test</command></toolcall></lm>");
         engine.AddResponse("<lm><thinking>Done</thinking><output>Command executed</output></lm>");
@@ -98,7 +96,7 @@ public class ToolPipelineIntegrationTests : IDisposable
     public async Task EFileReader_ThroughOrchestrator_ToolDispatchedAndResultReturned()
     {
         var (engine, orchestrator, procRunner, fileSystem, config) = CreatePipeline();
-        engine.RegisterTool(new EFileReaderTool(fileSystem.Object, config.Object));
+        engine.RegisterTool(new EFileReaderTool(fileSystem.Object, config));
 
         engine.AddResponse($"<lm><thinking>Read file</thinking><toolcall>EFileReader<file>test.txt</file></toolcall></lm>");
         engine.AddResponse("<lm><thinking>Got content</thinking><output>File content retrieved</output></lm>");
@@ -121,7 +119,7 @@ public class ToolPipelineIntegrationTests : IDisposable
     public async Task ECodeEditor_Create_ThroughOrchestrator_ToolDispatched()
     {
         var (engine, orchestrator, procRunner, fileSystem, config) = CreatePipeline();
-        engine.RegisterTool(new ECodeEditorTool(fileSystem.Object, config.Object));
+        engine.RegisterTool(new ECodeEditorTool(fileSystem.Object, config));
 
         engine.AddResponse(
             "<lm><thinking>Create a file</thinking>" +
@@ -143,7 +141,7 @@ public class ToolPipelineIntegrationTests : IDisposable
     public async Task ECodeEditor_Patch_ThroughOrchestrator_ToolDispatched()
     {
         var (engine, orchestrator, procRunner, fileSystem, config) = CreatePipeline();
-        engine.RegisterTool(new ECodeEditorTool(fileSystem.Object, config.Object));
+        engine.RegisterTool(new ECodeEditorTool(fileSystem.Object, config));
 
         engine.AddResponse(
             "<lm><thinking>Patch the file</thinking>" +
@@ -159,41 +157,13 @@ public class ToolPipelineIntegrationTests : IDisposable
         Assert.NotEmpty(engine.ToolResults);
     }
 
-    // ── ToolAdapter wrapping ITool → RegisterTool(ITool) ──
-
-    [Fact]
-    public async Task ToolAdapter_WrappingITool_ThroughOrchestrator_IToolExecuteAsyncCalled()
-    {
-        var (engine, orchestrator, _, _, _) = CreatePipeline();
-
-        // Create a mock ITool
-        var mockTool = new Mock<Interfaces.ITool>();
-        mockTool.SetupGet(t => t.Name).Returns("EMockTool");
-        mockTool.SetupGet(t => t.Description).Returns("A mock tool for testing");
-        mockTool.Setup(t => t.GetPolicy()).Returns(Interfaces.ToolPolicy.Allowed("EMockTool"));
-        mockTool.Setup(t => t.ExecuteAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync("Mock tool executed successfully");
-
-        // Register via the ITool overload (uses ToolAdapter internally)
-        engine.RegisterTool(mockTool.Object);
-
-        engine.AddResponse("<lm><thinking>Use mock tool</thinking><toolcall>EMockTool<arg>test</arg></toolcall></lm>");
-        engine.AddResponse("<lm><thinking>Mock tool done</thinking><output>Mock tool result received</output></lm>");
-
-        var result = await orchestrator.ExecuteMultiStep("Use mock tool");
-
-        Assert.Equal(OrchestratorStatus.GoalAchieved, result.Status);
-        Assert.Equal("Mock tool result received", result.FinalOutput);
-        mockTool.Verify(t => t.ExecuteAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
-    }
-
     // ── ToolPolicy blocking ──
 
     [Fact]
     public async Task ToolPolicy_BlockedTool_ToolNotExecuted()
     {
         var (engine, orchestrator, procRunner, fileSystem, config) = CreatePipeline();
-        engine.RegisterTool(new EShellAgent(procRunner.Object, config.Object, _tempDir));
+        engine.RegisterTool(new EShellAgent(procRunner.Object, config, _tempDir));
 
         // Block EShellAgent
         orchestrator.Policy.SetPermission("EShellAgent", ToolPermissionLevel.Blocked, "Blocked for test");
@@ -220,7 +190,7 @@ public class ToolPipelineIntegrationTests : IDisposable
     public async Task ToolPolicy_ApprovalRequired_UserApproves_ToolExecutes()
     {
         var (engine, orchestrator, procRunner, fileSystem, config) = CreatePipeline();
-        engine.RegisterTool(new EShellAgent(procRunner.Object, config.Object, _tempDir));
+        engine.RegisterTool(new EShellAgent(procRunner.Object, config, _tempDir));
 
         orchestrator.Policy.SetPermission("EShellAgent", ToolPermissionLevel.ApprovalRequired, "Needs approval");
 
@@ -244,7 +214,7 @@ public class ToolPipelineIntegrationTests : IDisposable
     public async Task ToolPolicy_ApprovalRequired_UserDenies_ToolNotExecuted()
     {
         var (engine, orchestrator, procRunner, fileSystem, config) = CreatePipeline();
-        engine.RegisterTool(new EShellAgent(procRunner.Object, config.Object, _tempDir));
+        engine.RegisterTool(new EShellAgent(procRunner.Object, config, _tempDir));
 
         orchestrator.Policy.SetPermission("EShellAgent", ToolPermissionLevel.ApprovalRequired, "Needs approval");
 
@@ -270,7 +240,7 @@ public class ToolPipelineIntegrationTests : IDisposable
     public async Task EShellAgent_ThroughOrchestrator_CreatesRealFile_Verified()
     {
         var (engine, orchestrator, procRunner, fileSystem, config) = CreatePipeline();
-        engine.RegisterTool(new EShellAgent(procRunner.Object, config.Object, _tempDir));
+        engine.RegisterTool(new EShellAgent(procRunner.Object, config, _tempDir));
 
         engine.AddResponse("<lm><thinking>Create a file</thinking><toolcall>EShellAgent<command>echo test-content > created.txt</command></toolcall></lm>");
         engine.AddResponse("<lm><thinking>File created</thinking><output>File created</output></lm>");

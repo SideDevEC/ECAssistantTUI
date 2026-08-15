@@ -1,3 +1,4 @@
+using ECAssistant.Config;
 using ECAssistant;
 using ECAssistant.Engine;
 using ECAssistant.Interfaces;
@@ -200,14 +201,14 @@ public class ParallelToolExecutorIntegrationTests : IDisposable
     {
         var mockProcessRunner = new Mock<IProcessRunner>();
         var mockFileSystem = new Mock<IFileSystem>();
-        var mockConfig = new Mock<IConfigProvider>();
+        var config = new EAgentConfig();
+        config.AgentSettings.WorkingDirectory = _tempDir;
         var mockLogger = new Mock<ILogger>();
 
-        mockConfig.Setup(c => c.GetValue(It.IsAny<string>(), It.IsAny<string>())).Returns<string, string>((_, _) => _tempDir);
 
         var engine = new MockEngine(_tempDir); _engines.Add(engine);
-        engine.RegisterTool(new EFileReaderTool(mockFileSystem.Object, mockConfig.Object));
-        engine.RegisterTool(new EShellAgent(mockProcessRunner.Object, mockConfig.Object, _tempDir));
+        engine.RegisterTool(new EFileReaderTool(mockFileSystem.Object, config));
+        engine.RegisterTool(new EShellAgent(mockProcessRunner.Object, config, _tempDir));
 
         var policy = new ECAssistant.Tools.ToolPolicy();
         var orchestrator = new AgentOrchestrator(engine, sessionOutput: new TestSessionOutput(_gui), maxTurns: 10, maxFailures: 3, toolPolicy: policy, logger: mockLogger.Object);
@@ -241,14 +242,14 @@ public class ParallelToolExecutorIntegrationTests : IDisposable
     public async Task TwoDependentTools_SameFileWriteThenRead_BothExecuteThroughOrchestrator()
     {
         var mockFileSystem = new Mock<IFileSystem>();
-        var mockConfig = new Mock<IConfigProvider>();
+        var config = new EAgentConfig();
+        config.AgentSettings.WorkingDirectory = _tempDir;
         var mockLogger = new Mock<ILogger>();
 
-        mockConfig.Setup(c => c.GetValue(It.IsAny<string>(), It.IsAny<string>())).Returns<string, string>((_, _) => _tempDir);
 
         var engine = new MockEngine(_tempDir); _engines.Add(engine);
-        engine.RegisterTool(new ECodeEditorTool(mockFileSystem.Object, mockConfig.Object));
-        engine.RegisterTool(new EFileReaderTool(mockFileSystem.Object, mockConfig.Object));
+        engine.RegisterTool(new ECodeEditorTool(mockFileSystem.Object, config));
+        engine.RegisterTool(new EFileReaderTool(mockFileSystem.Object, config));
 
         var policy = new ECAssistant.Tools.ToolPolicy();
         var orchestrator = new AgentOrchestrator(engine, sessionOutput: new TestSessionOutput(_gui), maxTurns: 10, maxFailures: 3, toolPolicy: policy, logger: mockLogger.Object);
@@ -278,13 +279,13 @@ public class ParallelToolExecutorIntegrationTests : IDisposable
     public async Task ParallelExecution_BatchOutput_ContainsBothToolResults()
     {
         var mockProcessRunner = new Mock<IProcessRunner>();
-        var mockConfig = new Mock<IConfigProvider>();
+        var config = new EAgentConfig();
+        config.AgentSettings.WorkingDirectory = _tempDir;
         var mockLogger = new Mock<ILogger>();
 
-        mockConfig.Setup(c => c.GetValue(It.IsAny<string>(), It.IsAny<string>())).Returns<string, string>((_, _) => _tempDir);
 
         var engine = new MockEngine(_tempDir); _engines.Add(engine);
-        engine.RegisterTool(new EShellAgent(mockProcessRunner.Object, mockConfig.Object, _tempDir));
+        engine.RegisterTool(new EShellAgent(mockProcessRunner.Object, config, _tempDir));
 
         var policy = new ECAssistant.Tools.ToolPolicy();
         var orchestrator = new AgentOrchestrator(engine, sessionOutput: new TestSessionOutput(_gui), maxTurns: 10, maxFailures: 3, toolPolicy: policy, logger: mockLogger.Object);
@@ -316,13 +317,13 @@ public class ParallelToolExecutorIntegrationTests : IDisposable
     public async Task ParallelBatch_OneToolFails_OtherStillSucceeds()
     {
         var mockProcessRunner = new Mock<IProcessRunner>();
-        var mockConfig = new Mock<IConfigProvider>();
+        var config = new EAgentConfig();
+        config.AgentSettings.WorkingDirectory = _tempDir;
         var mockLogger = new Mock<ILogger>();
 
-        mockConfig.Setup(c => c.GetValue(It.IsAny<string>(), It.IsAny<string>())).Returns<string, string>((_, _) => _tempDir);
 
         var engine = new MockEngine(_tempDir); _engines.Add(engine);
-        engine.RegisterTool(new EShellAgent(mockProcessRunner.Object, mockConfig.Object, _tempDir));
+        engine.RegisterTool(new EShellAgent(mockProcessRunner.Object, config, _tempDir));
 
         var policy = new ECAssistant.Tools.ToolPolicy();
         var orchestrator = new AgentOrchestrator(engine, sessionOutput: new TestSessionOutput(_gui), maxTurns: 10, maxFailures: 3, toolPolicy: policy, logger: mockLogger.Object);

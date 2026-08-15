@@ -1,4 +1,5 @@
 using ECAssistant;
+using ECAssistant.Config;
 using ECAssistant.Engine;
 using ECAssistant.Interfaces;
 using ECAssistant.Orchestration;
@@ -47,19 +48,18 @@ public class OrchestratorIntegrationTests : IDisposable
     {
         var mockProcessRunner = new Mock<IProcessRunner>();
         var mockFileSystem = new Mock<IFileSystem>();
-        var mockConfig = new Mock<IConfigProvider>();
+        var config = new EAgentConfig();
         var mockLogger = new Mock<ILogger>();
 
-        mockConfig.Setup(c => c.GetValue("workingDir", It.IsAny<string>())).Returns(_tempDir);
-        mockConfig.Setup(c => c.GetValue(It.IsAny<string>(), It.IsAny<string>())).Returns<string, string>((_, _) => _tempDir);
+        config.AgentSettings.WorkingDirectory = _tempDir;
 
         var engine = new MockEngine(_tempDir);
         _engines.Add(engine);
 
         // Register real tools with mocked dependencies
-        engine.RegisterTool(new EShellAgent(mockProcessRunner.Object, mockConfig.Object, _tempDir));
-        engine.RegisterTool(new ECodeEditorTool(mockFileSystem.Object, mockConfig.Object));
-        engine.RegisterTool(new EFileReaderTool(mockFileSystem.Object, mockConfig.Object));
+        engine.RegisterTool(new EShellAgent(mockProcessRunner.Object, config, _tempDir));
+        engine.RegisterTool(new ECodeEditorTool(mockFileSystem.Object, config));
+        engine.RegisterTool(new EFileReaderTool(mockFileSystem.Object, config));
 
         var policy = new ECAssistant.Tools.ToolPolicy();
         var orchestrator = new AgentOrchestrator(engine, sessionOutput: new TestSessionOutput(_gui), maxTurns: maxTurns, maxFailures: 3, toolPolicy: policy, logger: mockLogger.Object);

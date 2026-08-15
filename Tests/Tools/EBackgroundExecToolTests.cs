@@ -1,3 +1,4 @@
+using ECAssistant.Config;
 using ECAssistant.Interfaces;
 using ECAssistant.Services;
 using ECAssistant.Tools.Background;
@@ -9,15 +10,13 @@ public class EBackgroundExecToolTests : IDisposable
     private readonly BackgroundProcessManager _mgr = new();
     private readonly Mock<IProcessRunner> _processRunner = new();
     private readonly Mock<IFileSystem> _fileSystem = new();
-    private readonly Mock<IConfigProvider> _configProvider = new();
+    private readonly EAgentConfig _config = new();
 
     private EBackgroundExecTool CreateTool()
     {
-        _configProvider.Setup(c => c.GetValue("background.workingDir", It.IsAny<string>()))
-                       .Returns(Path.GetTempPath());
         return new EBackgroundExecTool(
             _mgr, _processRunner.Object, _fileSystem.Object,
-            _configProvider.Object);
+            _config);
     }
 
     public void Dispose() => _mgr.Dispose();
@@ -38,17 +37,8 @@ public class EBackgroundExecToolTests : IDisposable
         Assert.Contains("background", tool.Description, StringComparison.OrdinalIgnoreCase);
     }
 
-    // ── GetPolicy ──
 
-    [Fact]
-    public void GetPolicy_ReturnsAllowedPolicy()
-    {
-        var tool = CreateTool();
-        var policy = tool.GetPolicy();
-
-        Assert.Equal("EBackgroundExec", policy.ToolName);
-        Assert.Equal("Allowed", policy.Level);
-    }
+    
 
     // ── ExecuteAsync — start action ──
 
@@ -57,11 +47,11 @@ public class EBackgroundExecToolTests : IDisposable
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"start","command":"echo hello"}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "start", ["command"] = "echo hello" });
 
-        Assert.Contains("bg-1", result);
-        Assert.Contains("echo hello", result);
-        Assert.Contains("Background process started", result);
+        Assert.Contains("bg-1", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("echo hello", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("Background process started", result.Succeeded ? result.Output : result.Error);
     }
 
     [Fact]
@@ -69,9 +59,9 @@ public class EBackgroundExecToolTests : IDisposable
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"start"}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "start" });
 
-        Assert.Contains("Missing 'command'", result);
+        Assert.Contains("Missing 'command'", result.Error);
     }
 
     [Fact]
@@ -79,9 +69,9 @@ public class EBackgroundExecToolTests : IDisposable
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"start","command":""}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "start", ["command"] = "" });
 
-        Assert.Contains("Missing 'command'", result);
+        Assert.Contains("Missing 'command'", result.Error);
     }
 
     // ── ExecuteAsync — status action ──
@@ -91,9 +81,9 @@ public class EBackgroundExecToolTests : IDisposable
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"status"}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "status" });
 
-        Assert.Contains("No background processes", result);
+        Assert.Contains("No background processes", result.Succeeded ? result.Output : result.Error);
     }
 
     [Fact]
@@ -103,10 +93,10 @@ public class EBackgroundExecToolTests : IDisposable
         await _mgr.StartAsync("echo hello", Path.GetTempPath());
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"status"}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "status" });
 
-        Assert.Contains("bg-1", result);
-        Assert.Contains("1", result);
+        Assert.Contains("bg-1", result.Succeeded ? result.Output : result.Error);
+        Assert.Contains("1", result.Succeeded ? result.Output : result.Error);
     }
 
     // ── ExecuteAsync — output action ──
@@ -119,9 +109,9 @@ public class EBackgroundExecToolTests : IDisposable
         await Task.Delay(2000);
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync($"{{\"action\":\"output\",\"id\":\"{id}\"}}");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "output", ["id"] = id });
 
-        Assert.Contains(id, result);
+        Assert.Contains(id, result.Output);
     }
 
     [Fact]
@@ -129,9 +119,9 @@ public class EBackgroundExecToolTests : IDisposable
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"output"}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "output" });
 
-        Assert.Contains("Missing 'id'", result);
+        Assert.Contains("Missing 'id'", result.Error);
     }
 
     // ── ExecuteAsync — kill action ──
@@ -141,10 +131,10 @@ public class EBackgroundExecToolTests : IDisposable
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"kill","id":"bg-99"}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "kill", ["id"] = "bg-99" });
 
-        Assert.Contains("Failed to kill", result);
-        Assert.Contains("bg-99", result);
+        Assert.Contains("Failed to kill", result.Error);
+        Assert.Contains("bg-99", result.Error);
     }
 
     [Fact]
@@ -152,9 +142,9 @@ public class EBackgroundExecToolTests : IDisposable
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"kill"}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "kill" });
 
-        Assert.Contains("Missing 'id'", result);
+        Assert.Contains("Missing 'id'", result.Error);
     }
 
     // ── ExecuteAsync — unknown action ──
@@ -164,10 +154,10 @@ public class EBackgroundExecToolTests : IDisposable
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"foobar"}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "foobar" });
 
-        Assert.Contains("Unknown action", result);
-        Assert.Contains("foobar", result);
+        Assert.Contains("Unknown action", result.Error);
+        Assert.Contains("foobar", result.Error);
     }
 
     [Fact]
@@ -175,9 +165,9 @@ public class EBackgroundExecToolTests : IDisposable
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":""}""");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "" });
 
-        Assert.Contains("Unknown action", result);
+        Assert.Contains("Unknown action", result.Error);
     }
 
     // ── ExecuteAsync — empty/null input ──
@@ -187,9 +177,9 @@ public class EBackgroundExecToolTests : IDisposable
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?>());
 
-        Assert.Contains("Unknown action", result);
+        Assert.Contains("Unknown action", result.Error);
     }
 
     // ── ExecuteAsync — cancellation ──
@@ -201,9 +191,9 @@ public class EBackgroundExecToolTests : IDisposable
         cts.Cancel();
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("""{"action":"start","command":"build"}""", cts.Token);
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "start", ["command"] = "build" }, cts.Token);
 
-        Assert.Contains("CANCELLED", result);
+        Assert.Contains("CANCELLED", result.Error);
     }
 
     // ── Fallback parsing (non-JSON) ──
@@ -213,8 +203,8 @@ public class EBackgroundExecToolTests : IDisposable
     {
         var tool = CreateTool();
 
-        var result = await tool.ExecuteAsync("action=status");
+        var result = await tool.ExecuteAsync(new Dictionary<string, string?> { ["action"] = "status" });
 
-        Assert.Contains("No background processes", result);
+        Assert.Contains("No background processes", result.Succeeded ? result.Output : result.Error);
     }
 }

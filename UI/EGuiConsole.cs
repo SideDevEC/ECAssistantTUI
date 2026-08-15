@@ -41,6 +41,13 @@ public sealed class EGuiConsole : EGuiBase
     private readonly List<string> _startupBuffer = new();
     private bool _bufferingMode = true; // true until InitConsole() is called
 
+    // ── Blinking cursor ──
+    private Timer? _cursorTimer;
+    private bool _cursorVisible = true;
+    private DateTime _lastInputTime = DateTime.MinValue;
+    private const int BlinkIntervalMs = 500;
+    private const int SteadyAfterInputMs = 1000;
+
     // ── Screen model ──
     // Output lines stored with ANSI color codes already embedded.
     private readonly List<string> _outputLines = new();
@@ -100,6 +107,9 @@ public sealed class EGuiConsole : EGuiBase
             PositionCursorAtInput();
             Console.Out.Flush();
         }
+
+        // Start blinking cursor timer
+        StartCursorTimer();
     }
 
     /// <summary>Flush buffered startup output to the terminal (non-ANSI path).</summary>
@@ -113,6 +123,8 @@ public sealed class EGuiConsole : EGuiBase
 
     public void ShutdownConsole()
     {
+        StopCursorTimer();
+
         if (!_ansiSupported) return;
 
         // Leave alternate screen buffer + show cursor
@@ -337,6 +349,58 @@ public sealed class EGuiConsole : EGuiBase
         }
     }
 
+    // ════════════════════════════════════════════════════════
+    //  BLINKING CURSOR
+    // ════════════════════════════════════════════════════════
+
+    private void StartCursorTimer()
+    {
+        _cursorTimer = new Timer(OnCursorBlink, null, BlinkIntervalMs, BlinkIntervalMs);
+    }
+
+    private void StopCursorTimer()
+    {
+        _cursorTimer?.Dispose();
+        _cursorTimer = null;
+    }
+
+    private void OnCursorBlink(object? state)
+    {
+        if (!_ansiSupported) return;
+
+        // If user typed recently, keep cursor steady (not blinking) for a bit
+        if (_lastInputTime != DateTime.MinValue &&
+            (DateTime.UtcNow - _lastInputTime).TotalMilliseconds < SteadyAfterInputMs)
+        {
+            if (!_cursorVisible)
+            {
+                _cursorVisible = true;
+                _inputDirty = true;
+                lock (_writeLock)
+                {
+                    Repaint();
+                    PositionCursorAtInput();
+                    Console.Out.Flush();
+                }
+            }
+            return;
+        }
+
+        // Toggle cursor visibility
+        _cursorVisible = !_cursorVisible;
+        _inputDirty = true;
+        try
+        {
+            lock (_writeLock)
+            {
+                Repaint();
+                PositionCursorAtInput();
+                Console.Out.Flush();
+            }
+        }
+        catch { }
+    }
+
     /// <summary>
     /// Paint the input row: "> " + buffer (or just "> " in silent mode).
     /// </summary>
@@ -346,6 +410,14 @@ public sealed class EGuiConsole : EGuiBase
         Console.Write(PromptStr);
         if (!_silentInput)
             Console.Write(_inputBuffer.ToString());
+
+        // Draw blinking cursor at end of input
+        if (_cursorVisible)
+        {
+            int col = PromptStr.Length + (_silentInput ? 0 : _inputBuffer.Length);
+            if (col < _screenWidth)
+                Console.Write("\x1b[7m \x1b[0m"); // reverse-video space = block cursor
+        }
     }
 
     /// <summary>
@@ -353,6 +425,8 @@ public sealed class EGuiConsole : EGuiBase
     /// </summary>
     private void PositionCursorAtInput()
     {
+        // Cursor is drawn as part of PaintInputLine (block cursor)
+        // Just position after it — the block cursor is at the end of input
         int col = PromptStr.Length + (_silentInput ? 0 : _inputBuffer.Length);
         Console.Write($"\x1b[{_inputRow + 1};{col + 1}H");
     }
@@ -716,6 +790,8 @@ public sealed class EGuiConsole : EGuiBase
                     if (_inputBuffer.Length > 0)
                     {
                         _inputBuffer.Remove(_inputBuffer.Length - 1, 1);
+                        _lastInputTime = DateTime.UtcNow;
+                        _cursorVisible = true;
                         _inputDirty = true;
                         Repaint();
                         PositionCursorAtInput();
@@ -749,6 +825,8 @@ public sealed class EGuiConsole : EGuiBase
                 else if (key.KeyChar != '\0' && !char.IsControl(key.KeyChar))
                 {
                     _inputBuffer.Append(key.KeyChar);
+                    _lastInputTime = DateTime.UtcNow;
+                    _cursorVisible = true;
                     if (!_silentInput)
                     {
                         _inputDirty = true;

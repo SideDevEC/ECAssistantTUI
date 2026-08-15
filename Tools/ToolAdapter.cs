@@ -27,15 +27,16 @@ public sealed class ToolAdapter : EToolBase
     public override string UsageExample => string.Empty;
 
     /// <summary>
-    /// Bridge: converts the dictionary args to the string input format expected by ITool,
+    /// Bridge: converts the dictionary args to the XML tag string format expected by ITool,
     /// then wraps the string result in an EToolResult.
+    /// Tools parse input like: &lt;command&gt;echo hello&lt;/command&gt;&lt;file&gt;test.cs&lt;/file&gt;
     /// </summary>
     public override async Task<EToolResult> ExecuteAsync(Dictionary<string, string?> arguments, CancellationToken cancellationToken = default)
     {
-        var input = ArgumentsToString(arguments);
+        var input = ArgumentsToXml(arguments);
         var result = await _inner.ExecuteAsync(input, cancellationToken);
 
-        if (result.StartsWith("[FAILED]"))
+        if (result.StartsWith("[FAILED]") || result.StartsWith("[Shell Error") || result.StartsWith("[") && result.Contains("] Error"))
             return EToolResult.Failure(_inner.Name, result);
 
         return EToolResult.Success(_inner.Name, result);
@@ -43,20 +44,23 @@ public sealed class ToolAdapter : EToolBase
 
     public override string GetExtendedSystemPrompt() => _inner.Description;
 
-    /// <summary>Convert dictionary arguments to a key=value string for ITool consumption.</summary>
-    private string ArgumentsToString(Dictionary<string, string?> args)
+    /// <summary>
+    /// Convert dictionary arguments to XML tag format for ITool consumption.
+    /// E.g., {"command": "date"} → "&lt;command&gt;date&lt;/command&gt;"
+    /// </summary>
+    private string ArgumentsToXml(Dictionary<string, string?> args)
     {
         if (args == null || args.Count == 0)
             return string.Empty;
 
-        var parts = new System.Text.StringBuilder();
+        var sb = new System.Text.StringBuilder();
         foreach (var kv in args)
         {
             if (string.IsNullOrEmpty(kv.Value))
-                parts.Append($"{kv.Key} ");
+                sb.Append($"<{kv.Key}>");
             else
-                parts.Append($"{kv.Key}=\"{kv.Value}\" ");
+                sb.Append($"<{kv.Key}>{kv.Value}</{kv.Key}>");
         }
-        return parts.ToString().Trim();
+        return sb.ToString();
     }
 }

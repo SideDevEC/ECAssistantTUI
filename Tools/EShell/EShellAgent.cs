@@ -1,21 +1,12 @@
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text.RegularExpressions;
 using ECAssistant.Interfaces;
 
 namespace ECAssistant.Tools.Shell;
 
 /// <summary>
 /// Shell Agent Tool — the primary tool for all file and system operations.
-/// Gives the LLM full control over filesystem, commands, code execution.
-/// 
-/// On Windows: uses powershell.exe.
-/// On macOS: uses /bin/zsh.
-/// 
-/// Every LLM knows shell commands, so this one tool handles:
-/// - Read/write/copy/move/delete files
-/// - List and search files
-/// - Search content
-/// - Compile code, run scripts
 /// </summary>
 public class EShellAgent : ITool
 {
@@ -23,10 +14,7 @@ public class EShellAgent : ITool
     private readonly IConfigProvider _configProvider;
     private readonly IColorFormatter _colorFormatter;
     private readonly string _workingDirectory;
-
-    // v10.16: OS detection — determined once at construction (instance-based)
     private readonly bool _isWindows = OperatingSystem.IsWindows();
-    private readonly bool _isMacOS = OperatingSystem.IsMacOS();
 
     public EShellAgent(IProcessRunner processRunner, IConfigProvider configProvider, IColorFormatter colorFormatter, string workingDirectory)
     {
@@ -46,7 +34,7 @@ public class EShellAgent : ITool
 
     public async Task<string> ExecuteAsync(string input, CancellationToken ct = default)
     {
-        var command = input?.Trim();
+        var command = ExtractCommand(input);
         if (string.IsNullOrWhiteSpace(command))
             return $"[{Name}] Missing command argument.";
 
@@ -86,37 +74,54 @@ public class EShellAgent : ITool
 
     public ECAssistant.Interfaces.ToolPolicy GetPolicy() => ECAssistant.Interfaces.ToolPolicy.Approved(Name);
 
-    /// <summary>
-    /// Run a shell command with proper working directory.
-    /// v10.16: OS-aware — Windows uses powershell.exe, macOS uses /bin/zsh.
-    /// </summary>
     private async Task<ShellProcessResult> RunShellAsync(string command, string workingDir, CancellationToken cancellationToken = default)
     {
         string shellCommand;
 
         if (_isWindows)
-        {
-            // Windows: PowerShell with error collection
             shellCommand = $"powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{command}\"";
-        }
         else
-        {
-            // macOS/Linux: zsh
             shellCommand = $"/bin/zsh -c \"{command}\"";
-        }
 
         var result = await _processRunner.ExecuteAsync(shellCommand, workingDir, cancellationToken);
-
         return new ShellProcessResult(result.StdOut, result.StdErr, result.ExitCode);
     }
 
-    /// <summary>Escape angle brackets to prevent XML tag confusion in LLM history.</summary>
+    /// <summary>
+    /// Extract the command from the input string.
+    /// Handles XML tag format from ToolAdapter: <command>date</command>
+    /// Also handles raw command text and key=value format.
+    /// </summary>
+    private string ExtractCommand(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+            return string.Empty;
+
+        input = input.Trim();
+
+        // XML tag format from ToolAdapter
+        var xmlMatch = Regex.Match(input, @"<command>(.*?)</command>", RegexOptions.IgnoreCase);
+        if (xmlMatch.Success)
+            return xmlMatch.Groups[1].Value.Trim();
+
+        // key="value" format (fallback)
+        var kvMatch = Regex.Match(input, @"command\s*=\s*""([^""]*)""");
+        if (kvMatch.Success)
+            return kvMatch.Groups[1].Value;
+
+        // key=value without quotes
+        if (input.StartsWith("command=", StringComparison.OrdinalIgnoreCase))
+            return input.Substring("command=".Length).Trim().Trim('"');
+
+        // Raw input — just return as-is
+        return input;
+    }
+
     private string EscapeXml(string text)
     {
         if (string.IsNullOrEmpty(text)) return text;
-        return text.Replace("<", "<").Replace(">", ">");
+        return text.Replace("<", "&lt;").Replace(">", "&gt;");
     }
 }
 
-/// <summary>Lightweight result structure from shell execution.</summary>
 internal record ShellProcessResult(string StandardOutput, string StandardError, int ExitCode);

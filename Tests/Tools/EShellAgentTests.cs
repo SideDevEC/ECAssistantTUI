@@ -165,9 +165,9 @@ public class EShellAgentTests
     // ── XML escaping ──
 
     [Fact]
-    public async Task ExecuteAsync_OutputWithAngleBrackets_PreservedInOutput()
+
+    public async Task ExecuteAsync_OutputWithAngleBrackets_XmlEscapedInOutput()
     {
-        // EscapeXml replaces < with < and > with > (literal same chars), so angle brackets are preserved
         _processRunner
             .Setup(p => p.ExecuteAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(SuccessResult("<script>alert('xss')</script>"));
@@ -175,11 +175,11 @@ public class EShellAgentTests
 
         var result = await tool.ExecuteAsync("cmd");
 
-        Assert.Contains("<script>alert('xss')</script>", result);
+        Assert.Contains("&lt;script&gt;alert('xss')&lt;/script&gt;", result);
     }
 
     [Fact]
-    public async Task ExecuteAsync_StderrWithAngleBrackets_PreservedInOutput()
+    public async Task ExecuteAsync_StderrWithAngleBrackets_XmlEscapedInOutput()
     {
         _processRunner
             .Setup(p => p.ExecuteAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
@@ -188,7 +188,10 @@ public class EShellAgentTests
 
         var result = await tool.ExecuteAsync("cmd");
 
-        Assert.Contains("<error>", result);
+        Assert.Contains("&lt;error&gt;", result);
+    }
+    public async Task ExecuteAsync_OutputWithAngleBrackets_PreservedInOutput()
+    {
     }
 
     // ── CancellationToken ──

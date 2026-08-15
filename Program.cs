@@ -19,6 +19,7 @@ using ECAssistant.Interfaces;
 using ECAssistant.Testing;
 using LLama.Common;
 using LLama.Sampling;
+// v10.23.3: App now uses AgentConfigBuilder from Core
 
 namespace ECAssistant;
 
@@ -46,38 +47,37 @@ public class Program
             Gui = guiConsole;
             _color = new EColor();
 
-            // ── Initialize structured logging (P2) ──
-            var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "ECAssistant.log");
+            // ── Initialize structured logging ──
+            var userConfigDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant");
+            var logPath = Path.Combine(userConfigDir, "ECAssistant.log");
             _logger = new Logger(logPath, LogLevel.Info);
 
-            Gui.WriteLineColored(_color.Cyan + _color.Bold + "[ECAssistant] v10.12 — llama-sharp 0.27.0" + _color.Reset);
+            Gui.WriteLineColored(_color.Cyan + _color.Bold + "[ECAssistant] v10.23.3 — llama-sharp 0.27.0" + _color.Reset);
 
-                 // Always use user's home directory for ECAssistant
-            var userConfigDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant");
-            Directory.CreateDirectory(userConfigDir);
+            // v10.23.3: Use AgentConfigBuilder from Core — same flow as library consumers
+            // Working dir: ~/ECAssistant/eca-data/ (appends eca-data to base path)
+            // Migrate existing ~/ECAssistant/appsettings.json to eca-data/ on first run
+            var builder = AgentConfigBuilder.Create()
+                .WorkingDirectory(userConfigDir);  // → ~/ECAssistant/eca-data/
+            ApplyCommandLineArgsToBuilder(ref builder, args);
 
-            // v9.14: Copy appsettings.json from build dir to user dir if not exists
-            var configPath = Path.Combine(userConfigDir, "appsettings.json");
-            var bundledConfigPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
-            if (!File.Exists(configPath))
+            // Migrate: if old appsettings.json exists in ~/ECAssistant/ but not in eca-data/, copy it
+            var ecaDataDir = Path.Combine(userConfigDir, "eca-data");
+            var oldConfigPath = Path.Combine(userConfigDir, "appsettings.json");
+            var newConfigPath = Path.Combine(ecaDataDir, "appsettings.json");
+            if (File.Exists(oldConfigPath) && !File.Exists(newConfigPath))
             {
-                if (File.Exists(bundledConfigPath))
-                {
-                    Gui.WriteLineColored(_color.Green + "[Setup] " + ($"Copying default config to: {userConfigDir}") + _color.Reset);
-                    File.Copy(bundledConfigPath, configPath, overwrite: false);
-                }
-                else
-                {
-                    Gui.WriteLineColored(_color.Cyan + "[Setup] No appsettings.json found. Creating default." + _color.Reset);
-                    var defaults = new EAgentConfig();
-                    File.WriteAllText(configPath, System.Text.Json.JsonSerializer.Serialize(
-                        defaults, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
-                }
+                Directory.CreateDirectory(ecaDataDir);
+                File.Copy(oldConfigPath, newConfigPath, overwrite: false);
+                Gui.WriteLineColored(_color.Green + "[Setup] " + $"Migrated config to: {newConfigPath}" + _color.Reset);
             }
 
-                 { var fs = new Services.FileSystemAdapter(); var loader = new Config.ConfigLoader(fs); _config = loader.Load(configPath); }
-              Gui.WriteLineColored(_color.Green + "[Config] " + $"Loaded from: {Path.GetFullPath(configPath)}" + _color.Reset);
-            ApplyCommandLineArgs(ref _config, args);
+            _config = builder.Build();
+            // Override working dir to ~/ECAssistant for backward compat (existing sessions, memory, etc.)
+            _config.RootPath = userConfigDir;
+            _config.AgentSettings.WorkingDirectory = userConfigDir;
+
+            Gui.WriteLineColored(_color.Green + "[Config] " + $"Loaded from: {newConfigPath}" + _color.Reset);
 
              Gui.BlankLine();
 
@@ -211,35 +211,35 @@ public class Program
             return 0;
              }
 
-    private static void ApplyCommandLineArgs(ref EAgentConfig config, string[] args)
-             {
-            for (int i = 0; i < args.Length; i++)
-                      {
-                    var arg = args[i].ToLower().TrimStart('-');
-                     switch (arg)
-                               {
-                            case "model":   if (i + 1 < args.Length) config.Llm.ModelPath = args[++i]; break;
-                            case "dir":     if (i + 1 < args.Length) config.AgentSettings.WorkingDirectory = Path.GetFullPath(args[++i]); break;
-                             case "ctx":
-                            case "contextsize":
-                                  if (i + 1 < args.Length && uint.TryParse(args[++i], out uint ctx)) config.Llm.ContextSize = ctx;
-                               break;
-                            case "gpu":
-                              case "gpulayers":
-                                case "gpu_layers":
-                                  if (i + 1 < args.Length && int.TryParse(args[++i], out int layers)) config.Llm.GpuLayers = Math.Clamp(layers, 0, 100);
-                                break;
-                               case "threads":
-                                case "threadcount":
-                                     if (i + 1 < args.Length && int.TryParse(args[++i], out int thr)) config.Llm.Threads = thr;
-                              break;
-                               case "temp":
-                                case "temperature":
-                                    if (i + 1 < args.Length && float.TryParse(args[++i], out float t)) config.Sampling.Temperature = Math.Clamp(t, 0.0f, 2.0f);
-                              break;
-                                   }
-                           }
-                  }
+    // v10.23.3: Apply command-line args to AgentConfigBuilder (seeds initial JSON only)
+    private static void ApplyCommandLineArgsToBuilder(ref AgentConfigBuilder builder, string[] args)
+    {
+        for (int i = 0; i < args.Length; i++)
+        {
+            var arg = args[i].ToLower().TrimStart('-');
+            switch (arg)
+            {
+                case "model":     if (i + 1 < args.Length) builder.WithModel(args[++i]); break;
+                case "ctx":
+                case "contextsize":
+                    if (i + 1 < args.Length && uint.TryParse(args[++i], out uint ctx)) builder.ContextSize(ctx);
+                    break;
+                case "gpu":
+                case "gpulayers":
+                case "gpu_layers":
+                    if (i + 1 < args.Length && int.TryParse(args[++i], out int layers)) builder.GpuLayers(Math.Clamp(layers, 0, 100));
+                    break;
+                case "threads":
+                case "threadcount":
+                    if (i + 1 < args.Length && int.TryParse(args[++i], out int thr)) builder.Threads(thr);
+                    break;
+                case "temp":
+                case "temperature":
+                    if (i + 1 < args.Length && float.TryParse(args[++i], out float t)) builder.Temperature(Math.Clamp(t, 0.0f, 2.0f));
+                    break;
+            }
+        }
+    }
 
     // ── Test Mode: Automated testing without console interaction ──
 
@@ -248,15 +248,12 @@ public class Program
         // v10.22: --mock flag runs model-independent tests with MockEngine (no GGUF needed)
         bool useMock = testArgs.Any(a => a.Equals("--mock", StringComparison.OrdinalIgnoreCase));
 
-        // Resolve model path from ~/ECAssistant/appsettings.json
+        // v10.23.3: Use AgentConfigBuilder to load config
         var userConfigDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant");
-        var configPath = Path.Combine(userConfigDir, "appsettings.json");
-        var modelPath = "";
-        if (File.Exists(configPath))
-        {
-            var fs2 = new Services.FileSystemAdapter(); var loader2 = new Config.ConfigLoader(fs2); var config = loader2.Load(configPath);
-            modelPath = config.Llm.ModelPath;
-        }
+        var config = AgentConfigBuilder.Create()
+            .WorkingDirectory(userConfigDir)
+            .Build();
+        var modelPath = config.Llm.ModelPath;
 
         // Allow override via --model arg
         for (int i = 0; i < testArgs.Length; i++)

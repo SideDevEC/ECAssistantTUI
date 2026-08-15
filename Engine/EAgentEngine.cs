@@ -1333,7 +1333,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                               _out?.WriteWarning("[Stop] Execution cancelled by user.");
                               goto inferenceDone;
                           }
-                          _out?.WriteRaw(token);
+                          _out?.WriteRawDirect(token);
                            sb.Append(token);
                            tokenCount++;
                            var soFar = sb.ToString();

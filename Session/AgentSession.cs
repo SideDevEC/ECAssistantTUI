@@ -277,6 +277,18 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
         }
     }
 
+    /// <summary>Write raw text directly — bypasses cursor tracking for token streaming.</summary>
+    public void WriteRawDirect(string token)
+    {
+        lock (_bufferLock)
+        {
+            // Flush any buffered content first, then write directly
+            if (_streamBuffer.Length > 0)
+                FlushBuffer();
+            Program.Gui?.WriteRawDirect(token);
+        }
+    }
+
     /// <summary>Write text with a state. If state changes, flush buffer first.</summary>
     public void Write(string text, OutputState state)
     {

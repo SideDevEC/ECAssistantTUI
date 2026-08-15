@@ -165,7 +165,31 @@ public sealed class EGuiConsole : EGuiBase
     public override void BlankLine() => WriteOutputLine("");
     public override void InfoColored(string coloredText) => WriteOutputLine(coloredText);
     public override void WarningColored(string coloredText) => WriteOutputLine(coloredText);
-    public override void WriteRawDirect(string text) => WriteOutput(text);
+    public override void WriteRawDirect(string text)
+    {
+        // Direct streaming — bypass cursor tracking and input line redraw
+        // This prevents line break issues during token streaming
+        if (!_ansiSupported)
+        {
+            Console.Write(text);
+            return;
+        }
+
+        lock (_cursorLock)
+        {
+            if (_cursorOnInputLine)
+            {
+                Console.Write($"\x1b[{_outputRow};1H");
+                _cursorOnInputLine = false;
+            }
+            // Write directly without tracking newlines or redrawing input line
+            Console.Write(text);
+            // Update output row for newlines
+            foreach (char c in text)
+                if (c == '\n') _outputRow++;
+            if (_outputRow > _scrollBottom) _outputRow = _scrollBottom;
+        }
+    }
     public override void LogInternal(string text) => WriteOutputLine(text);
 
     /// <summary>

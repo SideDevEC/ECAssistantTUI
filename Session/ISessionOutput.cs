@@ -16,6 +16,9 @@ public interface ISessionOutput
     /// <summary>Append a raw token to the stream buffer (no flush, no file I/O).</summary>
     void WriteRaw(string token);
 
+    /// <summary>Write raw text directly to output — bypasses cursor tracking, for token streaming.</summary>
+    void WriteRawDirect(string token);
+
     /// <summary>Write text with a state. If state changes, flush buffer first.</summary>
     void Write(string text, OutputState state);
 

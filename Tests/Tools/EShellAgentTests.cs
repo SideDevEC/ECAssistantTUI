@@ -190,10 +190,6 @@ public class EShellAgentTests
 
         Assert.Contains("&lt;error&gt;", result);
     }
-    public async Task ExecuteAsync_OutputWithAngleBrackets_PreservedInOutput()
-    {
-    }
-
     // ── CancellationToken ──
 
     [Fact]

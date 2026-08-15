@@ -674,9 +674,103 @@ public static class EcaTests
             ExpectedFiles = new() { "Test.csproj" },
             MinToolCalls = 1,
         },
-    };
 
-    /// <summary>Get a subset of tests by name prefix.</summary>
+        // ── Tier 17: Memory System Tests (v11.4) ──────────────────
+
+        new TestScenario
+        {
+            Name = "memory_keyword_recall",
+            Description = "Save a memory entry, then ask a question that should trigger keyword recall",
+            Prompt = "I need you to remember something: the API key format is XXX-YYY-ZZZ. Now tell me, what format did I just tell you about?",
+            TimeoutSeconds = 120,
+            ExpectedStatus = OrchestratorStatus.GoalAchieved,
+            ExpectedOutputContains = new() { "XXX-YYY-ZZZ" },
+        },
+
+        new TestScenario
+        {
+            Name = "memory_context_injection",
+            Description = "Verify memory is injected into prompts — agent should reference saved context",
+            Prompt = "First, save a memory: 'The project uses PostgreSQL version 15'. Then tell me which database version the project uses based on your memory.",
+            TimeoutSeconds = 150,
+            ExpectedStatus = OrchestratorStatus.GoalAchieved,
+            ExpectedOutputContains = new() { "PostgreSQL", "15" },
+        },
+
+        new TestScenario
+        {
+            Name = "memory_persistence",
+            Description = "Save a memory to disk, verify file is created in Memory/ directory",
+            Prompt = "Save a memory entry with key 'test-pref', content 'ECAssistant memory test successful', and category 'test'. Use the memory system.",
+            TimeoutSeconds = 120,
+            ExpectedStatus = OrchestratorStatus.GoalAchieved,
+            Assertions = new()
+            {
+                (result, ctx) =>
+                {
+                    var memDir = Path.Combine(ctx.WorkingDir, "Memory");
+                    if (!Directory.Exists(memDir)) return false;
+                    var files = Directory.GetFiles(memDir, "*.json", SearchOption.TopDirectoryOnly);
+                    return files.Length > 0;
+                }
+            },
+        },
+
+        new TestScenario
+        {
+            Name = "memory_semantic_search",
+            Description = "Test semantic memory search — ask a conceptually related question",
+            Prompt = "Save a memory: 'We decided to use Redis for caching because it is fast'. Then ask: 'What did we choose for caching and why?'",
+            TimeoutSeconds = 180,
+            ExpectedStatus = OrchestratorStatus.GoalAchieved,
+            ExpectedOutputContains = new() { "Redis" },
+        },
+
+        new TestScenario
+        {
+            Name = "memory_multi_entry",
+            Description = "Save multiple memory entries and verify they coexist",
+            Prompt = "Save two memories: (1) key 'db-config', content 'Database runs on port 5432', category 'config'. (2) key 'api-config', content 'API runs on port 8080', category 'config'. Then list all memory entries you have.",
+            TimeoutSeconds = 180,
+            ExpectedStatus = OrchestratorStatus.GoalAchieved,
+            ExpectedOutputContains = new() { "5432", "8080" },
+        },
+
+        new TestScenario
+        {
+            Name = "memory_project_context",
+            Description = "Verify ProjectContextManager indexes workspace files",
+            Prompt = "Create a file called README.md with content '# My Project\nThis is a test project for ECAssistant.'. Then tell me what you know about this project from the file context.",
+            TimeoutSeconds = 180,
+            ExpectedStatus = OrchestratorStatus.GoalAchieved,
+            ExpectedFiles = new() { "README.md" },
+            MinToolCalls = 1,
+            ExpectedOutputContains = new() { "test project" },
+        },
+
+        new TestScenario
+        {
+            Name = "memory_failure_context",
+            Description = "Verify failure context injection — agent should learn from past failures",
+            Prompt = "Try to read a file called 'missing.txt' that doesn't exist. Then try again with a different approach. Tell me what you learned from the failure.",
+            TimeoutSeconds = 180,
+            ExpectedStatus = OrchestratorStatus.GoalAchieved,
+            MinToolCalls = 1,
+            Assertions = new()
+            {
+                (result, ctx) =>
+                {
+                    var output = result.FinalOutput.ToLowerInvariant();
+                    return output.Contains("not exist") ||
+                           output.Contains("no such file") ||
+                           output.Contains("not found") ||
+                           output.Contains("doesn't exist") ||
+                           output.Contains("error") ||
+                           output.Contains("fail");
+                }
+            },
+        },
+    };
     public static List<TestScenario> ByNamePrefix(string prefix)
         => All.Where(t => t.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList();
 
@@ -743,6 +837,10 @@ public static class EcaTests
     /// <summary>Get only the dotnet build tests.</summary>
     public static List<TestScenario> DotnetTests
         => ByNamePrefix("dotnet_");
+
+    /// <summary>Get only the memory system tests.</summary>
+    public static List<TestScenario> MemoryTests
+        => ByNamePrefix("memory_");
 
     // ── v10.22: Mock Engine Tests (model-independent, deterministic) ──────────
 

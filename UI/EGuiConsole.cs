@@ -35,6 +35,12 @@ public sealed class EGuiConsole : EGuiBase
     private volatile bool _silentInput;
     private Func<bool>? _silentInputCheck;
 
+    // ── Startup buffering ──
+    // Before InitConsole(), output is queued here instead of written to terminal.
+    // InitConsole() flushes all queued lines in one paint after entering alternate buffer.
+    private readonly List<string> _startupBuffer = new();
+    private bool _bufferingMode = true; // true until InitConsole() is called
+
     // ── Screen model ──
     // Output lines stored with ANSI color codes already embedded.
     private readonly List<string> _outputLines = new();
@@ -68,15 +74,41 @@ public sealed class EGuiConsole : EGuiBase
     public void InitConsole()
     {
         _ansiSupported = DetectAnsiSupport();
-        if (!_ansiSupported) return;
+        if (!_ansiSupported)
+        {
+            // No ANSI: flush buffered output to primary terminal
+            _bufferingMode = false;
+            FlushStartupBuffer();
+            return;
+        }
 
         // Enter alternate screen buffer + hide cursor
         Console.Write("\x1b[?1049h\x1b[?25l");
         Console.Out.Flush();
 
         UpdateDimensions();
-        _fullRepaint = true;
-        Repaint();
+
+        // Flush all buffered startup output into the output model, then paint once
+        _bufferingMode = false;
+        lock (_writeLock)
+        {
+            foreach (var line in _startupBuffer)
+                AddOutputLine(line);
+            _startupBuffer.Clear();
+            _fullRepaint = true;
+            Repaint();
+            PositionCursorAtInput();
+            Console.Out.Flush();
+        }
+    }
+
+    /// <summary>Flush buffered startup output to the terminal (non-ANSI path).</summary>
+    private void FlushStartupBuffer()
+    {
+        foreach (var line in _startupBuffer)
+            Console.Write(line);
+        Console.Out.Flush();
+        _startupBuffer.Clear();
     }
 
     public void ShutdownConsole()
@@ -427,6 +459,13 @@ public sealed class EGuiConsole : EGuiBase
         if (!_ansiSupported)
         {
             lock (_writeLock) { Console.Write(text); Console.Out.Flush(); }
+            return;
+        }
+
+        // Buffering mode: queue output until InitConsole() enters alternate buffer
+        if (_bufferingMode)
+        {
+            lock (_writeLock) { _startupBuffer.Add(text); }
             return;
         }
 

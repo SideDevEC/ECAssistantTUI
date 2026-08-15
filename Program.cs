@@ -40,14 +40,11 @@ public class Program
                      return await RunTestsAsync(args.Skip(1).ToArray());
                  }
 
-                 // ── UI initialisation — single line, swap anywhere ──
-            // v10.21.2: EGuiConsole with full-screen alternate buffer TUI
+                 // ── UI initialisation — create GUI in buffering mode ──
+            // Output is queued until InitConsole() enters alternate buffer and flushes
             var guiConsole = new EGuiConsole();
-            guiConsole.InitConsole();
             Gui = guiConsole;
             _color = new EColor();
-            // Route EColor output through Gui for scroll region cursor management
-            // Set static handlers so ALL EColor instances (SubAgentManager, EMemoryManager, etc.) route through Gui
 
             // ── Initialize structured logging (P2) ──
             var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "ECAssistant.log");
@@ -179,11 +176,16 @@ public class Program
                     Gui.WriteLineColored(_color.Green + _color.Bold + "[Ready] " + $"Active session: {activeKey} ({sessionManager.List().Count} total)" + _color.Reset);
                     Gui.BlankLine();
 
+                    // ── Enter alternate buffer + flush all startup output at once ──
+                    guiConsole.InitConsole();
+
                    // v10.21.1: Simple console input loop — PromptRaw uses ReadKey (non-blocking)
                     await RunAgentLoop(activeSession, sessionManager, effectiveDir, bgMgr, fileWatcher, userConfigDir);
                         }
             else
                      {
+                    // Flush buffered startup output, then show error
+                    guiConsole.InitConsole();
                     Gui.WriteLineColored(_color.Red + "[Error] No model loaded. Use --model or update appsettings.json." + _color.Reset);
                     if (Gui is EGuiConsole gc1) gc1.ShutdownConsole();
                   return 1;

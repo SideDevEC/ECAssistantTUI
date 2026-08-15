@@ -447,6 +447,10 @@ public sealed class EGuiConsole : EGuiBase
         {
             // Remove trailing \r if present (Windows line endings)
             string clean = line.EndsWith('\r') ? line[..^1] : line;
+            // Skip empty trailing entries from text ending with \n
+            // (the split produces a trailing "" — don't add it as a blank line)
+            if (string.IsNullOrEmpty(clean) && ReferenceEquals(line, lines[^1]))
+                continue;
             _outputLines.Add(clean);
         }
         // New output = snap to bottom

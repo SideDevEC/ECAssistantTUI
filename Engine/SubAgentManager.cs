@@ -53,16 +53,17 @@ public sealed class SubAgentManager : IDisposable
     /// <summary>All currently active sub-agent handles (for monitoring/cancellation).</summary>
     public IReadOnlyDictionary<string, ActiveSubAgent> ActiveAgents => _activeSubAgents;
 
-    public SubAgentManager(EAgentEngine mainEngine, string mainWorkingDir = "", ILogger? logger = null, ISessionOutput? sessionOutput = null)
+    public SubAgentManager(EAgentEngine mainEngine, string mainWorkingDir = "", ILogger? logger = null, ISessionOutput? sessionOutput = null,
+        EAgentConfig? config = null, string? modelPath = null)
     {
         _mainEngine = mainEngine;
         _mainWorkingDir = mainWorkingDir;
         _logger = logger ?? new Logger();
         _out = sessionOutput;
 
-        var configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "appsettings.json");
-        _config = File.Exists(configPath) ? new Config.ConfigLoader(new Services.FileSystemAdapter()).Load(configPath) : new EAgentConfig();
-        _modelPath = _config.Llm.ModelPath;
+        // v10.23: Config injected, not read from ~/ECAssistant/appsettings.json
+        _config = config ?? new EAgentConfig();
+        _modelPath = modelPath ?? _config.Llm.ModelPath;
         _gpuLayers = _config.SubAgent.GpuLayers;
         DefaultContextSize = _config.SubAgent.ContextSize;
         _threadCount = _config.SubAgent.Threads;
@@ -283,8 +284,8 @@ public sealed class SubAgentManager : IDisposable
             var bgMgr = new Services.BackgroundProcessManager();
             var processRunner = new Services.ProcessRunner();
             var fileSystem = new Services.FileSystemAdapter();
-            var configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "appsettings.json");
-            var configProvider = new Services.ConfigProvider(fileSystem, configPath);
+            // v10.23: Use injected config path, not hardcoded ~/ECAssistant/appsettings.json
+            var configProvider = new Services.ConfigProvider(fileSystem, _config);
             var httpClient = new Services.HttpClientAdapter();
 
             childEngine.RegisterTool(new Tools.Shell.EShellAgent(processRunner, configProvider, workingDir));

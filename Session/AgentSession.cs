@@ -100,7 +100,8 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
         SemaphoreSlim inferenceLock,
         SubAgentConfig? subAgentConfig = null,
         string? label = null,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        EAgentConfig? config = null)  // v10.23: for passing to orchestrator/subagents
     {
         _logger = logger ?? new Logger();
         Key = key;
@@ -138,7 +139,7 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
         _engine.WireSummaryService();
 
         // Create orchestrator
-        _orchestrator = new AgentOrchestrator(_engine, sessionOutput: this, maxTurns: 5, maxFailures: 3, toolPolicy: _toolPolicy, logger: _logger);
+        _orchestrator = new AgentOrchestrator(_engine, sessionOutput: this, maxTurns: 5, maxFailures: 3, toolPolicy: _toolPolicy, logger: _logger, config: config);
 
         // Wire engine output through this session
         _engine.SessionOutput = this;

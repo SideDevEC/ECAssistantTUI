@@ -34,6 +34,9 @@ public sealed class AgentOrchestrator : IAsyncDisposable
      // v10.17: Execution plan from StepMapper
     private ExecutionPlan? _executionPlan = null;
 
+      // v10.23: Config for sub-agent manager injection
+    private readonly ECAssistant.Config.EAgentConfig? _config;
+
       // ─── Hard Limits ──────────────────────
     private int _maxTurns;   // v10.6: changed from readonly to allow dynamic adjustment
     private readonly int _maxFailuresBeforeStop;
@@ -56,7 +59,8 @@ public sealed class AgentOrchestrator : IAsyncDisposable
         int maxTurns = 5,
         int maxFailures = 3,
         ECAssistant.Tools.ToolPolicy? toolPolicy = null,
-        ECAssistant.Interfaces.ILogger? logger = null)
+        ECAssistant.Interfaces.ILogger? logger = null,
+        ECAssistant.Config.EAgentConfig? config = null)
               {
                   _engine = engine;
                   _out = sessionOutput;
@@ -64,6 +68,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                   _maxFailuresBeforeStop = maxFailures;
                   _toolPolicy = toolPolicy ?? new ECAssistant.Tools.ToolPolicy();
                   _logger = logger ?? new Logger();
+                  _config = config;
 
             foreach (var tool in _engine.Tools)
                    _toolWhitelist.Add(tool.Name);
@@ -72,7 +77,9 @@ public sealed class AgentOrchestrator : IAsyncDisposable
       /// <summary>v10.18: Initialize sub-agent support. Creates SubAgentManager and registers ESubAgent tool.</summary>
      public void InitializeSubAgents(string defaultWorkingDir)
       {
-          _subAgentManager = new SubAgentManager(_engine, defaultWorkingDir, _logger);
+          // v10.23: Pass config + model path to SubAgentManager (no more hardcoded disk reads)
+          var modelPath = _config?.Llm.ModelPath ?? _engine.ModelPath;
+          _subAgentManager = new SubAgentManager(_engine, defaultWorkingDir, _logger, _out, _config, modelPath);
           _engine.RegisterTool(new Tools.SubAgent.ESubAgentTool(_subAgentManager, defaultWorkingDir));
           _toolWhitelist.Add("ESubAgent");
           _toolPolicy.SetPermission("ESubAgent", ToolPermissionLevel.Allowed, "Sub-agent spawning");

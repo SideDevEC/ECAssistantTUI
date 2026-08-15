@@ -28,7 +28,7 @@ public class ConfigProviderTests
     [Fact]
     public void Constructor_NullConfigPath_ThrowsArgumentNullException()
     {
-        Assert.Throws<ArgumentNullException>(() => new ConfigProvider(_mockFileSystem.Object, null!));
+        Assert.Throws<ArgumentNullException>(() => new ConfigProvider(_mockFileSystem.Object, (string)null!));
     }
 
     [Fact]

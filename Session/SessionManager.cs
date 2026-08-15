@@ -220,7 +220,8 @@ public class SessionManager : IAsyncDisposable
             inferenceLock: _inferenceLock,
             subAgentConfig: _subAgentConfig,
             label: label,
-            logger: _logger);
+            logger: _logger,
+            config: _config);  // v10.23: pass config for sub-agent manager
 
         _sessions[key] = session;
         _sessionCounter++;

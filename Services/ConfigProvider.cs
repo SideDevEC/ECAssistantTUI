@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Text.Json;
 using ECAssistant.Interfaces;
+using ECAssistant.Config;
 
 namespace ECAssistant.Services;
 
@@ -12,16 +13,29 @@ public class ConfigProvider : IConfigProvider
 {
     private readonly IFileSystem _fileSystem;
     private readonly string _configPath;
+    private readonly EAgentConfig? _preloadedConfig;
     private readonly JsonSerializerOptions _jsonOptions = new() { PropertyNameCaseInsensitive = true };
 
+    /// <summary>Load config from a JSON file on disk.</summary>
     public ConfigProvider(IFileSystem fileSystem, string configPath)
     {
         _fileSystem = fileSystem ?? throw new ArgumentNullException(nameof(fileSystem));
         _configPath = configPath ?? throw new ArgumentNullException(nameof(configPath));
     }
 
+    /// <summary>v10.23: Use a preloaded EAgentConfig directly — no file I/O. For library consumers.</summary>
+    public ConfigProvider(IFileSystem fileSystem, EAgentConfig config)
+    {
+        _fileSystem = fileSystem ?? throw new ArgumentNullException(nameof(fileSystem));
+        _preloadedConfig = config ?? throw new ArgumentNullException(nameof(config));
+        _configPath = "";
+    }
+
     private string LoadRawConfig()
     {
+        // v10.23: If preloaded config exists, serialize it to JSON for section lookups
+        if (_preloadedConfig != null)
+            return JsonSerializer.Serialize(_preloadedConfig, _jsonOptions);
         return _fileSystem.ReadFile(_configPath);
     }
 

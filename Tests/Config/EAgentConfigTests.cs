@@ -22,7 +22,7 @@ public class EAgentConfigTests : IDisposable
     {
         var config = new EAgentConfig();
         Assert.NotNull(config);
-        Assert.Equal("ECAssistant", config.RootPath);
+        Assert.Equal(".", config.RootPath);
     }
 
     [Fact]

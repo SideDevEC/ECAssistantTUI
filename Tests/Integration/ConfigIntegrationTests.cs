@@ -156,7 +156,7 @@ public class ConfigIntegrationTests : IDisposable
         var config = loader.Load(GetFullPath("nonexistent.json"));
 
         Assert.NotNull(config);
-        Assert.Equal("ECAssistant", config.RootPath);
+        Assert.Equal(".", config.RootPath);
         // Verify default sections are initialized
         Assert.NotNull(config.Memory);
         Assert.NotNull(config.Llm);
@@ -175,7 +175,7 @@ public class ConfigIntegrationTests : IDisposable
         var config = loader.Load(GetFullPath("appsettings.json"));
 
         Assert.NotNull(config);
-        Assert.Equal("ECAssistant", config.RootPath);
+        Assert.Equal(".", config.RootPath);
     }
 
     [Fact]
@@ -338,7 +338,7 @@ public class ConfigIntegrationTests : IDisposable
         var config = loader.Load(GetFullPath("appsettings.json"));
 
         Assert.NotNull(config);
-        Assert.Equal("ECAssistant", config.RootPath);
+        Assert.Equal(".", config.RootPath);
     }
 
     [Fact]

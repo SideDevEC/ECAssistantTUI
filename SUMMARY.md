@@ -1,6 +1,6 @@
 # ECAssistant — Project Summary
 
-**Updated:** 2026-08-15 (v10.23)
+**Updated:** 2026-08-15 (v10.23.1)
 **Build:** 0 errors, 0 warnings
 **Tests:** 940/940 passing
 
@@ -19,30 +19,28 @@ ECAssistant.sln
 └── Tests/ECAssistant.Tests.csproj ← Tests, references Core
 ```
 
-### Library Integration
-- **`SessionBuilder`** — public class, initializes sessions with standard tools + memory
+### Library Integration — No appsettings.json needed
+- **`AgentConfigBuilder`** — fluent config: `.WithModel().ContextSize().GpuLayers().Temperature().Build()`
+- **`SystemPromptBuilder`** — required `<lm>` tag rules + domain context: `.WithAgentName().WithDescription().WithCustomRules().Build()`
+- **`SessionBuilder`** — initializes sessions with standard tools (or skip with `RegisterBuiltInTools = false`)
 - **`EGuiBase`** — abstract UI base, implement for custom UIs (Avalonia, web, etc.)
 - **`IOutputListener`** — implement to receive live session output
 - **`EToolBase`** — subclass for custom domain-specific tools
 - **`EAgentEngine.SystemPromptPath` / `SystemPromptText`** — injectable system prompts
 - **`AgentSession`** — central hub: create, register tools, attach listeners, `Prompt()`
 
-## Architecture (v10.23)
-
-Full-screen alternate-buffer TUI (like nano/vim) with a **layer system**. `EGuiConsole` enters the terminal alternate screen buffer on startup, renders a fixed layout (output region / status bar / input line), and exits on shutdown — preserving the user's original terminal.
-
-Clean separation: **Program.cs** (App — binder) creates **Session** (Core — headless) and **GUI** (Core — presentation). Everything inside the session communicates via `ISessionOutput` with `OutputState` enums. Zero UI/color/Console references in engine, tools, memory, or services.
-
-Multi-session: each session runs headless with own KV cache, prompt queue, and runner thread. Sessions share model weights. Inference serialized via semaphore.
-
-See `ARCHITECTURE.md` for full dependency flow and library integration guide.
+### No Disk Dependencies
+- `SubAgentManager` receives config via constructor injection — no `~/ECAssistant/` reads
+- `ConfigProvider` supports preloaded `EAgentConfig` — no file I/O for library consumers
+- `EAgentConfig.RootPath` defaults to `"."` (not `"ECAssistant"`)
+- `<lm>` tag format rules compiled into DLL — always present via `SystemPromptBuilder`
 
 ## Key Stats
 - **Projects:** 3 (Core library, App exe, Tests)
-- **.cs files:** ~195 (excluding tests)
+- **.cs files:** ~197 (excluding tests)
 - **Test files:** ~65
 - **Tests:** 940 passing, 0 failing
-- **Tools:** 10 built-in (Shell, Git, CodeEditor, DotnetBuild, FileReader, WebSearch, WebFetch, FileResearch, BackgroundExec, SubAgent) + unlimited custom via `EToolBase`
+- **Tools:** 10 built-in + unlimited custom via `EToolBase`
 - **Sessions:** Fully isolated — own engine, KV cache, tools, memory, output buffer, prompt queue
 
 ## File Structure
@@ -53,29 +51,46 @@ ECAssistant.csproj            ← console exe (references Core)
 Program.cs                    ← entry point, binder, command routing (App only)
 ARCHITECTURE.md               ← dependency flow, layers, library integration guide
 SUMMARY.md                    ← this file
-EColor.cs                     ← ANSI color properties (UI layer only)
-Config/                       ← strongly-typed config models + loader
-Engine/                       ← EAgentEngine, Orchestrator, DecisionLoop, ParallelToolExecutor, SubAgentManager
-  └── EAgentEngine.cs         ← SystemPromptPath + SystemPromptText (injectable, v10.23)
-Interfaces/                   ← ITool, ILogger, IProcessRunner, IFileSystem, IHttpClient, IConfigProvider, IEngine, IInferenceEngine, etc.
+SystemPromptBuilder.cs        ← NEW (v10.23.1): fluent system prompt builder with <lm> tag rules
+Config/
+  ├── AgentConfigBuilder.cs   ← NEW (v10.23.1): fluent config builder for library consumers
+  ├── EAgentConfig.cs         ← RootPath default: "." (v10.23.1)
+  └── ...                     ← config models + loader
+Engine/
+  ├── EAgentEngine.cs         ← SystemPromptPath + SystemPromptText + ModelPath properties
+  ├── SubAgentManager.cs      ← config injected, no hardcoded ~/ECAssistant/ reads (v10.23.1)
+  └── ...                     ← Orchestrator, DecisionLoop, ParallelToolExecutor, etc.
+Interfaces/                   ← ITool, ILogger, IProcessRunner, IFileSystem, IHttpClient, IConfigProvider, etc.
 Memory/                       ← EMemoryManager (persistent context cards)
-Services/                     ← Logger, LlamaInferenceEngine, InMemoryVectorStore, adapters
-Session/                      ← AgentSession, SessionManager, SessionBuilder, ISessionOutput, IOutputListener, ConsoleUiRenderer
-  └── SessionBuilder.cs       ← NEW (v10.23): public API for library consumers
+Services/
+  ├── ConfigProvider.cs       ← supports preloaded EAgentConfig (no file I/O) (v10.23.1)
+  └── ...                     ← Logger, LlamaInferenceEngine, adapters
+Session/
+  ├── SessionBuilder.cs       ← public API for library consumers
+  ├── AgentSession.cs         ← accepts optional EAgentConfig for passing to orchestrator (v10.23.1)
+  └── ...                     ← SessionManager, ISessionOutput, IOutputListener, ConsoleUiRenderer
 Tools/                        ← 10 tools across subfolders + EToolBase (subclass for custom)
 UI/                           ← EGuiConsole, EGuiBase, IGuiLayer, SessionLayer, HelpLayer
 Testing/                      ← TestRunner, MockEngine, EGuiTestHarness, EcaTests
-Tests/                        ← unit + integration tests (UI, Session, Engine, Tools, Config, Memory, Services)
-SystemPrompt.md               ← main system prompt
+Tests/                        ← unit + integration tests
+SystemPrompt.md               ← main system prompt (console app)
 SystemPrompt.Mac.md           ← macOS-specific prompt
 SystemPrompt.Windows.md       ← Windows-specific prompt
 ```
 
 ## Recent Changes (2026-08-15)
-- **v10.23: Core + App split** — ECAssistant.Core.csproj (class library) + ECAssistant.csproj (console exe). All engine, tools, session, memory code in Core DLL. Program.cs is the only file in App.
-- **SessionBuilder** — public class extracted from old `Program.InitSessionAsync`. Library consumers call `BuildAsync(session)` to get standard tools + memory + secondary model + sub-agents. Flags to skip built-in tools (`RegisterBuiltInTools = false`).
-- **Injectable system prompt** — `EAgentEngine.SystemPromptPath` (file path override) and `SystemPromptText` (direct string injection). Library consumers can set custom prompts without file I/O.
-- **TestRunner decoupled** — `TestRunner.TestGui` static property replaces `Program.Gui` coupling. Testing code stays in Core.
-- **Solution file** — `ECAssistant.sln` ties Core + App + Tests together.
-- **940 tests passing** — all green after split, 0 errors, 0 warnings.
-- **Previous:** Layer system, session/UI rewrite with ISessionOutput, headless engine, scrollback, resize detection
+- **v10.23.1: Clean library** — removed all hardcoded `~/ECAssistant/` disk reads from Core
+  - `SubAgentManager`: config + model path injected via constructor (was reading `~/ECAssistant/appsettings.json`)
+  - `ConfigProvider`: new constructor taking `EAgentConfig` directly (no file I/O)
+  - `EAgentConfig.RootPath`: default `"."` instead of `"ECAssistant"`
+  - `AgentConfigBuilder`: fluent config API — `.WithModel().ContextSize().GpuLayers().Temperature().Build()`
+  - `SystemPromptBuilder`: fluent system prompt — required `<lm>` tag rules + domain context
+  - `EAgentEngine.ModelPath`: public property for SubAgentManager access
+  - `AgentSession`: accepts optional `EAgentConfig`, passes to orchestrator → SubAgentManager
+  - `Orchestrator`: accepts optional `EAgentConfig`, passes to SubAgentManager
+- **v10.23: Core + App split** — ECAssistant.Core.csproj (class library) + ECAssistant.csproj (console exe)
+  - `SessionBuilder` — public class for library consumers
+  - Injectable system prompt (`SystemPromptPath` / `SystemPromptText`)
+  - `TestRunner` decoupled from `Program.Gui`
+  - 940 tests passing
+- **Previous:** Layer system, session/UI rewrite with ISessionOutput, headless engine

@@ -101,6 +101,10 @@ public class EAgentEngine : IAsyncDisposable
     private readonly uint _contextSize;
     private readonly int _gpuLayers;
     private readonly int _threads;
+    private readonly string _modelPath;  // v10.23: stored for SubAgentManager access
+
+    /// <summary>Path to the GGUF model file.</summary>
+    public string ModelPath => _modelPath;
 
     public EMemoryManager Memory => _memoryManager ??= new EMemoryManager();
     public VectorMemoryStore? VectorMemory => _vectorMemory;
@@ -418,6 +422,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
         LLamaWeights? sharedWeights = null, ModelParams? sharedModelParams = null, ECAssistant.Interfaces.ILogger? logger = null)
           {
                _logger = logger ?? new Logger();
+               _modelPath = modelPath;
 
                // Enable native library logging — only once (LLamaSharp throws on second config)
                if (!_nativeLibConfigured)

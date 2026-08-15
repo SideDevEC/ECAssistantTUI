@@ -64,7 +64,7 @@ public class ConfigLoaderTests
         var config = loader.Load("nonexistent.json");
 
         Assert.NotNull(config);
-        Assert.Equal("ECAssistant", config.RootPath);
+        Assert.Equal(".", config.RootPath);
     }
 
     [Fact]
@@ -77,7 +77,7 @@ public class ConfigLoaderTests
         var config = loader.Load("appsettings.json");
 
         Assert.NotNull(config);
-        Assert.Equal("ECAssistant", config.RootPath);
+        Assert.Equal(".", config.RootPath);
     }
 
     [Fact]
@@ -90,7 +90,7 @@ public class ConfigLoaderTests
         var config = loader.Load("appsettings.json");
 
         Assert.NotNull(config);
-        Assert.Equal("ECAssistant", config.RootPath);
+        Assert.Equal(".", config.RootPath);
     }
 
     [Fact]
@@ -115,7 +115,7 @@ public class ConfigLoaderTests
         var config = loader.Load("appsettings.json");
 
         Assert.NotNull(config);
-        Assert.Equal("ECAssistant", config.RootPath);
+        Assert.Equal(".", config.RootPath);
     }
 
     [Fact]
@@ -150,6 +150,6 @@ public class ConfigLoaderTests
         var config = loader.Load("appsettings.json");
 
         Assert.NotNull(config);
-        Assert.Equal("ECAssistant", config.RootPath);
+        Assert.Equal(".", config.RootPath);
     }
 }

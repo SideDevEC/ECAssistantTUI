@@ -10,7 +10,7 @@ namespace ECAssistant.Config;
 public class EAgentConfig
 {
     [JsonPropertyName("root_path")]
-    public string RootPath { get; set; } = "ECAssistant";
+    public string RootPath { get; set; } = ".";  // v10.23: default to current dir, not 'ECAssistant'
 
     [JsonPropertyName("memory")]
     public MemoryConfig Memory { get; set; } = new();

@@ -5,23 +5,13 @@ namespace ECAssistant.UI;
 /// <summary>
 /// Console-based EGuiBase.
 ///
-/// The "> " prompt is ALWAYS on the current line. There is no
-/// "input active" vs "input inactive" distinction. The prompt
-/// never goes away.
+/// "> " prompt is ALWAYS the last line on screen.
 ///
-/// When output arrives:
-///   1. Clear the current line (removes "> " + partial input)
-///   2. Move up one line
-///   3. Write a newline (creates room below the last output line)
-///   4. Write the output text
-///   5. Reprint "> " + partial input on the new current line
+/// Output: clear input line → move up → newline → write output → reprint "> "
+/// Enter:  clear input line → move up → newline → write "> text" → reprint "> "
 ///
-/// When user presses Enter:
-///   1. Clear the current line
-///   2. Write "> " + submitted text + newline (it becomes part of the scrollback)
-///   3. Reprint "> " for the next input
-///
-/// This means the "> " is always the last thing on screen.
+/// The trick: after any output, we ALWAYS reprint "> " + buffer.
+/// The prompt never goes away.
 /// </summary>
 public sealed class EGuiConsole : EGuiBase
 {
@@ -31,17 +21,12 @@ public sealed class EGuiConsole : EGuiBase
     private const string PromptStr = "> ";
     private volatile bool _escPressed;
     private Action? _onEscape;
-
-    // True from InitConsole until ShutdownConsole — prompt is always showing
     private bool _promptShowing;
 
     public void InitConsole()
     {
         _ansiSupported = DetectAnsiSupport();
-        if (_ansiSupported)
-        {
-            try { Console.CursorVisible = true; } catch { }
-        }
+        if (_ansiSupported) { try { Console.CursorVisible = true; } catch { } }
     }
 
     public void ShutdownConsole()
@@ -62,7 +47,6 @@ public sealed class EGuiConsole : EGuiBase
             try { if (Console.IsOutputRedirected) return false; } catch { return false; }
             return true;
         }
-
         var term = Environment.GetEnvironmentVariable("TERM");
         if (string.IsNullOrEmpty(term) || term == "dumb") return false;
         try { if (Console.IsOutputRedirected) return false; } catch { return false; }
@@ -90,15 +74,15 @@ public sealed class EGuiConsole : EGuiBase
     }
 
     // ═══════════════════════════════════════════════════
-    //  OUTPUT — always clears prompt, writes above, reprints prompt
+    //  OUTPUT
     // ═══════════════════════════════════════════════════
 
     /// <summary>
-    /// Reprint "> " + current input buffer. Must hold _writeLock.
+    /// Reprint "> " + input buffer. Must hold lock.
     /// </summary>
     private void ReprintPrompt()
     {
-        Console.Write("\r\x1b[2K");  // clear line
+        Console.Write("\r\x1b[2K");
         Console.Write(PromptStr);
         Console.Write(_inputBuffer.ToString());
     }
@@ -106,13 +90,8 @@ public sealed class EGuiConsole : EGuiBase
     /// <summary>
     /// Write output above the input line.
     ///
-    /// 1. Clear current line (prompt + partial input gone)
-    /// 2. Move up one line
-    /// 3. Newline (creates a blank line below the last output)
-    /// 4. Write the output text (scrolls up)
-    /// 5. Reprint "> " + partial input
-    ///
-    /// If prompt isn't showing yet (before first ReadInputLine), just write.
+    /// If prompt is showing: clear line, move up, newline, write output,
+    /// then reprint "> " + buffer on the new bottom line.
     /// </summary>
     private void WriteOutput(string text)
     {
@@ -130,14 +109,18 @@ public sealed class EGuiConsole : EGuiBase
                 return;
             }
 
-            // Clear the input line, move up, make room, write output, reprint prompt
-            Console.Write("\r\x1b[2K");       // clear current line
-            Console.Write("\x1b[A");            // move up one line
-            Console.Write("\n");                // newline — now on a fresh blank line
-            Console.Write(text);                // write output (scrolls up)
+            // Clear input line
+            Console.Write("\r\x1b[2K");
+            // Move up one line
+            Console.Write("\x1b[A");
+            // Newline: creates a fresh line below the last output
+            Console.Write("\n");
+            // Write the output (scrolls up)
+            Console.Write(text);
             if (!text.EndsWith("\n"))
                 Console.Write("\n");
-            ReprintPrompt();                    // "> " + partial input back on bottom
+            // Reprint prompt + partial input
+            ReprintPrompt();
         }
     }
 
@@ -154,13 +137,11 @@ public sealed class EGuiConsole : EGuiBase
     //  INPUT
     // ═══════════════════════════════════════════════════
 
-    public override string? PromptColored(string labelAndText) => ReadInputLine(labelAndText);
-    public override string? PromptRaw(string label) => ReadInputLine(label);
+    public override string? PromptColored(string labelAndText) => ReadInputLine();
+    public override string? PromptRaw(string label) => ReadInputLine();
 
-    private string? ReadInputLine(string prompt)
+    private string? ReadInputLine()
     {
-        // We ignore the passed-in prompt — we always use "> "
-        // (it may contain ANSI codes from Program.cs, we don't want that)
         _inputBuffer.Clear();
 
         lock (_writeLock)
@@ -189,16 +170,18 @@ public sealed class EGuiConsole : EGuiBase
                     var result = _inputBuffer.ToString();
                     _inputBuffer.Clear();
 
-                    // Log the submitted input into scrollback
-                    Console.Write("\r\x1b[2K");     // clear line
-                    Console.Write(PromptStr);        // "> "
-                    Console.Write(result);            // what user typed
-                    Console.Write("\n");             // newline — scrolls up
+                    // Put the typed command into the scrollback:
+                    // clear line, move up, newline, write "> text"
+                    Console.Write("\r\x1b[2K");
+                    Console.Write("\x1b[A");
+                    Console.Write("\n");
+                    Console.Write(PromptStr);
+                    Console.Write(result);
+                    Console.Write("\n");
 
-                    // Immediately reprint "> " for next input
+                    // Reprint "> " for next input
                     ReprintPrompt();
 
-                    // _promptShowing stays true — never goes false
                     return result;
                 }
                 else if (key.Key == ConsoleKey.Backspace)
@@ -213,13 +196,11 @@ public sealed class EGuiConsole : EGuiBase
                 {
                     if (_inputBuffer.Length > 0)
                     {
-                        // Clear buffer, keep prompt
                         _inputBuffer.Clear();
                         ReprintPrompt();
                     }
                     else
                     {
-                        // Empty input + ESC = stop session
                         _escPressed = true;
                         _onEscape?.Invoke();
                     }

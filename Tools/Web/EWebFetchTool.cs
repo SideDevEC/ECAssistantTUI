@@ -16,13 +16,11 @@ public class EWebFetchTool : ITool
 {
     private readonly IHttpClient _httpClient;
     private readonly IConfigProvider _configProvider;
-    private readonly IColorFormatter _color;
 
-    public EWebFetchTool(IHttpClient httpClient, IConfigProvider configProvider, IColorFormatter color)
+    public EWebFetchTool(IHttpClient httpClient, IConfigProvider configProvider)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _configProvider = configProvider ?? throw new ArgumentNullException(nameof(configProvider));
-        _color = color ?? throw new ArgumentNullException(nameof(color));
     }
 
     public string Name => "EWebFetch";

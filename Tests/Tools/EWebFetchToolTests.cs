@@ -7,11 +7,10 @@ public class EWebFetchToolTests
 {
     private readonly Mock<IHttpClient> _httpClient = new();
     private readonly Mock<IConfigProvider> _configProvider = new();
-    private readonly Mock<IColorFormatter> _colorFormatter = new();
 
     private EWebFetchTool CreateTool()
     {
-        return new EWebFetchTool(_httpClient.Object, _configProvider.Object, _colorFormatter.Object);
+        return new EWebFetchTool(_httpClient.Object, _configProvider.Object);
     }
 
     // ── Name / Description / GetPolicy ──
@@ -46,7 +45,7 @@ public class EWebFetchToolTests
     public void Constructor_NullHttpClient_Throws()
     {
         Assert.Throws<ArgumentNullException>(() =>
-            new EWebFetchTool(null!, _configProvider.Object, _colorFormatter.Object));
+            new EWebFetchTool(null!, _configProvider.Object));
     }
 
     // ── ExecuteAsync — missing/invalid url ──

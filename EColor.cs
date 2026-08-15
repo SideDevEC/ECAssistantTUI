@@ -1,12 +1,11 @@
-using ECAssistant.Interfaces;
-
 namespace ECAssistant;
 
-/// <summary>Simple ANSI-based console coloring for ECAssistant.
-/// Instance class implementing IColorFormatter for OOP dependency injection.</summary>
-public class EColor : IColorFormatter
+/// <summary>
+/// ANSI color codes. Used ONLY by ConsoleUiRenderer (the UI bridge).
+/// Nothing else in the codebase should touch this class.
+/// </summary>
+public class EColor
 {
-    // ── Color constants (instance properties) ──
     public string Reset      => "\x1b[0m";
     public string Bold       => "\x1b[1m";
     public string Dim        => "\x1b[2m";
@@ -19,60 +18,4 @@ public class EColor : IColorFormatter
     public string Magenta  => "\x1b[35m";
     public string Cyan      => "\x1b[36m";
     public string White    => "\x1b[37m";
-
-    // ── Variant helpers ──
-    public string Cfg()          => Yellow;
-    public string Info()         => Cyan;
-    public string Success()      => Green;
-    public string Error()        => Red;
-    public string Warn()         => Yellow;
-    public string Model()        => Blue;
-    public string ToolCall()     => Magenta;
-    public string Token()        => Dim;
-
-    // ── Static output redirect ──
-    // Shared across ALL EColor instances so that EColor objects created
-    // deep in the engine (SubAgentManager, EMemoryManager, etc.) also
-    // route through the UI — not just the one in Program.cs.
-    public static Action<string>? StaticWriteHandler { get; set; }
-    public static Action<string>? StaticWriteLineHandler { get; set; }
-
-    // ── Instance-level redirect (takes priority over static) ──
-    public Action<string>? WriteHandler { get; set; }
-    public Action<string>? WriteLineHandler { get; set; }
-
-    // ── IColorFormatter.Format ──
-    public string Format(string color, string text)
-    {
-        return $"{color}{text}{Reset}";
-    }
-
-    // ── Write / WriteLine ──
-    // Uses instance handler if set, then static handler, then Console fallback.
-    public void Write(string color, string text)
-    {
-        if (WriteHandler != null)
-            WriteHandler(color + text + Reset);
-        else if (StaticWriteHandler != null)
-            StaticWriteHandler(color + text + Reset);
-        else
-            Console.Write(color + text + Reset);
-    }
-
-    public void WriteLine(string color, string text)
-    {
-        if (WriteLineHandler != null)
-            WriteLineHandler(color + text + Reset);
-        else if (StaticWriteLineHandler != null)
-            StaticWriteLineHandler(color + text + Reset);
-        else
-            Console.WriteLine(color + text + Reset);
-    }
-
-    // ── Tag / TagBold ──
-    public void Tag(string tagColor, string tag, string msg)
-        => WriteLine(tagColor, $"[{tag}] {msg}");
-
-    public void TagBold(string tagColor, string tag, string msg)
-        => WriteLine(Bold + tagColor, $"[{tag}] {msg}");
 }

@@ -9,7 +9,6 @@ using ECAssistant.Tools;
 using ECAssistant.Memory;
 using Microsoft.Extensions.Logging;
 using ECAssistant.Services;
-using ECAssistant.UI;
 using ECAssistant.Session;
 
 namespace ECAssistant.Engine;
@@ -508,7 +507,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                             var userMsgs = loaded.Messages.Where(m => m.Role == "user").TakeLast(3);
                             if (userMsgs.Any())
                             {
-                                 _out?.WriteInfo($"[Last session] {string.Join(" | ", userMsgs.Select(m => EGuiBase.Truncate(m.Content, 60)))}");
+                                 _out?.WriteInfo($"[Last session] {string.Join(" | ", userMsgs.Select(m => StringUtil.Truncate(m.Content, 60)))}");
                             }
                           }
                     }
@@ -1363,11 +1362,11 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
                   rawResult = rawResult.Substring("<assistant>".Length).Trim();
               if (rawResult.EndsWith("</assistant>", StringComparison.OrdinalIgnoreCase))
                   rawResult = rawResult.Substring(0, rawResult.Length - "</assistant>".Length).Trim();
-              _out?.WriteDim($"[Engine] Raw ({rawResult.Length} chars): {EGuiBase.Truncate(rawResult, 500)}");
+              _out?.WriteDim($"[Engine] Raw ({rawResult.Length} chars): {StringUtil.Truncate(rawResult, 500)}");
 
                    cleanResponse = ExtractCleanResponse(rawResult);
 
-              _out?.WriteDim($"[Engine] Clean ({cleanResponse.Length} chars): {EGuiBase.Truncate(cleanResponse, 500)}");
+              _out?.WriteDim($"[Engine] Clean ({cleanResponse.Length} chars): {StringUtil.Truncate(cleanResponse, 500)}");
 
               if (string.IsNullOrEmpty(cleanResponse))
                   cleanResponse = timedOut ? "(Response truncated — model timed out)" : "(Empty response from model)";
@@ -1540,7 +1539,7 @@ public EAgentEngine(string modelPath, uint contextSize, int gpuLayers, int threa
          }
 
          var result = sb.ToString().Trim();
-         _logger.Debug("Extract", $"Output: {result.Length} chars, starts with: {EGuiBase.Truncate(result, 80)}");
+         _logger.Debug("Extract", $"Output: {result.Length} chars, starts with: {StringUtil.Truncate(result, 80)}");
          return result;
            }
 

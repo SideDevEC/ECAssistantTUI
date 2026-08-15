@@ -1,29 +1,26 @@
 using ECAssistant.UI;
-using ECAssistant.Interfaces;
 
 namespace ECAssistant.Session;
 
 /// <summary>
 /// Console-based IOutputListener implementation.
 ///
-/// Routes session output through EGuiConsole (which handles ANSI cursor
-/// management for the always-visible input line).
-///
-/// Implements IOutputListener (not the old IUiRenderer) — receives
-/// OnOutput, OnStreamStart, OnStreamStop, OnRequestApproval from the session.
+/// This is the ONLY class outside UI/ that knows about colors.
+/// It maps OutputState → ANSI colors and routes through EGuiConsole.
+/// Everything upstream just uses ISessionOutput with states.
 /// </summary>
 public class ConsoleUiRenderer : IOutputListener
 {
     private readonly EGuiBase _gui;
-    private readonly IColorFormatter _color;
+    private readonly EColor _color;
 
-    public ConsoleUiRenderer(EGuiBase gui, IColorFormatter color)
+    public ConsoleUiRenderer(EGuiBase gui, EColor color)
     {
         _gui = gui;
         _color = color;
     }
 
-    /// <summary>Map output states to ANSI color codes for the console.</summary>
+    /// <summary>Map output states to ANSI color codes.</summary>
     private string StateToColor(OutputState state) => state switch
     {
         OutputState.Info    => _color.Cyan,
@@ -40,13 +37,9 @@ public class ConsoleUiRenderer : IOutputListener
     /// <summary>Map output states to a tag prefix for display.</summary>
     private string? StateToTag(OutputState state) => state switch
     {
-        OutputState.Info    => null,
         OutputState.Success => "OK",
         OutputState.Warning => "WARN",
         OutputState.Error   => "ERR",
-        OutputState.Dim     => null,
-        OutputState.Bold    => null,
-        OutputState.Raw     => null,
         OutputState.System  => "SYS",
         _ => null
     };
@@ -69,28 +62,17 @@ public class ConsoleUiRenderer : IOutputListener
             _gui.WriteLineColored($"{color}{text}{_color.Reset}");
     }
 
-    public void OnStreamStart()
-    {
-        // Streaming started — listener can poll GetStreamBuffer() if needed
-    }
-
-    public void OnStreamStop()
-    {
-        // Streaming stopped — buffer will be flushed via WriteLine
-    }
+    public void OnStreamStart() { }
+    public void OnStreamStop() { }
 
     public bool OnRequestApproval(string message)
     {
-        // Use the GUI's prompt to ask the user
         var response = _gui.PromptRaw($"{_color.Yellow}{message} [y/N] {_color.Reset}")?.Trim().ToLower();
         return response == "y" || response == "yes";
     }
 
-    /// <summary>
-    /// Render a full output history (from JSONL file) to the console.
-    /// Used when switching to a session to display its complete history.
-    /// </summary>
-    public void RenderHistory(EGuiBase gui, List<OutputEntry> entries, IColorFormatter color)
+    /// <summary>Render output history when switching to a session.</summary>
+    public void RenderHistory(List<OutputEntry> entries)
     {
         foreach (var entry in entries)
         {
@@ -100,21 +82,21 @@ public class ConsoleUiRenderer : IOutputListener
                     if (!string.IsNullOrEmpty(entry.Text))
                     {
                         var c = StateToColor(entry.State);
-                        gui.WriteLineColored(c + entry.Text + color.Reset);
+                        _gui.WriteLineColored(c + entry.Text + _color.Reset);
                     }
                     break;
 
                 case "line":
                     if (string.IsNullOrEmpty(entry.Text))
-                        gui.BlankLine();
+                        _gui.BlankLine();
                     else
                     {
                         var c = StateToColor(entry.State);
                         var tag = StateToTag(entry.State);
                         if (tag != null)
-                            gui.WriteLineColored($"{c}[{tag}] {entry.Text}{color.Reset}");
+                            _gui.WriteLineColored($"{c}[{tag}] {entry.Text}{_color.Reset}");
                         else
-                            gui.WriteLineColored($"{c}{entry.Text}{color.Reset}");
+                            _gui.WriteLineColored($"{c}{entry.Text}{_color.Reset}");
                     }
                     break;
             }

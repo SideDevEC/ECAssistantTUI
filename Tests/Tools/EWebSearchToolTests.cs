@@ -7,11 +7,10 @@ public class EWebSearchToolTests
 {
     private readonly Mock<IHttpClient> _httpClient = new();
     private readonly Mock<IConfigProvider> _configProvider = new();
-    private readonly Mock<IColorFormatter> _colorFormatter = new();
 
     private EWebSearchTool CreateTool()
     {
-        return new EWebSearchTool(_httpClient.Object, _configProvider.Object, _colorFormatter.Object);
+        return new EWebSearchTool(_httpClient.Object, _configProvider.Object);
     }
 
     // ── Name / Description / GetPolicy ──
@@ -46,21 +45,21 @@ public class EWebSearchToolTests
     public void Constructor_NullHttpClient_Throws()
     {
         Assert.Throws<ArgumentNullException>(() =>
-            new EWebSearchTool(null!, _configProvider.Object, _colorFormatter.Object));
+            new EWebSearchTool(null!, _configProvider.Object));
     }
 
     [Fact]
     public void Constructor_NullConfigProvider_Throws()
     {
         Assert.Throws<ArgumentNullException>(() =>
-            new EWebSearchTool(_httpClient.Object, null!, _colorFormatter.Object));
+            new EWebSearchTool(_httpClient.Object, null!));
     }
 
     [Fact]
     public void Constructor_NullColorFormatter_Throws()
     {
         Assert.Throws<ArgumentNullException>(() =>
-            new EWebSearchTool(_httpClient.Object, _configProvider.Object, null!));
+            new EWebSearchTool(_httpClient.Object, null!));
     }
 
     // ── ExecuteAsync — missing query ──

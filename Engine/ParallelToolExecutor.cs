@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Text;
 using ECAssistant.Tools;
-using ECAssistant.UI;
 using ECAssistant.Session;
 
 namespace ECAssistant.Engine;
@@ -97,7 +96,7 @@ public class ParallelToolExecutor
                         if (policy.NeedsApproval)
                         {
                             _log($"[Policy] {tc}: {policy.Message}");
-                            var isApproved = _out?.RequestApproval($"[Policy] Approve {tc.ToolName}#{tc.Index} ({string.Join(", ", tc.Args.Select(kvp => kvp.Key + "=" + EGuiBase.Truncate(kvp.Value ?? "", 60)))})?") ?? false;
+                            var isApproved = _out?.RequestApproval($"[Policy] Approve {tc.ToolName}#{tc.Index} ({string.Join(", ", tc.Args.Select(kvp => kvp.Key + "=" + StringUtil.Truncate(kvp.Value ?? "", 60)))})?") ?? false;
                             if (isApproved)
                             {
                                 _log($"[Policy] Approved: {tc}");
@@ -251,7 +250,7 @@ public class ParallelToolExecutor
             if (policyDecision.NeedsApproval)
             {
                 _log($"[Policy] {tc}: {policyDecision.Message}");
-                var isApproved = _out?.RequestApproval($"[Policy] Approve {tc.ToolName}#{tc.Index} ({string.Join(", ", tc.Args.Select(kvp => kvp.Key + "=" + EGuiBase.Truncate(kvp.Value ?? "", 60)))})?") ?? false;
+                var isApproved = _out?.RequestApproval($"[Policy] Approve {tc.ToolName}#{tc.Index} ({string.Join(", ", tc.Args.Select(kvp => kvp.Key + "=" + StringUtil.Truncate(kvp.Value ?? "", 60)))})?") ?? false;
 
                 if (!isApproved)
                 {

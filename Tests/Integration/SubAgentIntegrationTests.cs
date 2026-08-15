@@ -197,24 +197,11 @@ public class SubAgentIntegrationTests : IDisposable
     private (MockEngine engine, AgentOrchestrator orchestrator) CreateEngineWithMockedTools(int maxTurns = 5)
     {
         var mockConfig = new Mock<IConfigProvider>();
-        var mockColor = new Mock<IColorFormatter>();
         var mockLogger = new Mock<ILogger>();
 
         mockConfig.Setup(c => c.GetValue(It.IsAny<string>(), It.IsAny<string>())).Returns<string, string>((_, _) => _tempDir);
 
         // ColorFormatter mock
-        mockColor.Setup(c => c.Format(It.IsAny<string>(), It.IsAny<string>())).Returns<string, string>((_, text) => text);
-        mockColor.SetupGet(c => c.Red).Returns("");
-        mockColor.SetupGet(c => c.Green).Returns("");
-        mockColor.SetupGet(c => c.Blue).Returns("");
-        mockColor.SetupGet(c => c.Yellow).Returns("");
-        mockColor.SetupGet(c => c.Cyan).Returns("");
-        mockColor.SetupGet(c => c.White).Returns("");
-        mockColor.SetupGet(c => c.Reset).Returns("");
-        mockColor.SetupGet(c => c.Bold).Returns("");
-        mockColor.SetupGet(c => c.Dim).Returns("");
-        mockColor.SetupGet(c => c.Black).Returns("");
-        mockColor.SetupGet(c => c.Magenta).Returns("");
 
         var engine = new MockEngine(_tempDir);
         var policy = new ECAssistant.Tools.ToolPolicy();

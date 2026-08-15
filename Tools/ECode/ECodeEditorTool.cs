@@ -20,13 +20,11 @@ namespace ECAssistant.Tools.Code;
 public class ECodeEditorTool : ITool
 {
     private readonly IFileSystem _fileSystem;
-    private readonly IColorFormatter _color;
     private readonly string _workingDir;
 
-    public ECodeEditorTool(IFileSystem fileSystem, IConfigProvider configProvider, IColorFormatter color)
+    public ECodeEditorTool(IFileSystem fileSystem, IConfigProvider configProvider)
     {
         _fileSystem = fileSystem;
-        _color = color;
         _workingDir = configProvider.GetValue("workingDir", Directory.GetCurrentDirectory());
     }
 

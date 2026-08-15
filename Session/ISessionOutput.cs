@@ -50,6 +50,9 @@ public interface ISessionOutput
     /// <summary>Write dim text.</summary>
     void WriteDim(string text);
 
+    /// <summary>Write a tagged line: [TAG] message with a state.</summary>
+    void WriteTag(string tag, string message, OutputState state = OutputState.Info);
+
     // ── Stream buffer access ──
 
     /// <summary>Get the current stream buffer content (thread-safe).</summary>

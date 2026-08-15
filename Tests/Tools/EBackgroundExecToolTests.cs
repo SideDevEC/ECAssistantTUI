@@ -10,7 +10,6 @@ public class EBackgroundExecToolTests : IDisposable
     private readonly Mock<IProcessRunner> _processRunner = new();
     private readonly Mock<IFileSystem> _fileSystem = new();
     private readonly Mock<IConfigProvider> _configProvider = new();
-    private readonly Mock<IColorFormatter> _colorFormatter = new();
 
     private EBackgroundExecTool CreateTool()
     {
@@ -18,7 +17,7 @@ public class EBackgroundExecToolTests : IDisposable
                        .Returns(Path.GetTempPath());
         return new EBackgroundExecTool(
             _mgr, _processRunner.Object, _fileSystem.Object,
-            _configProvider.Object, _colorFormatter.Object);
+            _configProvider.Object);
     }
 
     public void Dispose() => _mgr.Dispose();

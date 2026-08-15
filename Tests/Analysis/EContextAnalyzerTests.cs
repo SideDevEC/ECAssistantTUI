@@ -1,25 +1,20 @@
 using ECAssistant.Analysis;
-using ECAssistant.Interfaces;
 
 namespace ECAssistant.Tests.Analysis;
 
 public class EContextAnalyzerTests : IDisposable
 {
     private readonly string _tempDir;
-    private readonly Mock<IColorFormatter> _mockColor;
 
     public EContextAnalyzerTests()
     {
         _tempDir = Path.Combine(Path.GetTempPath(), "ECAssistantTests_ECA_" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(_tempDir);
 
-        _mockColor = new Mock<IColorFormatter>();
-        _mockColor.SetupGet(c => c.Cyan).Returns("\x1b[36m");
-        _mockColor.SetupGet(c => c.Green).Returns("\x1b[32m");
-        _mockColor.SetupGet(c => c.Red).Returns("\x1b[31m");
-        _mockColor.SetupGet(c => c.Reset).Returns("\x1b[0m");
-        _mockColor.Setup(c => c.Tag(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()));
-        _mockColor.Setup(c => c.TagBold(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()));
+
+
+
+
     }
 
     public void Dispose()
@@ -38,7 +33,7 @@ public class EContextAnalyzerTests : IDisposable
     [Fact]
     public void Constructor_ValidProjectRoot_SetsRoot()
     {
-        var analyzer = new EContextAnalyzer(_tempDir, _mockColor.Object);
+        var analyzer = new EContextAnalyzer(_tempDir);
         // No direct property to verify root, but AnalyzeProjectAsync will use it
         Assert.NotNull(analyzer);
     }
@@ -46,7 +41,7 @@ public class EContextAnalyzerTests : IDisposable
     [Fact]
     public async Task AnalyzeProjectAsync_EmptyDir_ReturnsZeroFiles()
     {
-        var analyzer = new EContextAnalyzer(_tempDir, _mockColor.Object);
+        var analyzer = new EContextAnalyzer(_tempDir);
         var result = await analyzer.AnalyzeProjectAsync();
         Assert.Equal(0, result.Files);
         Assert.Equal("Mixed/Unknown", result.ProjectType);
@@ -58,7 +53,7 @@ public class EContextAnalyzerTests : IDisposable
         CreateCsFile("Program.cs", "using System;\nnamespace TestApp {\n  class Program { static void Main() {} }\n}\n");
         CreateCsFile("TestApp.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
 
-        var analyzer = new EContextAnalyzer(_tempDir, _mockColor.Object);
+        var analyzer = new EContextAnalyzer(_tempDir);
         var result = await analyzer.AnalyzeProjectAsync();
         Assert.True(result.Files >= 2);
         Assert.Contains(".NET", result.ProjectType);
@@ -71,7 +66,7 @@ public class EContextAnalyzerTests : IDisposable
         CreateCsFile("App.sln", "Microsoft Visual Studio Solution File");
         CreateCsFile("Program.cs", "using System;\nclass Program {}\n");
 
-        var analyzer = new EContextAnalyzer(_tempDir, _mockColor.Object);
+        var analyzer = new EContextAnalyzer(_tempDir);
         var result = await analyzer.AnalyzeProjectAsync();
         Assert.Contains("Solution", result.ProjectType);
     }
@@ -83,7 +78,7 @@ public class EContextAnalyzerTests : IDisposable
             "using System;\npublic class HomeController { public void Index() {} }\n");
         CreateCsFile("App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
 
-        var analyzer = new EContextAnalyzer(_tempDir, _mockColor.Object);
+        var analyzer = new EContextAnalyzer(_tempDir);
         var result = await analyzer.AnalyzeProjectAsync();
         Assert.Contains("MVC", result.ProjectType);
     }
@@ -95,7 +90,7 @@ public class EContextAnalyzerTests : IDisposable
             "using System;\npublic class ApiUserController { }\n");
         CreateCsFile("App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
 
-        var analyzer = new EContextAnalyzer(_tempDir, _mockColor.Object);
+        var analyzer = new EContextAnalyzer(_tempDir);
         var result = await analyzer.AnalyzeProjectAsync();
         Assert.Contains("Web API", result.ProjectType);
     }
@@ -106,7 +101,7 @@ public class EContextAnalyzerTests : IDisposable
         CreateCsFile("Tests/MyTests.cs", "using Xunit;\npublic class MyTests { [Fact] public void Test() {} }\n");
         CreateCsFile("App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
 
-        var analyzer = new EContextAnalyzer(_tempDir, _mockColor.Object);
+        var analyzer = new EContextAnalyzer(_tempDir);
         var result = await analyzer.AnalyzeProjectAsync();
         Assert.Contains("Test", result.ProjectType);
     }
@@ -118,7 +113,7 @@ public class EContextAnalyzerTests : IDisposable
         CreateCsFile("Foo.cs", content);
         CreateCsFile("App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
 
-        var analyzer = new EContextAnalyzer(_tempDir, _mockColor.Object);
+        var analyzer = new EContextAnalyzer(_tempDir);
         var result = await analyzer.AnalyzeProjectAsync();
         // Files with >3 TODOs get flagged as issues
         // We only have 3 TODOs/HACKs here, so check that analysis ran
@@ -132,7 +127,7 @@ public class EContextAnalyzerTests : IDisposable
         CreateCsFile("Foo.cs", content);
         CreateCsFile("App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
 
-        var analyzer = new EContextAnalyzer(_tempDir, _mockColor.Object);
+        var analyzer = new EContextAnalyzer(_tempDir);
         var result = await analyzer.AnalyzeProjectAsync();
         Assert.Contains(result.PotentialIssues, i => i.Contains("TODO"));
     }
@@ -144,7 +139,7 @@ public class EContextAnalyzerTests : IDisposable
         CreateCsFile("BigFile.cs", string.Join("\n", lines));
         CreateCsFile("App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
 
-        var analyzer = new EContextAnalyzer(_tempDir, _mockColor.Object);
+        var analyzer = new EContextAnalyzer(_tempDir);
         var result = await analyzer.AnalyzeProjectAsync();
         Assert.Contains(result.PotentialIssues, i => i.Contains("Large file"));
     }
@@ -156,7 +151,7 @@ public class EContextAnalyzerTests : IDisposable
         CreateCsFile("Program.cs", "using TestApp.Services;\nclass Program {}\n");
         CreateCsFile("App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
 
-        var analyzer = new EContextAnalyzer(_tempDir, _mockColor.Object);
+        var analyzer = new EContextAnalyzer(_tempDir);
         var result = await analyzer.AnalyzeProjectAsync();
         Assert.True(result.Relationships > 0);
     }
@@ -167,7 +162,7 @@ public class EContextAnalyzerTests : IDisposable
         CreateCsFile("File.cs", "using System;\nclass Foo {}\n");
         File.WriteAllText(Path.Combine(_tempDir, "readme.md"), "# Readme\n");
 
-        var analyzer = new EContextAnalyzer(_tempDir, _mockColor.Object);
+        var analyzer = new EContextAnalyzer(_tempDir);
         var result = await analyzer.AnalyzeProjectAsync(extensionsToScan: new HashSet<string> { ".cs" });
         // .md should not be included
         Assert.True(result.Files >= 1);
@@ -182,7 +177,7 @@ public class EContextAnalyzerTests : IDisposable
         CreateCsFile("obj/Debug/Generated.cs", "class Gen {}\n");
         CreateCsFile("bin/Debug/Built.cs", "class Built {}\n");
 
-        var analyzer = new EContextAnalyzer(_tempDir, _mockColor.Object);
+        var analyzer = new EContextAnalyzer(_tempDir);
         var result = await analyzer.AnalyzeProjectAsync();
         // Should only find Program.cs and App.csproj, not obj/bin files
         Assert.Equal(2, result.Files);
@@ -191,7 +186,7 @@ public class EContextAnalyzerTests : IDisposable
     [Fact]
     public async Task AnalyzeProjectAsync_NonExistentDir_ReturnsZeroFiles()
     {
-        var analyzer = new EContextAnalyzer(_tempDir, _mockColor.Object);
+        var analyzer = new EContextAnalyzer(_tempDir);
         var result = await analyzer.AnalyzeProjectAsync(targetDirectory: "/nonexistent/path/xyz");
         Assert.Equal(0, result.Files);
     }
@@ -203,7 +198,7 @@ public class EContextAnalyzerTests : IDisposable
         CreateCsFile("B.cs", "using System;\nclass B {}\n");
         CreateCsFile("App.csproj", "<Project></Project>");
 
-        var analyzer = new EContextAnalyzer(_tempDir, _mockColor.Object);
+        var analyzer = new EContextAnalyzer(_tempDir);
         var result = await analyzer.AnalyzeProjectAsync();
         Assert.NotNull(result.DependencyGraph);
     }
@@ -211,7 +206,7 @@ public class EContextAnalyzerTests : IDisposable
     [Fact]
     public async Task GetDebugContextSummary_WithoutAnalysis_ReturnsNoAnalysisMessage()
     {
-        var analyzer = new EContextAnalyzer(_tempDir, _mockColor.Object);
+        var analyzer = new EContextAnalyzer(_tempDir);
         var summary = analyzer.GetDebugContextSummary();
         Assert.Contains("No analysis run yet", summary);
     }
@@ -222,7 +217,7 @@ public class EContextAnalyzerTests : IDisposable
         CreateCsFile("Program.cs", "using System;\nnamespace App {\n  class Program { static void Main() {} }\n}\n");
         CreateCsFile("App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
 
-        var analyzer = new EContextAnalyzer(_tempDir, _mockColor.Object);
+        var analyzer = new EContextAnalyzer(_tempDir);
         await analyzer.AnalyzeProjectAsync();
         var summary = analyzer.GetDebugContextSummary();
         Assert.Contains("Project Analysis", summary);
@@ -236,7 +231,7 @@ public class EContextAnalyzerTests : IDisposable
         CreateCsFile("Program.cs", "using System;\nnamespace App {\n  class Program {\n    public void Run() {}\n    public void Stop() {}\n  }\n}\n");
         CreateCsFile("App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
 
-        var analyzer = new EContextAnalyzer(_tempDir, _mockColor.Object);
+        var analyzer = new EContextAnalyzer(_tempDir);
         await analyzer.AnalyzeProjectAsync();
         var summary = analyzer.GetDebugContextSummary();
         Assert.Contains("C# stats", summary);
@@ -250,7 +245,7 @@ public class EContextAnalyzerTests : IDisposable
         File.WriteAllText(Path.Combine(_tempDir, "readme.md"), "# Readme\n\nSome content.\n");
         CreateCsFile("App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>");
 
-        var analyzer = new EContextAnalyzer(_tempDir, _mockColor.Object);
+        var analyzer = new EContextAnalyzer(_tempDir);
         var result = await analyzer.AnalyzeProjectAsync();
         Assert.True(result.Files >= 2);
     }
@@ -258,7 +253,7 @@ public class EContextAnalyzerTests : IDisposable
     [Fact]
     public async Task AnalyzeProjectAsync_ProjectRootProperty_IsSetInResult()
     {
-        var analyzer = new EContextAnalyzer(_tempDir, _mockColor.Object);
+        var analyzer = new EContextAnalyzer(_tempDir);
         var result = await analyzer.AnalyzeProjectAsync();
         Assert.Equal(Path.GetFullPath(_tempDir), result.ProjectRoot);
     }

@@ -46,17 +46,13 @@ public class Program
             Gui = new EGuiConsole();
             _color = new EColor();
             // Route EColor output through Gui for scroll region cursor management
-            _color.WriteLineHandler = (s) => Gui.WriteLineColored(s);
-            _color.WriteHandler = (s) => Gui.WriteRaw(s);
             // Set static handlers so ALL EColor instances (SubAgentManager, EMemoryManager, etc.) route through Gui
-            EColor.StaticWriteLineHandler = (s) => Gui.WriteLineColored(s);
-            EColor.StaticWriteHandler = (s) => Gui.WriteRaw(s);
 
             // ── Initialize structured logging (P2) ──
             var logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "ECAssistant.log");
-            _logger = new Logger(logPath, (EGuiBase)Gui, LogLevel.Info);
+            _logger = new Logger(logPath, LogLevel.Info);
 
-            _color.TagBold(_color.Cyan, "ECAssistant", "v10.12 — llama-sharp 0.27.0");
+            Gui.WriteLineColored(_color.Cyan + _color.Bold + "[ECAssistant] v10.12 — llama-sharp 0.27.0" + _color.Reset);
 
                  // Always use user's home directory for ECAssistant
             var userConfigDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant");
@@ -69,12 +65,12 @@ public class Program
             {
                 if (File.Exists(bundledConfigPath))
                 {
-                    _color.Tag(_color.Green, "Setup", $"Copying default config to: {userConfigDir}");
+                    Gui.WriteLineColored(_color.Green + "[Setup] " + ($"Copying default config to: {userConfigDir}") + _color.Reset);
                     File.Copy(bundledConfigPath, configPath, overwrite: false);
                 }
                 else
                 {
-                    _color.Tag(_color.Cyan, "Setup", "No appsettings.json found. Creating default.");
+                    Gui.WriteLineColored(_color.Cyan + "[Setup] No appsettings.json found. Creating default." + _color.Reset);
                     var defaults = new EAgentConfig();
                     File.WriteAllText(configPath, System.Text.Json.JsonSerializer.Serialize(
                         defaults, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
@@ -82,7 +78,7 @@ public class Program
             }
 
                  { var fs = new Services.FileSystemAdapter(); var loader = new Config.ConfigLoader(fs); _config = loader.Load(configPath); }
-              _color.Tag(_color.Green, "Config", $"Loaded from: {Path.GetFullPath(configPath)}");
+              Gui.WriteLineColored(_color.Green + "[Config] " + $"Loaded from: {Path.GetFullPath(configPath)}" + _color.Reset);
             ApplyCommandLineArgs(ref _config, args);
 
              Gui.BlankLine();
@@ -105,8 +101,8 @@ public class Program
             }
            if (!File.Exists(effectiveModelPath))
                       {
-                    _color.TagBold(_color.Red, "Error", $"Model not found: {effectiveModelPath}");
-                      _color.Tag(_color.Cyan, "Hint", $"Put your .gguf model in: {userConfigDir} or set full path in appsettings.json");
+                    Gui.WriteLineColored(_color.Red + _color.Bold + "[Error] " + ($"Model not found: {effectiveModelPath}") + _color.Reset);
+                      Gui.WriteLineColored(_color.Cyan + "[Hint] " + ($"Put your .gguf model in: {userConfigDir} or set full path in appsettings.json") + _color.Reset);
                      }
 
             // v9.14: Default working dir to ~/ECAssistant if set to "."
@@ -114,13 +110,13 @@ public class Program
                 ? userConfigDir
                 : Path.GetFullPath(_config.AgentSettings.WorkingDirectory);
               Directory.CreateDirectory(effectiveDir);
-            _color.TagBold(_color.Cyan, "WorkDir", effectiveDir);
+            Gui.WriteLineColored(_color.Cyan + _color.Bold + "[WorkDir] " + (effectiveDir) + _color.Reset);
 
            var rootDir = Path.GetFullPath(_config.RootPath);
             Directory.CreateDirectory(rootDir);
                Directory.CreateDirectory(Path.Combine(rootDir, _config.Memory.DataPath));
             Directory.CreateDirectory(Path.Combine(rootDir, _config.Workspace.Path));
-              _color.TagBold(_color.Cyan, "Root", $"{rootDir}");
+              Gui.WriteLineColored(_color.Cyan + _color.Bold + "[Root] " + ($"{rootDir}") + _color.Reset);
               Gui.BlankLine();
 
                 // Build inference params from config — ALL values come from appsettings.json
@@ -143,11 +139,11 @@ public class Program
 
             if (File.Exists(effectiveModelPath))
                        {
-                    _color.TagBold(_color.Green, "Model", "Found at: " + effectiveModelPath);
+                    Gui.WriteLineColored(_color.Green + _color.Bold + "[Model] " + ("Found at: " + effectiveModelPath) + _color.Reset);
 
                      // ── Background Process Manager (must be before tool registration) ──
                     var bgMgr = new BackgroundProcessManager();
-                    _color.TagBold(_color.Cyan, "Background", "Process manager ready.");
+                    Gui.WriteLineColored(_color.Cyan + _color.Bold + "[Background] Process manager ready." + _color.Reset);
 
                     // ── File Watcher (v9.7: workspace monitoring) ──
                     var fileWatcher = new FileWatcherService(effectiveDir, logger: _logger);
@@ -158,13 +154,13 @@ public class Program
                     var sessionManager = new SessionManager(_config, effectiveModelPath, effectiveDir, _logger);
 
                     // ── Loading phase: animated dots while sessions init ──
-                    _color.TagBold(_color.Cyan, "Sessions", "Discovering sessions...");
+                    Gui.WriteLineColored(_color.Cyan + _color.Bold + "[Sessions] Discovering sessions..." + _color.Reset);
 
                     var discovered = new SessionDiscovery().DiscoverSessions(effectiveDir);
                     if (discovered.Count > 0)
-                        _color.Tag(_color.Cyan, "Sessions", $"Found {discovered.Count} session(s): {string.Join(", ", discovered)}");
+                        Gui.WriteLineColored(_color.Cyan + "[Sessions] " + $"Found {discovered.Count} session(s): {string.Join(", ", discovered)}" + _color.Reset);
                     else
-                        _color.Tag(_color.Cyan, "Sessions", "No existing sessions found — creating new 'main' session.");
+                        Gui.WriteLineColored(_color.Cyan + "[Sessions] No existing sessions found — creating new 'main' session." + _color.Reset);
 
                     var loading = new LoadingIndicator(Gui, _color);
                     loading.Start("Loading model weights");
@@ -179,7 +175,7 @@ public class Program
 
                     var mainSession = sessionManager.Main;
                     var activeSession = sessionManager.ActiveSession ?? mainSession;
-                    _color.TagBold(_color.Green, "Ready", $"Active session: {activeKey} ({sessionManager.List().Count} total)");
+                    Gui.WriteLineColored(_color.Green + _color.Bold + "[Ready] " + $"Active session: {activeKey} ({sessionManager.List().Count} total)" + _color.Reset);
                     Gui.BlankLine();
 
                    // v10.21.1: Simple console input loop — PromptRaw uses ReadKey (non-blocking)
@@ -187,7 +183,7 @@ public class Program
                         }
             else
                      {
-                    _color.Tag(_color.Red, "Error", "No model loaded. Use --model or update appsettings.json.");
+                    Gui.WriteLineColored(_color.Red + "[Error] No model loaded. Use --model or update appsettings.json." + _color.Reset);
                   return 1;
                      }
 
@@ -196,7 +192,7 @@ public class Program
             if (File.Exists(transPath))
                {
                 // Transcript already auto-saved in loop via "save-context" command
-                 _color.TagBold(_color.Cyan, "Context", $"Transcript saved at: {transPath}");
+                 Gui.WriteLineColored(_color.Cyan + _color.Bold + "[Context] " + ($"Transcript saved at: {transPath}") + _color.Reset);
                 }
 
             return 0;
@@ -350,26 +346,25 @@ public class Program
         var processRunner = new ProcessRunner();
         var configPath = Path.Combine(userConfigDir, "appsettings.json");
         var configProvider = new ConfigProvider(fileSystem, configPath);
-        var colorFormatter = new ColorFormatter();
         var httpClient = new HttpClientAdapter();
 
-        var psAgent = new EShellAgent(processRunner, configProvider, colorFormatter, workingDir);
+        var psAgent = new EShellAgent(processRunner, configProvider, workingDir);
         session.RegisterTool(psAgent);
-        session.RegisterTool(new EBackgroundExecTool(bgMgr, processRunner, fileSystem, configProvider, colorFormatter));
-        session.RegisterTool(new EWebSearchTool(httpClient, configProvider, colorFormatter));
-        session.RegisterTool(new EDotnetBuildTool(processRunner, configProvider, colorFormatter));
-        session.RegisterTool(new EGitTool(processRunner, fileSystem, configProvider, colorFormatter));
-        session.RegisterTool(new ECodeEditorTool(fileSystem, configProvider, colorFormatter));
+        session.RegisterTool(new EBackgroundExecTool(bgMgr, processRunner, fileSystem, configProvider));
+        session.RegisterTool(new EWebSearchTool(httpClient, configProvider));
+        session.RegisterTool(new EDotnetBuildTool(processRunner, configProvider));
+        session.RegisterTool(new EGitTool(processRunner, fileSystem, configProvider));
+        session.RegisterTool(new ECodeEditorTool(fileSystem, configProvider));
 
         // v10.22: EFileReader — controlled file reading with offset/limit/token budget
-        session.RegisterTool(new EFileReaderTool(fileSystem, configProvider, colorFormatter));
+        session.RegisterTool(new EFileReaderTool(fileSystem, configProvider));
 
         // v10.22: EWebFetch — fetch URL content as plain text
-        session.RegisterTool(new EWebFetchTool(httpClient, configProvider, colorFormatter));
+        session.RegisterTool(new EWebFetchTool(httpClient, configProvider));
 
         // EFileResearchTool
         {
-            session.RegisterTool(new EFileResearchTool(fileSystem, configProvider, colorFormatter));
+            session.RegisterTool(new EFileResearchTool(fileSystem, configProvider));
         }
 
         // ── Secondary Model (optional) ──
@@ -425,7 +420,7 @@ public class Program
         switch (input.ToLower())
         {
             case "quit": case "exit":
-                _color.TagBold(_color.Cyan, "Bye", "Goodbye.");
+                Gui.WriteLineColored(_color.Cyan + _color.Bold + "[Bye] Goodbye." + _color.Reset);
                 Gui.BlankLine();
                 await sessionManager.StopAllAsync();
                 _quitRequested = true;
@@ -441,7 +436,7 @@ public class Program
                 return;
             }
             case "single":
-                _color.Tag(_color.Cyan, "Mode", "Single-turn mode reset.");
+                Gui.WriteLineColored(_color.Cyan + "[Mode] Single-turn mode reset." + _color.Reset);
                 orchestrator.Reset();
                 return;
             case "stop":
@@ -450,9 +445,9 @@ public class Program
                 if (stopSession != null && stopSession.RunState == SessionRunState.Running)
                 {
                     stopSession.Stop();
-                    _color.TagBold(_color.Red, "Stop", "Cancelling active session...");
+                    Gui.WriteLineColored(_color.Red + _color.Bold + "[Stop] Cancelling active session..." + _color.Reset);
                 }
-                else { _color.Tag(_color.Cyan, "Stop", "Nothing is running."); }
+                else { Gui.WriteLineColored(_color.Cyan + "[Stop] Nothing is running." + _color.Reset); }
                 return;
             }
             case "context-status":
@@ -461,7 +456,7 @@ public class Program
                 if (s != null)
                 {
                     Gui.BlankLine();
-                    _color.TagBold(_color.Cyan, "Context", s.Engine.ContextStatusSummary);
+                    Gui.WriteLineColored(_color.Cyan + _color.Bold + "[Context] " + (s.Engine.ContextStatusSummary) + _color.Reset);
                     Gui.BlankLine();
                 }
                 return;
@@ -490,7 +485,7 @@ public class Program
                 // session <n> — switch to session by index or key
                 if (string.IsNullOrEmpty(arg))
                 {
-                    _color.Tag(_color.Cyan, "Session", "Usage: session <n> | session <key>");
+                    Gui.WriteLineColored(_color.Cyan + "[Session] Usage: session <n> | session <key>" + _color.Reset);
                     return;
                 }
                 if (int.TryParse(arg, out var idx))
@@ -504,10 +499,10 @@ public class Program
                         var ui = new ConsoleUiRenderer(Gui, _color); _activeUi = ui;
                         newActive.AddListener(ui);
                         Gui.BlankLine();
-                        _color.TagBold(_color.Green, "Session", $"Switched to [{newActive.Key}] {newActive.GetStatusSummary()}");
+                        Gui.WriteLineColored(_color.Green + _color.Bold + "[Session] " + $"Switched to [{newActive.Key}] {newActive.GetStatusSummary()}" + _color.Reset);
                         Gui.BlankLine();
                     }
-                    else _color.TagBold(_color.Red, "Session", $"No session at index {idx}");
+                    else Gui.WriteLineColored(_color.Red + _color.Bold + "[Session] " + $"No session at index {idx}" + _color.Reset);
                 }
                 else if (sessionManager.SwitchTo(arg))
                 {
@@ -517,10 +512,10 @@ public class Program
                     var ui = new ConsoleUiRenderer(Gui, _color); _activeUi = ui;
                     newActive.AddListener(ui);
                     Gui.BlankLine();
-                    _color.TagBold(_color.Green, "Session", $"Switched to [{newActive.Key}]");
+                    Gui.WriteLineColored(_color.Green + _color.Bold + "[Session] " + $"Switched to [{newActive.Key}]" + _color.Reset);
                     Gui.BlankLine();
                 }
-                else _color.TagBold(_color.Red, "Session", $"No session with key '{arg}'");
+                else Gui.WriteLineColored(_color.Red + _color.Bold + "[Session] " + $"No session with key '{arg}'" + _color.Reset);
                 return;
             }
             case "session-new":
@@ -531,12 +526,12 @@ public class Program
                     var newSession = sessionManager.CreateSession(name, label: arg);
                     await InitSessionAsync(newSession, workingDir, bgMgr, userConfigDir);
                     Gui.BlankLine();
-                    _color.TagBold(_color.Green, "Session", $"Created [{name}]. Use 'session <index>' to switch.");
+                    Gui.WriteLineColored(_color.Green + _color.Bold + "[Session] " + ($"Created [{name}]. Use 'session <index>' to switch.") + _color.Reset);
                     Gui.BlankLine();
                 }
                 catch (Exception ex)
                 {
-                    _color.TagBold(_color.Red, "Session", $"Failed: {ex.Message}");
+                    Gui.WriteLineColored(_color.Red + _color.Bold + "[Session] " + ($"Failed: {ex.Message}") + _color.Reset);
                 }
                 return;
             }
@@ -545,8 +540,8 @@ public class Program
                 if (int.TryParse(arg, out var stopIdx))
                 {
                     var s = sessionManager.GetByIndex(stopIdx);
-                    if (s != null) { s.Stop(); _color.TagBold(_color.Yellow, "Session", $"Stopped [{s.Key}]."); }
-                    else _color.TagBold(_color.Red, "Session", $"No session at index {stopIdx}");
+                    if (s != null) { s.Stop(); Gui.WriteLineColored(_color.Yellow + _color.Bold + "[Session] " + ($"Stopped [{s.Key}].") + _color.Reset); }
+                    else Gui.WriteLineColored(_color.Red + _color.Bold + "[Session] " + ($"No session at index {stopIdx}") + _color.Reset);
                 }
                 return;
             }
@@ -557,9 +552,9 @@ public class Program
                     try
                     {
                         await sessionManager.CloseSessionAsync(sessionManager.GetByIndex(closeIdx)?.Key ?? "");
-                        _color.TagBold(_color.Green, "Session", $"Closed session {closeIdx}.");
+                        Gui.WriteLineColored(_color.Green + _color.Bold + "[Session] " + ($"Closed session {closeIdx}.") + _color.Reset);
                     }
-                    catch (Exception ex) { _color.TagBold(_color.Red, "Session", $"Failed: {ex.Message}"); }
+                    catch (Exception ex) { Gui.WriteLineColored(_color.Red + _color.Bold + "[Session] " + ($"Failed: {ex.Message}") + _color.Reset); }
                 }
                 return;
             }
@@ -571,7 +566,7 @@ public class Program
                     if (s != null)
                     {
                         Gui.BlankLine();
-                        _color.TagBold(_color.Cyan, "Peek", $"[{s.Key}] last 5 lines:");
+                        Gui.WriteLineColored(_color.Cyan + _color.Bold + "[Peek] " + ($"[{s.Key}] last 5 lines:") + _color.Reset);
                         var history = s.ReadOutputHistory(5);
                         foreach (var e in history)
                             Gui.WriteLineColored($"  {e.Text}");
@@ -587,13 +582,13 @@ public class Program
                 if (renameParts.Length == 2 && int.TryParse(renameParts[0], out var renameIdx))
                 {
                     if (sessionManager.RenameSession(renameIdx, renameParts[1]))
-                        _color.TagBold(_color.Green, "Session", $"Renamed session {renameIdx} to '{renameParts[1]}'");
+                        Gui.WriteLineColored(_color.Green + _color.Bold + "[Session] " + ($"Renamed session {renameIdx} to '{renameParts[1]}'") + _color.Reset);
                     else
-                        _color.TagBold(_color.Red, "Session", $"No session at index {renameIdx}");
+                        Gui.WriteLineColored(_color.Red + _color.Bold + "[Session] " + ($"No session at index {renameIdx}") + _color.Reset);
                 }
                 else
                 {
-                    _color.Tag(_color.Cyan, "Session", "Usage: session-rename <n> <label>");
+                    Gui.WriteLineColored(_color.Cyan + "[Session] Usage: session-rename <n> <label>" + _color.Reset);
                 }
                 return;
             }
@@ -611,7 +606,7 @@ public class Program
                     Gui.WriteLineColored(infoSession.GetDetailedInfo());
                     Gui.BlankLine();
                 }
-                else _color.Tag(_color.Cyan, "Session", "No active session.");
+                else Gui.WriteLineColored(_color.Cyan + "[Session] No active session." + _color.Reset);
                 return;
             }
             case "session-queue":
@@ -619,10 +614,10 @@ public class Program
                 var q = sessionManager.ActiveSession?.GetQueue() ?? new List<string>();
                 Gui.BlankLine();
                 if (q.Count == 0)
-                    _color.Tag(_color.Cyan, "Queue", "Empty");
+                    Gui.WriteLineColored(_color.Cyan + "[Queue] Empty" + _color.Reset);
                 else
                 {
-                    _color.TagBold(_color.Cyan, "Queue", $"{q.Count} pending:");
+                    Gui.WriteLineColored(_color.Cyan + _color.Bold + "[Queue] " + ($"{q.Count} pending:") + _color.Reset);
                     for (int i = 0; i < q.Count; i++)
                         Gui.WriteLineColored($"  {i}: {TruncatePrompt(q[i])}");
                 }
@@ -634,15 +629,15 @@ public class Program
                 if (int.TryParse(arg, out var qi))
                 {
                     if (sessionManager.ActiveSession?.RemoveFromQueue(qi) == true)
-                        _color.TagBold(_color.Green, "Queue", $"Removed prompt {qi}");
-                    else _color.TagBold(_color.Red, "Queue", $"No prompt at index {qi}");
+                        Gui.WriteLineColored(_color.Green + _color.Bold + "[Queue] " + ($"Removed prompt {qi}") + _color.Reset);
+                    else Gui.WriteLineColored(_color.Red + _color.Bold + "[Queue] " + ($"No prompt at index {qi}") + _color.Reset);
                 }
                 return;
             }
             case "session-queue-clear":
             {
                 sessionManager.ActiveSession?.ClearQueue();
-                _color.Tag(_color.Green, "Queue", "Cleared.");
+                Gui.WriteLineColored(_color.Green + "[Queue] Cleared." + _color.Reset);
                 return;
             }
         }
@@ -670,9 +665,9 @@ public class Program
         string userConfigDir)
     {
         Gui.BlankLine();
-        _color.TagBold(_color.Cyan, "ECLoop", "Type your request (help | quit)");
+        Gui.WriteLineColored(_color.Cyan + _color.Bold + "[ECLoop] Type your request (help | quit)" + _color.Reset);
         Gui.WriteLine("===========================================");
-        _color.TagBold(_color.Cyan, "Mode", "The agent decides tools automatically.");
+        Gui.WriteLineColored(_color.Cyan + _color.Bold + "[Mode] The agent decides tools automatically." + _color.Reset);
         Gui.BlankLine();
 
         // Set ESC handler — stops the active session
@@ -717,13 +712,13 @@ public class Program
     private static void ListTools(EAgentEngine agent)
     {
         Gui.BlankLine();
-        _color.TagBold(_color.Cyan, "Tools", $"{agent.Tools.Count} registered:");
+        Gui.WriteLineColored(_color.Cyan + _color.Bold + "[Tools] " + ($"{agent.Tools.Count} registered:") + _color.Reset);
         Gui.BlankLine();
         foreach (var t in agent.Tools)
         {
-            _color.WriteLine(_color.Yellow + _color.Bold, $"  {t.Name}");
-            _color.WriteLine(_color.Dim, $"    {t.Description}");
-            _color.WriteLine(_color.Dim, $"    Example: {t.UsageExample}");
+            Gui.WriteLineColored(_color.Yellow + _color.Bold +  $"  {t.Name}" + _color.Reset);
+            Gui.WriteLineColored(_color.Dim +  $"    {t.Description}" + _color.Reset);
+            Gui.WriteLineColored(_color.Dim +  $"    Example: {t.UsageExample}" + _color.Reset);
             Gui.BlankLine();
         }
     }
@@ -731,63 +726,63 @@ public class Program
     private static async Task PrintHelp()
     {
         Gui.BlankLine();
-        _color.TagBold(_color.Cyan, "Commands", "");
+        Gui.WriteLineColored(_color.Cyan + _color.Bold + "[Commands] " + ("") + _color.Reset);
         Gui.BlankLine();
-        _color.WriteLine(_color.Yellow + _color.Bold, "  <type request>       Multi-step agent execution");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  stop                 Stop the running session (keeps app alive)");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  ESC                  Stop generation mid-stream (during token output)");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  quit / exit          Stop all sessions and exit the application");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  help                 Show this help");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  tools                List registered tools");
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  <type request>       Multi-step agent execution" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  stop                 Stop the running session (keeps app alive)" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  ESC                  Stop generation mid-stream (during token output)" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  quit / exit          Stop all sessions and exit the application" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  help                 Show this help" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  tools                List registered tools" + _color.Reset);
         Gui.BlankLine();
-        _color.WriteLine(_color.Dim, "  Context:");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  clear-history        Clear conversation history");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  save-context         Save transcript to disk");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  file-pick            Open file picker, send to LLM");
+        Gui.WriteLineColored(_color.Dim + "  Context:" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  clear-history        Clear conversation history" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  save-context         Save transcript to disk" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  file-pick            Open file picker, send to LLM" + _color.Reset);
         Gui.BlankLine();
-        _color.WriteLine(_color.Dim, "  Memory:");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  memory-save          Save a memory entry");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  memory-query         Search memory");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  memory-stats         Memory statistics");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  vecmem-stats         Vector memory statistics");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  vecmem-search        Semantic memory search");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  vecmem-add           Add vector memory entry");
+        Gui.WriteLineColored(_color.Dim + "  Memory:" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  memory-save          Save a memory entry" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  memory-query         Search memory" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  memory-stats         Memory statistics" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  vecmem-stats         Vector memory statistics" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  vecmem-search        Semantic memory search" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  vecmem-add           Add vector memory entry" + _color.Reset);
         Gui.BlankLine();
-        _color.WriteLine(_color.Dim, "  Sessions (v10.20):");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  sessions             List all sessions with status");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  session <n>          Switch to session n (render history + live)");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  session-new <name>   Create a new session");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  session-stop <n>     Stop session n's execution");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  session-close <n>    Close and delete session n");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  session-peek <n>     Quick glance at session n's output");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  session-rename <n> <label>  Rename session n");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  session-info [n]     Detailed session info (KV cache, context, tools)");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  session-queue         Show active session's prompt queue");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  session-queue-remove <i>  Remove prompt i from queue");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  session-queue-clear  Clear active session's queue");
+        Gui.WriteLineColored(_color.Dim + "  Sessions (v10.20):" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  sessions             List all sessions with status" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  session <n>          Switch to session n (render history + live)" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  session-new <name>   Create a new session" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  session-stop <n>     Stop session n's execution" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  session-close <n>    Close and delete session n" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  session-peek <n>     Quick glance at session n's output" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  session-rename <n> <label>  Rename session n" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  session-info [n]     Detailed session info (KV cache, context, tools)" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  session-queue         Show active session's prompt queue" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  session-queue-remove <i>  Remove prompt i from queue" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  session-queue-clear  Clear active session's queue" + _color.Reset);
         Gui.BlankLine();
-        _color.WriteLine(_color.Dim, "  Context:");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  context-status       Show context window usage and summarize threshold");;
+        Gui.WriteLineColored(_color.Dim + "  Context:" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  context-status       Show context window usage and summarize threshold" + _color.Reset);;
         Gui.BlankLine();
-        _color.WriteLine(_color.Dim, "  Background:");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  bg-run <cmd>         Start a background process");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  bg-status            List background processes");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  bg-output <id>       Get output from a process");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  bg-kill <id>         Kill a background process");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  bg-cleanup           Remove finished processes");
+        Gui.WriteLineColored(_color.Dim + "  Background:" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  bg-run <cmd>         Start a background process" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  bg-status            List background processes" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  bg-output <id>       Get output from a process" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  bg-kill <id>         Kill a background process" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  bg-cleanup           Remove finished processes" + _color.Reset);
         Gui.BlankLine();
-        _color.WriteLine(_color.Dim, "  Files & Watch:");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  watch                Show recent file changes");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  watch-start          Start watching for changes");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  watch-stop           Stop watching");
+        Gui.WriteLineColored(_color.Dim + "  Files & Watch:" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  watch                Show recent file changes" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  watch-start          Start watching for changes" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  watch-stop           Stop watching" + _color.Reset);
         Gui.BlankLine();
-        _color.WriteLine(_color.Dim, "  System:");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  reload-config        Reload appsettings.json");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  swap-model           Switch GGUF model at runtime");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  clipboard-read       Read from Windows clipboard");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  clipboard-write      Write to Windows clipboard");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  log                  Show recent log entries");
-        _color.WriteLine(_color.Yellow + _color.Bold, "  log-level            Set log level (debug/info/warn/error)");
+        Gui.WriteLineColored(_color.Dim + "  System:" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  reload-config        Reload appsettings.json" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  swap-model           Switch GGUF model at runtime" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  clipboard-read       Read from Windows clipboard" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  clipboard-write      Write to Windows clipboard" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  log                  Show recent log entries" + _color.Reset);
+        Gui.WriteLineColored(_color.Yellow + _color.Bold + "  log-level            Set log level (debug/info/warn/error)" + _color.Reset);
         Gui.BlankLine();
         await Task.CompletedTask;
     }

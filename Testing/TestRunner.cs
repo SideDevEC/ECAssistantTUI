@@ -467,23 +467,23 @@ public sealed class TestRunner : IAsyncDisposable
         var processRunner = new ProcessRunner();
         var fileSystem = new FileSystemAdapter();
         var configProvider = new ConfigProvider(fileSystem, configPath);
-        var colorFormatter = new ColorFormatter();
+        
         var httpClient = new HttpClientAdapter();
 
-        _shellAgent = new EShellAgent(processRunner, configProvider, colorFormatter, workingDir);
+        _shellAgent = new EShellAgent(processRunner, configProvider, workingDir);
         engine.RegisterTool(_shellAgent);
-        engine.RegisterTool(new EBackgroundExecTool(_bgMgr, processRunner, fileSystem, configProvider, colorFormatter));
-        engine.RegisterTool(new EWebSearchTool(httpClient, configProvider, colorFormatter));
-        engine.RegisterTool(new EDotnetBuildTool(processRunner, configProvider, colorFormatter));
-        engine.RegisterTool(new EGitTool(processRunner, fileSystem, configProvider, colorFormatter));
-        engine.RegisterTool(new ECodeEditorTool(fileSystem, configProvider, colorFormatter));
+        engine.RegisterTool(new EBackgroundExecTool(_bgMgr, processRunner, fileSystem, configProvider));
+        engine.RegisterTool(new EWebSearchTool(httpClient, configProvider));
+        engine.RegisterTool(new EDotnetBuildTool(processRunner, configProvider));
+        engine.RegisterTool(new EGitTool(processRunner, fileSystem, configProvider));
+        engine.RegisterTool(new ECodeEditorTool(fileSystem, configProvider));
 
         // v10.22: EFileReader + EWebFetch
-        engine.RegisterTool(new EFileReaderTool(fileSystem, configProvider, colorFormatter));
-        engine.RegisterTool(new EWebFetchTool(httpClient, configProvider, colorFormatter));
+        engine.RegisterTool(new EFileReaderTool(fileSystem, configProvider));
+        engine.RegisterTool(new EWebFetchTool(httpClient, configProvider));
 
         // File research tool
-        engine.RegisterTool(new EFileResearchTool(fileSystem, configProvider, colorFormatter));
+        engine.RegisterTool(new EFileResearchTool(fileSystem, configProvider));
 
         // Prefill KV cache (no-op for mock engine)
         if (!UseMockEngine)

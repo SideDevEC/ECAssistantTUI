@@ -7,11 +7,10 @@ public class EShellAgentTests
 {
     private readonly Mock<IProcessRunner> _processRunner = new();
     private readonly Mock<IConfigProvider> _configProvider = new();
-    private readonly Mock<IColorFormatter> _colorFormatter = new();
 
     private EShellAgent CreateTool(string workingDir = "/tmp")
     {
-        return new EShellAgent(_processRunner.Object, _configProvider.Object, _colorFormatter.Object, workingDir);
+        return new EShellAgent(_processRunner.Object, _configProvider.Object, workingDir);
     }
 
     private ProcessResult SuccessResult(string stdout = "ok", string stderr = "") =>

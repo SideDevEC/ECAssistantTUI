@@ -1,31 +1,28 @@
 using ECAssistant.Session;
 using ECAssistant.UI;
-using ECAssistant.Interfaces;
+using ECAssistant;
 
 namespace ECAssistant.Tests.Session;
 
 public class ConsoleUiRendererTests
 {
     private readonly Mock<EGuiBase> _mockGui;
-    private readonly Mock<IColorFormatter> _mockColor;
     private readonly ConsoleUiRenderer _renderer;
 
     public ConsoleUiRendererTests()
     {
         _mockGui = new Mock<EGuiBase>();
-        _mockColor = new Mock<IColorFormatter>();
 
         // Setup color properties
-        _mockColor.SetupGet(c => c.Cyan).Returns("\x1b[36m");
-        _mockColor.SetupGet(c => c.Green).Returns("\x1b[32m");
-        _mockColor.SetupGet(c => c.Yellow).Returns("\x1b[33m");
-        _mockColor.SetupGet(c => c.Red).Returns("\x1b[31m");
-        _mockColor.SetupGet(c => c.Dim).Returns("\x1b[2m");
-        _mockColor.SetupGet(c => c.Bold).Returns("\x1b[1m");
-        _mockColor.SetupGet(c => c.Reset).Returns("\x1b[0m");
-        _mockColor.SetupGet(c => c.Magenta).Returns("\x1b[35m");
 
-        _renderer = new ConsoleUiRenderer(_mockGui.Object, _mockColor.Object);
+
+
+
+
+
+
+
+        _renderer = new ConsoleUiRenderer(_mockGui.Object, new EColor());
     }
 
     [Fact]
@@ -142,7 +139,7 @@ public class ConsoleUiRendererTests
             new() { Type = "stream", Text = "Line 2", State = OutputState.Success },
         };
 
-        _renderer.RenderHistory(_mockGui.Object, entries, _mockColor.Object);
+        _renderer.RenderHistory(entries);
 
         _mockGui.Verify(g => g.WriteLineColored(It.Is<string>(s => s.Contains("Line 1"))), Times.Once);
         _mockGui.Verify(g => g.WriteLineColored(It.Is<string>(s => s.Contains("Line 2"))), Times.Once);
@@ -157,7 +154,7 @@ public class ConsoleUiRendererTests
             new() { Type = "line", Text = "Message 2", State = OutputState.Error },
         };
 
-        _renderer.RenderHistory(_mockGui.Object, entries, _mockColor.Object);
+        _renderer.RenderHistory(entries);
 
         _mockGui.Verify(g => g.WriteLineColored(It.Is<string>(s => s.Contains("[WARN]") && s.Contains("Message 1"))), Times.Once);
         _mockGui.Verify(g => g.WriteLineColored(It.Is<string>(s => s.Contains("[ERR]") && s.Contains("Message 2"))), Times.Once);
@@ -171,7 +168,7 @@ public class ConsoleUiRendererTests
             new() { Type = "line", Text = "", State = OutputState.Info },
         };
 
-        _renderer.RenderHistory(_mockGui.Object, entries, _mockColor.Object);
+        _renderer.RenderHistory(entries);
 
         _mockGui.Verify(g => g.BlankLine(), Times.Once);
     }
@@ -187,7 +184,7 @@ public class ConsoleUiRendererTests
             new() { Type = "line", Text = "Third", State = OutputState.Warning },
         };
 
-        _renderer.RenderHistory(_mockGui.Object, entries, _mockColor.Object);
+        _renderer.RenderHistory(entries);
 
         _mockGui.Verify(g => g.WriteLineColored(It.Is<string>(s => s.Contains("First"))), Times.Once);
         _mockGui.Verify(g => g.WriteLineColored(It.Is<string>(s => s.Contains("Second"))), Times.Once);

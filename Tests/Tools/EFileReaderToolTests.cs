@@ -7,13 +7,12 @@ public class EFileReaderToolTests
 {
     private readonly Mock<IFileSystem> _fileSystem = new();
     private readonly Mock<IConfigProvider> _configProvider = new();
-    private readonly Mock<IColorFormatter> _colorFormatter = new();
 
     private EFileReaderTool CreateTool(string workingDir = "/project")
     {
         _configProvider.Setup(c => c.GetValue("workingDir", It.IsAny<string>()))
                        .Returns(workingDir);
-        return new EFileReaderTool(_fileSystem.Object, _configProvider.Object, _colorFormatter.Object);
+        return new EFileReaderTool(_fileSystem.Object, _configProvider.Object);
     }
 
     // ── Name / Description / GetPolicy ──

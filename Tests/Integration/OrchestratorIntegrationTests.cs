@@ -42,19 +42,17 @@ public class OrchestratorIntegrationTests : IDisposable
         var mockProcessRunner = new Mock<IProcessRunner>();
         var mockFileSystem = new Mock<IFileSystem>();
         var mockConfig = new Mock<IConfigProvider>();
-        var mockColor = new Mock<IColorFormatter>();
         var mockLogger = new Mock<ILogger>();
 
         mockConfig.Setup(c => c.GetValue("workingDir", It.IsAny<string>())).Returns(_tempDir);
         mockConfig.Setup(c => c.GetValue(It.IsAny<string>(), It.IsAny<string>())).Returns<string, string>((_, _) => _tempDir);
-        SetupColorMock(mockColor);
 
         var engine = new MockEngine(_tempDir);
 
         // Register real tools with mocked dependencies
-        engine.RegisterTool(new EShellAgent(mockProcessRunner.Object, mockConfig.Object, mockColor.Object, _tempDir));
-        engine.RegisterTool(new ECodeEditorTool(mockFileSystem.Object, mockConfig.Object, mockColor.Object));
-        engine.RegisterTool(new EFileReaderTool(mockFileSystem.Object, mockConfig.Object, mockColor.Object));
+        engine.RegisterTool(new EShellAgent(mockProcessRunner.Object, mockConfig.Object, _tempDir));
+        engine.RegisterTool(new ECodeEditorTool(mockFileSystem.Object, mockConfig.Object));
+        engine.RegisterTool(new EFileReaderTool(mockFileSystem.Object, mockConfig.Object));
 
         var policy = new ECAssistant.Tools.ToolPolicy();
         var orchestrator = new AgentOrchestrator(engine, sessionOutput: new TestSessionOutput(_gui), maxTurns: maxTurns, maxFailures: 3, toolPolicy: policy, logger: mockLogger.Object);
@@ -249,20 +247,4 @@ public class OrchestratorIntegrationTests : IDisposable
     }
 
     // ── Helper ──
-
-    private static void SetupColorMock(Mock<IColorFormatter> color)
-    {
-        color.Setup(c => c.Format(It.IsAny<string>(), It.IsAny<string>())).Returns<string, string>((_, text) => text);
-        color.SetupGet(c => c.Red).Returns("");
-        color.SetupGet(c => c.Green).Returns("");
-        color.SetupGet(c => c.Blue).Returns("");
-        color.SetupGet(c => c.Yellow).Returns("");
-        color.SetupGet(c => c.Cyan).Returns("");
-        color.SetupGet(c => c.White).Returns("");
-        color.SetupGet(c => c.Reset).Returns("");
-        color.SetupGet(c => c.Bold).Returns("");
-        color.SetupGet(c => c.Dim).Returns("");
-        color.SetupGet(c => c.Black).Returns("");
-        color.SetupGet(c => c.Magenta).Returns("");
-    }
 }

@@ -12,16 +12,14 @@ public class EDotnetBuildTool : ITool
 {
     private readonly IProcessRunner _processRunner;
     private readonly IConfigProvider _configProvider;
-    private readonly IColorFormatter _colorFormatter;
 
     public string Name => "DotnetBuild";
     public string Description => "Run dotnet build, test, or restore commands.";
 
-    public EDotnetBuildTool(IProcessRunner processRunner, IConfigProvider configProvider, IColorFormatter colorFormatter)
+    public EDotnetBuildTool(IProcessRunner processRunner, IConfigProvider configProvider)
     {
         _processRunner = processRunner;
         _configProvider = configProvider;
-        _colorFormatter = colorFormatter;
     }
 
     public async Task<string> ExecuteAsync(string input, CancellationToken ct = default)

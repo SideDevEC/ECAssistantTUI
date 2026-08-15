@@ -337,6 +337,9 @@ public class AgentSession : ISessionOutput, IAsyncDisposable
     /// <summary>Write dim text.</summary>
     public void WriteDim(string text) => WriteLine(text, OutputState.Dim);
 
+    public void WriteTag(string tag, string message, OutputState state = OutputState.Info)
+        => WriteLine($"[{tag}] {message}", state);
+
     // ═══════════════════════════════════════════════════
     //  ISessionOutput — STREAM BUFFER ACCESS
     // ═══════════════════════════════════════════════════

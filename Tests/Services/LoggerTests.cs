@@ -37,7 +37,7 @@ public class LoggerTests : IDisposable
     public void Constructor_WithParams_InitializesLogger()
     {
         var gui = CreateMockGui();
-        var logger = new Logger(_tempLogPath, gui, LogLevel.Debug);
+        var logger = new Logger(_tempLogPath, LogLevel.Debug);
         Assert.Equal(Path.GetFullPath(_tempLogPath), logger.LogFilePath);
     }
 
@@ -46,7 +46,7 @@ public class LoggerTests : IDisposable
     {
         var logger = new Logger();
         var gui = CreateMockGui();
-        logger.Initialize(_tempLogPath, gui, LogLevel.Info);
+        logger.Initialize(_tempLogPath, LogLevel.Info);
         Assert.Equal(Path.GetFullPath(_tempLogPath), logger.LogFilePath);
     }
 
@@ -59,7 +59,7 @@ public class LoggerTests : IDisposable
         var gui = CreateMockGui();
         try
         {
-            logger.Initialize(logPath, gui, LogLevel.Info);
+            logger.Initialize(logPath, LogLevel.Info);
             Assert.True(Directory.Exists(dir));
         }
         finally
@@ -72,7 +72,7 @@ public class LoggerTests : IDisposable
     public void Info_AfterInitialize_WritesToFile()
     {
         var gui = CreateMockGui();
-        var logger = new Logger(_tempLogPath, gui, LogLevel.Debug);
+        var logger = new Logger(_tempLogPath, LogLevel.Debug);
         logger.Info("TestTag", "test info message");
         var content = File.ReadAllText(_tempLogPath);
         Assert.Contains("test info message", content);
@@ -84,7 +84,7 @@ public class LoggerTests : IDisposable
     public void Debug_WhenDebugEnabled_WritesToFile()
     {
         var gui = CreateMockGui();
-        var logger = new Logger(_tempLogPath, gui, LogLevel.Debug);
+        var logger = new Logger(_tempLogPath, LogLevel.Debug);
         logger.Debug("TestTag", "debug message");
         var content = File.ReadAllText(_tempLogPath);
         Assert.Contains("debug message", content);
@@ -95,7 +95,7 @@ public class LoggerTests : IDisposable
     public void Debug_WhenDebugDisabled_DoesNotWriteToFile()
     {
         var gui = CreateMockGui();
-        var logger = new Logger(_tempLogPath, gui, LogLevel.Info);
+        var logger = new Logger(_tempLogPath, LogLevel.Info);
         // Clear the initial banner
         File.WriteAllText(_tempLogPath, "");
         logger.Debug("TestTag", "should not appear");
@@ -107,7 +107,7 @@ public class LoggerTests : IDisposable
     public void Warn_AfterInitialize_WritesToFile()
     {
         var gui = CreateMockGui();
-        var logger = new Logger(_tempLogPath, gui, LogLevel.Info);
+        var logger = new Logger(_tempLogPath, LogLevel.Info);
         File.WriteAllText(_tempLogPath, "");
         logger.Warn("TestTag", "warning message");
         var content = File.ReadAllText(_tempLogPath);
@@ -119,7 +119,7 @@ public class LoggerTests : IDisposable
     public void Error_AfterInitialize_WritesToFile()
     {
         var gui = CreateMockGui();
-        var logger = new Logger(_tempLogPath, gui, LogLevel.Info);
+        var logger = new Logger(_tempLogPath, LogLevel.Info);
         File.WriteAllText(_tempLogPath, "");
         logger.Error("TestTag", "error message");
         var content = File.ReadAllText(_tempLogPath);
@@ -131,7 +131,7 @@ public class LoggerTests : IDisposable
     public void Error_WithException_LogsExceptionDetails()
     {
         var gui = CreateMockGui();
-        var logger = new Logger(_tempLogPath, gui, LogLevel.Info);
+        var logger = new Logger(_tempLogPath, LogLevel.Info);
         File.WriteAllText(_tempLogPath, "");
         var ex = new InvalidOperationException("something broke");
         logger.Error("TestTag", "operation failed", ex);
@@ -145,7 +145,7 @@ public class LoggerTests : IDisposable
     public void Error_WithInnerException_LogsInnerException()
     {
         var gui = CreateMockGui();
-        var logger = new Logger(_tempLogPath, gui, LogLevel.Info);
+        var logger = new Logger(_tempLogPath, LogLevel.Info);
         File.WriteAllText(_tempLogPath, "");
         var inner = new ArgumentException("inner problem");
         var ex = new InvalidOperationException("outer problem", inner);
@@ -159,7 +159,7 @@ public class LoggerTests : IDisposable
     public void SetLevel_ChangesMinimumLevel()
     {
         var gui = CreateMockGui();
-        var logger = new Logger(_tempLogPath, gui, LogLevel.Debug);
+        var logger = new Logger(_tempLogPath, LogLevel.Debug);
         Assert.True(logger.IsDebugEnabled);
         logger.SetLevel(LogLevel.Info);
         Assert.False(logger.IsDebugEnabled);
@@ -169,7 +169,7 @@ public class LoggerTests : IDisposable
     public void IsDebugEnabled_WhenLevelDebug_ReturnsTrue()
     {
         var gui = CreateMockGui();
-        var logger = new Logger(_tempLogPath, gui, LogLevel.Debug);
+        var logger = new Logger(_tempLogPath, LogLevel.Debug);
         Assert.True(logger.IsDebugEnabled);
     }
 
@@ -177,7 +177,7 @@ public class LoggerTests : IDisposable
     public void IsDebugEnabled_WhenLevelInfo_ReturnsFalse()
     {
         var gui = CreateMockGui();
-        var logger = new Logger(_tempLogPath, gui, LogLevel.Info);
+        var logger = new Logger(_tempLogPath, LogLevel.Info);
         Assert.False(logger.IsDebugEnabled);
     }
 
@@ -185,7 +185,7 @@ public class LoggerTests : IDisposable
     public void GetRecentLines_ExistingLogFile_ReturnsRecentLines()
     {
         var gui = CreateMockGui();
-        var logger = new Logger(_tempLogPath, gui, LogLevel.Info);
+        var logger = new Logger(_tempLogPath, LogLevel.Info);
         File.WriteAllText(_tempLogPath, "line1\nline2\nline3\nline4\nline5\n");
         var recent = logger.GetRecentLines(3);
         Assert.Contains("line3", recent);
@@ -206,7 +206,7 @@ public class LoggerTests : IDisposable
     public void GetRecentLines_DefaultCount_ReturnsUpTo50Lines()
     {
         var gui = CreateMockGui();
-        var logger = new Logger(_tempLogPath, gui, LogLevel.Info);
+        var logger = new Logger(_tempLogPath, LogLevel.Info);
         var lines = Enumerable.Range(1, 60).Select(i => $"line{i}").ToArray();
         File.WriteAllText(_tempLogPath, string.Join("\n", lines) + "\n");
         var recent = logger.GetRecentLines();
@@ -218,7 +218,7 @@ public class LoggerTests : IDisposable
     public void LogFileSize_ExistingLogFile_ReturnsFileSize()
     {
         var gui = CreateMockGui();
-        var logger = new Logger(_tempLogPath, gui, LogLevel.Info);
+        var logger = new Logger(_tempLogPath, LogLevel.Info);
         logger.Info("Test", "some content");
         Assert.True(logger.LogFileSize > 0);
     }

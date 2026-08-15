@@ -12,12 +12,10 @@ namespace ECAssistant.Config;
 public class ConfigLoader
 {
     private readonly IFileSystem _fileSystem;
-    private readonly IColorFormatter? _color;
 
-    public ConfigLoader(IFileSystem fileSystem, IColorFormatter? color = null)
+    public ConfigLoader(IFileSystem fileSystem)
     {
         _fileSystem = fileSystem ?? throw new ArgumentNullException(nameof(fileSystem));
-        _color = color;
     }
 
     public EAgentConfig Load(string filePath = "appsettings.json")

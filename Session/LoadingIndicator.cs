@@ -1,62 +1,41 @@
 using ECAssistant.UI;
-using ECAssistant.Interfaces;
 
 namespace ECAssistant.Session;
 
 /// <summary>
-/// Animated loading indicator that shows . .. ... in a loop at the prompt position.
-/// Runs on a background timer (500ms interval). Input is disabled while running.
-/// 
-/// Usage:
-///   var indicator = new LoadingIndicator(Gui, color);
-///   indicator.Start("Initializing session 'main'");
-///   ... do async work ...
-///   indicator.Stop();  // clears the line, ready for prompt
+/// Animated loading indicator — part of the UI layer, uses EColor directly.
 /// </summary>
 public class LoadingIndicator : IDisposable
 {
     private readonly EGuiBase _gui;
-    private readonly IColorFormatter _color;
+    private readonly EColor _color;
     private Timer? _timer;
     private int _dotCount = 0;
     private string _label = "";
     private bool _running;
 
-    public LoadingIndicator(EGuiBase gui, IColorFormatter color)
+    public LoadingIndicator(EGuiBase gui, EColor color)
     {
         _gui = gui;
         _color = color;
     }
 
-    /// <summary>Start the animated indicator with a label.</summary>
     public void Start(string label)
     {
         _label = label;
         _running = true;
         _dotCount = 0;
-
-        // Print initial line
         RenderFrame();
-
-        // Start timer — 500ms interval
         _timer = new Timer(OnTick, null, 500, 500);
     }
 
-    /// <summary>Update the label (e.g. "Initializing session 'watcher'...").</summary>
-    public void UpdateLabel(string label)
-    {
-        _label = label;
-        // Force re-render on next tick
-    }
+    public void UpdateLabel(string label) => _label = label;
 
-    /// <summary>Stop the indicator and clear the line.</summary>
     public void Stop()
     {
         _running = false;
         _timer?.Dispose();
         _timer = null;
-
-        // Clear the current line: \r + spaces + \r
         _gui.WriteRawDirect("\r" + new string(' ', Console.WindowWidth > 0 ? Console.WindowWidth - 1 : 80) + "\r");
     }
 
@@ -68,16 +47,11 @@ public class LoadingIndicator : IDisposable
 
     private void RenderFrame()
     {
-        _dotCount = (_dotCount + 1) % 4; // 0, 1, 2, 3
+        _dotCount = (_dotCount + 1) % 4;
         var dots = new string('.', _dotCount);
-
-        // \r to return to start of line, then overwrite
         var line = $"\r{_color.Cyan}{_label}{_color.Reset} {_color.Dim}{dots}  {_color.Reset}";
         _gui.WriteRawDirect(line);
     }
 
-    public void Dispose()
-    {
-        Stop();
-    }
+    public void Dispose() => Stop();
 }

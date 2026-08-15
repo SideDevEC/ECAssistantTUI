@@ -37,12 +37,11 @@ public class ToolPipelineIntegrationTests : IDisposable
     }
 
     /// <summary>Setup mock dependencies with common defaults.</summary>
-    private (MockEngine engine, AgentOrchestrator orchestrator, Mock<IProcessRunner> procRunner, Mock<IFileSystem> fileSystem, Mock<IConfigProvider> config, Mock<IColorFormatter> color) CreatePipeline(int maxTurns = 10)
+    private (MockEngine engine, AgentOrchestrator orchestrator, Mock<IProcessRunner> procRunner, Mock<IFileSystem> fileSystem, Mock<IConfigProvider> config) CreatePipeline(int maxTurns = 10)
     {
         var procRunner = new Mock<IProcessRunner>();
         var fileSystem = new Mock<IFileSystem>();
         var config = new Mock<IConfigProvider>();
-        var color = new Mock<IColorFormatter>();
         var logger = new Mock<ILogger>();
 
         config.Setup(c => c.GetValue("workingDir", It.IsAny<string>())).Returns(_tempDir);
@@ -50,7 +49,6 @@ public class ToolPipelineIntegrationTests : IDisposable
         config.Setup(c => c.GetInt(It.IsAny<string>(), It.IsAny<int>())).Returns(0);
         config.Setup(c => c.GetBool(It.IsAny<string>(), It.IsAny<bool>())).Returns(false);
 
-        SetupColorMock(color);
 
         var engine = new MockEngine(_tempDir);
 
@@ -58,7 +56,7 @@ public class ToolPipelineIntegrationTests : IDisposable
         var policy = new ECAssistant.Tools.ToolPolicy();
         var orchestrator = new AgentOrchestrator(engine, sessionOutput: sessionOutput, maxTurns: maxTurns, maxFailures: 3, toolPolicy: policy, logger: logger.Object);
 
-        return (engine, orchestrator, procRunner, fileSystem, config, color);
+        return (engine, orchestrator, procRunner, fileSystem, config);
     }
 
     // ── EShellAgent with mocked IProcessRunner ──
@@ -66,8 +64,8 @@ public class ToolPipelineIntegrationTests : IDisposable
     [Fact]
     public async Task EShellAgent_ThroughOrchestrator_ProcessRunnerCalledWithCorrectCommand()
     {
-        var (engine, orchestrator, procRunner, fileSystem, config, color) = CreatePipeline();
-        engine.RegisterTool(new EShellAgent(procRunner.Object, config.Object, color.Object, _tempDir));
+        var (engine, orchestrator, procRunner, fileSystem, config) = CreatePipeline();
+        engine.RegisterTool(new EShellAgent(procRunner.Object, config.Object, _tempDir));
 
         engine.AddResponse("<lm><thinking>Run echo</thinking><toolcall>EShellAgent<command>echo pipeline-test</command></toolcall></lm>");
         engine.AddResponse("<lm><thinking>Done</thinking><output>Command executed</output></lm>");
@@ -91,8 +89,8 @@ public class ToolPipelineIntegrationTests : IDisposable
     [Fact]
     public async Task EFileReader_ThroughOrchestrator_ToolDispatchedAndResultReturned()
     {
-        var (engine, orchestrator, procRunner, fileSystem, config, color) = CreatePipeline();
-        engine.RegisterTool(new EFileReaderTool(fileSystem.Object, config.Object, color.Object));
+        var (engine, orchestrator, procRunner, fileSystem, config) = CreatePipeline();
+        engine.RegisterTool(new EFileReaderTool(fileSystem.Object, config.Object));
 
         engine.AddResponse($"<lm><thinking>Read file</thinking><toolcall>EFileReader<file>test.txt</file></toolcall></lm>");
         engine.AddResponse("<lm><thinking>Got content</thinking><output>File content retrieved</output></lm>");
@@ -114,8 +112,8 @@ public class ToolPipelineIntegrationTests : IDisposable
     [Fact]
     public async Task ECodeEditor_Create_ThroughOrchestrator_ToolDispatched()
     {
-        var (engine, orchestrator, procRunner, fileSystem, config, color) = CreatePipeline();
-        engine.RegisterTool(new ECodeEditorTool(fileSystem.Object, config.Object, color.Object));
+        var (engine, orchestrator, procRunner, fileSystem, config) = CreatePipeline();
+        engine.RegisterTool(new ECodeEditorTool(fileSystem.Object, config.Object));
 
         engine.AddResponse(
             "<lm><thinking>Create a file</thinking>" +
@@ -136,8 +134,8 @@ public class ToolPipelineIntegrationTests : IDisposable
     [Fact]
     public async Task ECodeEditor_Patch_ThroughOrchestrator_ToolDispatched()
     {
-        var (engine, orchestrator, procRunner, fileSystem, config, color) = CreatePipeline();
-        engine.RegisterTool(new ECodeEditorTool(fileSystem.Object, config.Object, color.Object));
+        var (engine, orchestrator, procRunner, fileSystem, config) = CreatePipeline();
+        engine.RegisterTool(new ECodeEditorTool(fileSystem.Object, config.Object));
 
         engine.AddResponse(
             "<lm><thinking>Patch the file</thinking>" +
@@ -158,7 +156,7 @@ public class ToolPipelineIntegrationTests : IDisposable
     [Fact]
     public async Task ToolAdapter_WrappingITool_ThroughOrchestrator_IToolExecuteAsyncCalled()
     {
-        var (engine, orchestrator, _, _, _, _) = CreatePipeline();
+        var (engine, orchestrator, _, _, _) = CreatePipeline();
 
         // Create a mock ITool
         var mockTool = new Mock<Interfaces.ITool>();
@@ -186,8 +184,8 @@ public class ToolPipelineIntegrationTests : IDisposable
     [Fact]
     public async Task ToolPolicy_BlockedTool_ToolNotExecuted()
     {
-        var (engine, orchestrator, procRunner, fileSystem, config, color) = CreatePipeline();
-        engine.RegisterTool(new EShellAgent(procRunner.Object, config.Object, color.Object, _tempDir));
+        var (engine, orchestrator, procRunner, fileSystem, config) = CreatePipeline();
+        engine.RegisterTool(new EShellAgent(procRunner.Object, config.Object, _tempDir));
 
         // Block EShellAgent
         orchestrator.Policy.SetPermission("EShellAgent", ToolPermissionLevel.Blocked, "Blocked for test");
@@ -213,8 +211,8 @@ public class ToolPipelineIntegrationTests : IDisposable
     [Fact]
     public async Task ToolPolicy_ApprovalRequired_UserApproves_ToolExecutes()
     {
-        var (engine, orchestrator, procRunner, fileSystem, config, color) = CreatePipeline();
-        engine.RegisterTool(new EShellAgent(procRunner.Object, config.Object, color.Object, _tempDir));
+        var (engine, orchestrator, procRunner, fileSystem, config) = CreatePipeline();
+        engine.RegisterTool(new EShellAgent(procRunner.Object, config.Object, _tempDir));
 
         orchestrator.Policy.SetPermission("EShellAgent", ToolPermissionLevel.ApprovalRequired, "Needs approval");
 
@@ -237,8 +235,8 @@ public class ToolPipelineIntegrationTests : IDisposable
     [Fact]
     public async Task ToolPolicy_ApprovalRequired_UserDenies_ToolNotExecuted()
     {
-        var (engine, orchestrator, procRunner, fileSystem, config, color) = CreatePipeline();
-        engine.RegisterTool(new EShellAgent(procRunner.Object, config.Object, color.Object, _tempDir));
+        var (engine, orchestrator, procRunner, fileSystem, config) = CreatePipeline();
+        engine.RegisterTool(new EShellAgent(procRunner.Object, config.Object, _tempDir));
 
         orchestrator.Policy.SetPermission("EShellAgent", ToolPermissionLevel.ApprovalRequired, "Needs approval");
 
@@ -263,8 +261,8 @@ public class ToolPipelineIntegrationTests : IDisposable
     [Fact]
     public async Task EShellAgent_ThroughOrchestrator_CreatesRealFile_Verified()
     {
-        var (engine, orchestrator, procRunner, fileSystem, config, color) = CreatePipeline();
-        engine.RegisterTool(new EShellAgent(procRunner.Object, config.Object, color.Object, _tempDir));
+        var (engine, orchestrator, procRunner, fileSystem, config) = CreatePipeline();
+        engine.RegisterTool(new EShellAgent(procRunner.Object, config.Object, _tempDir));
 
         engine.AddResponse("<lm><thinking>Create a file</thinking><toolcall>EShellAgent<command>echo test-content > created.txt</command></toolcall></lm>");
         engine.AddResponse("<lm><thinking>File created</thinking><output>File created</output></lm>");
@@ -286,20 +284,4 @@ public class ToolPipelineIntegrationTests : IDisposable
     }
 
     // ── Helper ──
-
-    private static void SetupColorMock(Mock<IColorFormatter> color)
-    {
-        color.Setup(c => c.Format(It.IsAny<string>(), It.IsAny<string>())).Returns<string, string>((_, text) => text);
-        color.SetupGet(c => c.Red).Returns("");
-        color.SetupGet(c => c.Green).Returns("");
-        color.SetupGet(c => c.Blue).Returns("");
-        color.SetupGet(c => c.Yellow).Returns("");
-        color.SetupGet(c => c.Cyan).Returns("");
-        color.SetupGet(c => c.White).Returns("");
-        color.SetupGet(c => c.Reset).Returns("");
-        color.SetupGet(c => c.Bold).Returns("");
-        color.SetupGet(c => c.Dim).Returns("");
-        color.SetupGet(c => c.Black).Returns("");
-        color.SetupGet(c => c.Magenta).Returns("");
-    }
 }

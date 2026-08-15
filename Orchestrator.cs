@@ -3,7 +3,6 @@ using System.Text.RegularExpressions;
 using ECAssistant.Engine;
 using ECAssistant.Tools;
 using ECAssistant.Services;
-using ECAssistant.UI;
 using ECAssistant.Session;
 using ECAssistant.Interfaces;
 
@@ -229,7 +228,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                  };
              }
 
-             _out?.WriteDim($"[Orchestrator] Response ({llmResponse.Length} chars): {EGuiBase.Truncate(llmResponse, 200)}");
+             _out?.WriteDim($"[Orchestrator] Response ({llmResponse.Length} chars): {StringUtil.Truncate(llmResponse, 200)}");
 
                   // Step 2: Parse the clean LLM output — detect which block type was returned
               var decision = ParseLLMDecision(llmResponse);
@@ -265,7 +264,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
 
                      // Combine all results into one output block for the LLM
                     var combinedOutput = ParallelToolExecutor.CombineResults(batchResult);
-                    _out?.WriteLine($"[Orchestrator] Batch output:\n{EGuiBase.Truncate(combinedOutput, 2000)}");
+                    _out?.WriteLine($"[Orchestrator] Batch output:\n{StringUtil.Truncate(combinedOutput, 2000)}");
 
                      // v10.13.1: Log one summary entry per batch (not per tool) for accurate streak detection
                     var okCount = batchResult.Results.Count(r => r.Succeeded);
@@ -279,7 +278,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                     foreach (var r in batchResult.Results)
                      {
                         var stepCmd = r.ToolCall.Args.GetValueOrDefault("command") ?? r.ToolCall.Args.GetValueOrDefault("action") ?? "";
-                        var stepDesc = $"{r.ToolCall.ToolName}: {EGuiBase.Truncate(stepCmd, 80)}";
+                        var stepDesc = $"{r.ToolCall.ToolName}: {StringUtil.Truncate(stepCmd, 80)}";
                          _completedSteps.Add(stepDesc);
                      }
 
@@ -391,10 +390,10 @@ public sealed class AgentOrchestrator : IAsyncDisposable
 
                         if (result.Succeeded)
                                  {
-                                _out?.WriteLine($"[Orchestrator] Output:\n{(result.Output != null ? EGuiBase.Truncate(result.Output, 2000) : "(no output)")}");
+                                _out?.WriteLine($"[Orchestrator] Output:\n{(result.Output != null ? StringUtil.Truncate(result.Output, 2000) : "(no output)")}");
 
                                      // Log for LLM context
-                                    var logEntry = $"Tool:{decision.ToolName} \u2192 OK\nOutput: {(result.Output != null ? EGuiBase.Truncate(result.Output, 1000) : "(no output)")}";
+                                    var logEntry = $"Tool:{decision.ToolName} \u2192 OK\nOutput: {(result.Output != null ? StringUtil.Truncate(result.Output, 1000) : "(no output)")}";
                                         _toolCallLog.Add(logEntry);
 
                                      // Add tool result to conversation history
@@ -402,7 +401,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
 
                                      // Track completed step
                                     var stepCmd = argsDict.GetValueOrDefault("command") ?? "";
-                                    var stepDesc = $"{decision.ToolName}: {EGuiBase.Truncate(stepCmd, 80)}";
+                                    var stepDesc = $"{decision.ToolName}: {StringUtil.Truncate(stepCmd, 80)}";
                                      _completedSteps.Add(stepDesc);
 
                                      // v10.17: Sub-task advancement based on execution plan.
@@ -624,7 +623,7 @@ public sealed class AgentOrchestrator : IAsyncDisposable
                 {
                 var key = m.Groups[1].Value;
                 var value = m.Groups[2].Value;
-                _logger?.Debug("Parse", $"Arg: {key} = {EGuiBase.Truncate(value, 100)}");
+                _logger?.Debug("Parse", $"Arg: {key} = {StringUtil.Truncate(value, 100)}");
                 if (!string.IsNullOrEmpty(key)) args[key] = value;
                 }
 

@@ -8,7 +8,6 @@ public class EFileResearchToolTests : IDisposable
     private readonly string _tempDir;
     private readonly Mock<IFileSystem> _fileSystem = new();
     private readonly Mock<IConfigProvider> _configProvider = new();
-    private readonly Mock<IColorFormatter> _colorFormatter = new();
 
     public EFileResearchToolTests()
     {
@@ -29,7 +28,7 @@ public class EFileResearchToolTests : IDisposable
                        .Returns(".cs,.txt,.md");
         _configProvider.Setup(c => c.GetInt("maxCharsPerFile", It.IsAny<int>()))
                        .Returns(10000);
-        return new EFileResearchTool(_fileSystem.Object, _configProvider.Object, _colorFormatter.Object);
+        return new EFileResearchTool(_fileSystem.Object, _configProvider.Object);
     }
 
     // ── Name / Description / GetPolicy ──

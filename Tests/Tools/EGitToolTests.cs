@@ -8,13 +8,12 @@ public class EGitToolTests
     private readonly Mock<IProcessRunner> _processRunner = new();
     private readonly Mock<IFileSystem> _fileSystem = new();
     private readonly Mock<IConfigProvider> _configProvider = new();
-    private readonly Mock<IColorFormatter> _colorFormatter = new();
 
     private EGitTool CreateTool(string workingDir = "/repo")
     {
         _configProvider.Setup(c => c.GetValue("git.workingDir", It.IsAny<string>()))
                        .Returns(workingDir);
-        return new EGitTool(_processRunner.Object, _fileSystem.Object, _configProvider.Object, _colorFormatter.Object);
+        return new EGitTool(_processRunner.Object, _fileSystem.Object, _configProvider.Object);
     }
 
     private ProcessResult SuccessResult(string stdout = "") =>

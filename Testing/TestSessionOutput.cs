@@ -60,6 +60,9 @@ public class TestSessionOutput : ISessionOutput
     public void WriteError(string text) => WriteLine(text, OutputState.Error);
     public void WriteDim(string text) => WriteLine(text, OutputState.Dim);
 
+    public void WriteTag(string tag, string message, OutputState state = OutputState.Info)
+        => WriteLine($"[{tag}] {message}", state);
+
     // ── Stream buffer access ──
 
     public string GetStreamBuffer()

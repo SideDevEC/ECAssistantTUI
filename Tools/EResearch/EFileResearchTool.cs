@@ -12,15 +12,13 @@ namespace ECAssistant.Tools.Research;
 public class EFileResearchTool : ITool
 {
     private readonly IFileSystem _fileSystem;
-    private readonly IColorFormatter _color;
     private readonly string _searchRoot;
     private readonly HashSet<string> _defaultExtensions;
     private readonly int _maxCharsPerFile;
 
-    public EFileResearchTool(IFileSystem fileSystem, IConfigProvider configProvider, IColorFormatter color)
+    public EFileResearchTool(IFileSystem fileSystem, IConfigProvider configProvider)
     {
         _fileSystem = fileSystem;
-        _color = color;
         _searchRoot = Path.GetFullPath(configProvider.GetValue("searchRoot", Directory.GetCurrentDirectory()));
         _defaultExtensions = new HashSet<string>(
             configProvider.GetValue("researchExtensions", ".cs,.md,.json,.xml,.yml,.yaml,.txt,.sh,.ps1,.py,.js,.ts").Split(','),

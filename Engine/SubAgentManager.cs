@@ -1,11 +1,11 @@
 using System.Text;
+using ECAssistant.Session;
 using System.Collections.Concurrent;
 using LLama;
 using LLama.Common;
 using LLama.Sampling;
 using ECAssistant.Config;
 using ECAssistant.Tools;
-using ECAssistant.UI;
 using ECAssistant.Orchestration;
 using ECAssistant.Services;
 using ECAssistant.Interfaces;
@@ -29,7 +29,7 @@ public sealed class SubAgentManager : IDisposable
     private readonly object _lock = new();
     // v10.19.2: Main working dir — sub-agent temp dirs created inside it
     private readonly string _mainWorkingDir;
-    private readonly IColorFormatter _color;
+    private readonly ISessionOutput? _out;
     private readonly ILogger _logger;
 
     /// <summary>Maximum concurrent sub-agents.</summary>
@@ -53,12 +53,12 @@ public sealed class SubAgentManager : IDisposable
     /// <summary>All currently active sub-agent handles (for monitoring/cancellation).</summary>
     public IReadOnlyDictionary<string, ActiveSubAgent> ActiveAgents => _activeSubAgents;
 
-    public SubAgentManager(EAgentEngine mainEngine, string mainWorkingDir = "", ILogger? logger = null, IColorFormatter? color = null)
+    public SubAgentManager(EAgentEngine mainEngine, string mainWorkingDir = "", ILogger? logger = null, ISessionOutput? sessionOutput = null)
     {
         _mainEngine = mainEngine;
         _mainWorkingDir = mainWorkingDir;
         _logger = logger ?? new Logger();
-        _color = color ?? new EColor();
+        _out = sessionOutput;
 
         var configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "appsettings.json");
         _config = File.Exists(configPath) ? new Config.ConfigLoader(new Services.FileSystemAdapter()).Load(configPath) : new EAgentConfig();
@@ -105,7 +105,7 @@ public sealed class SubAgentManager : IDisposable
             if (result.Succeeded)
             {
                 if (attempt > 0)
-                    _color.TagBold(_color.Green, "SubAgent", $"Succeeded on retry #{attempt}");
+                    _out?.WriteTag("SubAgent", $"Succeeded on retry #{attempt}", OutputState.Success);
                 return result;
             }
 
@@ -127,8 +127,8 @@ public sealed class SubAgentManager : IDisposable
 
                 if (!shouldRetry) break;
 
-                _color.TagBold(_color.Yellow, "SubAgent",
-                    $"Retry {attempt + 1}/{currentTask.MaxRetries} after {result.Error?.Kind} — waiting {currentTask.RetryDelayMs}ms...");
+                _out?.WriteTag("SubAgent",
+                    $"Retry {attempt + 1}/{currentTask.MaxRetries} after {result.Error?.Kind} — waiting {currentTask.RetryDelayMs}ms...", OutputState.Warning);
 
                 await Task.Delay(currentTask.RetryDelayMs);
 
@@ -174,8 +174,8 @@ public sealed class SubAgentManager : IDisposable
         if (tasks.Count == 0) return new();
 
         var concurrent = Math.Min(tasks.Count, MaxConcurrent);
-        _color.TagBold(_color.Cyan, "SubAgent",
-            $"Spawning {tasks.Count} sub-agent(s) ({concurrent} concurrent)");
+        _out?.WriteTag("SubAgent",
+            $"Spawning {tasks.Count} sub-agent(s) ({concurrent} concurrent)", OutputState.Info);
 
         using var semaphore = new SemaphoreSlim(concurrent);
         var tasksWithSem = tasks.Select(async task =>
@@ -189,8 +189,8 @@ public sealed class SubAgentManager : IDisposable
 
         var succeeded = results.Count(r => r.Succeeded);
         var failed = results.Count(r => !r.Succeeded);
-        _color.TagBold(_color.Cyan, "SubAgent",
-            $"All {results.Count} sub-agents done: {succeeded} succeeded, {failed} failed");
+        _out?.WriteTag("SubAgent",
+            $"All {results.Count} sub-agents done: {succeeded} succeeded, {failed} failed", OutputState.Info);
 
         return results;
     }
@@ -200,7 +200,7 @@ public sealed class SubAgentManager : IDisposable
     {
         if (_activeSubAgents.TryGetValue(subAgentId, out var agent))
         {
-            _color.TagBold(_color.Yellow, "SubAgent", $"Cancelling {subAgentId}: {agent.Description}");
+            _out?.WriteTag("SubAgent", $"Cancelling {subAgentId}: {agent.Description}", OutputState.Warning);
             agent.Cts.Cancel();
             agent.Engine?.StopExecution();
         }
@@ -212,7 +212,7 @@ public sealed class SubAgentManager : IDisposable
         var count = _activeSubAgents.Count;
         if (count == 0) return;
 
-        _color.TagBold(_color.Yellow, "SubAgent", $"Cancelling all {count} active sub-agent(s)...");
+        _out?.WriteTag("SubAgent", $"Cancelling all {count} active sub-agent(s)...", OutputState.Warning);
 
         foreach (var agent in _activeSubAgents.Values)
         {
@@ -224,7 +224,7 @@ public sealed class SubAgentManager : IDisposable
             catch { }
         }
 
-        _color.TagBold(_color.Yellow, "SubAgent", $"Cancelled {count} sub-agent(s).");
+        _out?.WriteTag("SubAgent", $"Cancelled {count} sub-agent(s).", OutputState.Warning);
     }
 
     /// <summary>v10.18.1: Get status of all active sub-agents.</summary>
@@ -250,8 +250,7 @@ public sealed class SubAgentManager : IDisposable
 
         try
         {
-            _color.TagBold(_color.Cyan, "SubAgent",
-                $"Starting{(retryAttempt > 0 ? $" (retry #{retryAttempt})" : "")}: {task.Description}");
+            _out?.WriteTag("SubAgent", $"Starting{(retryAttempt > 0 ? $" (retry #{retryAttempt})" : "")}: {task.Description}", OutputState.Info);
 
             // v10.19.2: Sub-agent temp dirs inside main working dir, not OS temp
             var workingDir = string.IsNullOrEmpty(task.WorkingDir)
@@ -286,19 +285,18 @@ public sealed class SubAgentManager : IDisposable
             var fileSystem = new Services.FileSystemAdapter();
             var configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "ECAssistant", "appsettings.json");
             var configProvider = new Services.ConfigProvider(fileSystem, configPath);
-            var colorFormatter = new Services.ColorFormatter();
             var httpClient = new Services.HttpClientAdapter();
 
-            childEngine.RegisterTool(new Tools.Shell.EShellAgent(processRunner, configProvider, colorFormatter, workingDir));
-            childEngine.RegisterTool(new Tools.Background.EBackgroundExecTool(bgMgr, processRunner, fileSystem, configProvider, colorFormatter));
-            childEngine.RegisterTool(new Tools.Web.EWebSearchTool(httpClient, configProvider, colorFormatter));
-            childEngine.RegisterTool(new Tools.Build.EDotnetBuildTool(processRunner, configProvider, colorFormatter));
-            childEngine.RegisterTool(new Tools.Git.EGitTool(processRunner, fileSystem, configProvider, colorFormatter));
-            childEngine.RegisterTool(new Tools.Code.ECodeEditorTool(fileSystem, configProvider, colorFormatter));
+            childEngine.RegisterTool(new Tools.Shell.EShellAgent(processRunner, configProvider, workingDir));
+            childEngine.RegisterTool(new Tools.Background.EBackgroundExecTool(bgMgr, processRunner, fileSystem, configProvider));
+            childEngine.RegisterTool(new Tools.Web.EWebSearchTool(httpClient, configProvider));
+            childEngine.RegisterTool(new Tools.Build.EDotnetBuildTool(processRunner, configProvider));
+            childEngine.RegisterTool(new Tools.Git.EGitTool(processRunner, fileSystem, configProvider));
+            childEngine.RegisterTool(new Tools.Code.ECodeEditorTool(fileSystem, configProvider));
 
             var researchExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
                 { ".cs", ".md", ".json", ".txt", ".xml", ".sql", ".html", ".css", ".js", ".sh" };
-            childEngine.RegisterTool(new Tools.Research.EFileResearchTool(fileSystem, configProvider, colorFormatter));
+            childEngine.RegisterTool(new Tools.Research.EFileResearchTool(fileSystem, configProvider));
 
             await childEngine.PrefillStaticPrefix();
 
@@ -398,7 +396,7 @@ public sealed class SubAgentManager : IDisposable
             result.Duration = sw.Elapsed;
 
             var icon = result.Succeeded ? "✅" : "❌";
-            _color.TagBold(result.Succeeded ? _color.Green : _color.Red, "SubAgent",
+            _out?.WriteTag("SubAgent",
                 $"{icon} Completed: {task.Description} ({sw.Elapsed.TotalSeconds:F1}s, {result.ToolCallsMade} tool calls)" +
                 (filesCreated.Count > 0 ? $" | Files: {string.Join(", ", result.FilesCreated)}" : ""));
 

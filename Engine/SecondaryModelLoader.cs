@@ -1,8 +1,8 @@
 using LLama;
+using ECAssistant.Interfaces;
 using LLama.Common;
 using LLama.Sampling;
 using ECAssistant.Services;
-using ECAssistant.Interfaces;
 
 namespace ECAssistant.Engine;
 
@@ -29,25 +29,23 @@ public class SecondaryModelLoader : IDisposable
     private string[] _antiPrompts = new[] { "User:", "Question:" };
     private bool _loaded = false;
     private readonly ILogger _logger;
-    private readonly IColorFormatter _color;
-
+    
     public string ModelPath { get; private set; } = "";
     public uint ContextSize { get; private set; } = 4096;
     public bool IsLoaded => _loaded;
 
-    private SecondaryModelLoader(ILogger? logger = null, IColorFormatter? color = null)
+    private SecondaryModelLoader(ILogger? logger = null)
     {
         _logger = logger ?? new Logger();
-        _color = color ?? new EColor();
     }
 
     /// <summary>Load a secondary model from disk.</summary>
    // Stateless factory — immutable data class
     public static SecondaryModelLoader? Load(string modelPath, uint contextSize = 4096, int gpuLayers = 0,
         float temperature = 0.1f, float topP = 0.8f, int topK = 40, float repeatPenalty = 1.1f, int maxTokens = 512,
-        string[]? antiPrompts = null, ILogger? logger = null, IColorFormatter? color = null)
+        string[]? antiPrompts = null, ILogger? logger = null)
     {
-        var loader = new SecondaryModelLoader(logger, color);
+        var loader = new SecondaryModelLoader(logger);
 
         if (!File.Exists(modelPath))
         {
@@ -176,7 +174,6 @@ User: " + userRequest + "\n";
         
         // v10.7.5: Log raw decomposition output for debugging
         _logger.Info("SecondaryModel", $"Raw decomposition output:\n{result}");
-        _color.WriteLine(_color.Dim, $"[Secondary] Raw decomposition:\n{result}");
 
         if (string.IsNullOrWhiteSpace(result))
             return null;
@@ -214,9 +211,8 @@ User: " + userRequest + "\n";
         }
 
         _logger.Info("SecondaryModel", $"Decomposed into {steps.Count} steps: {string.Join(" | ", steps.Select(s => s.Substring(0, Math.Min(s.Length, 50))))}");
-        _color.TagBold(_color.Green, "Secondary", $"Decomposed into {steps.Count} steps:");
-        for (int i = 0; i < steps.Count; i++)
-            _color.WriteLine(_color.Dim, $"  {i+1}. {steps[i]}");
+        
+
         return steps;
     }
 

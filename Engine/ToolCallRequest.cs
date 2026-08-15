@@ -1,4 +1,4 @@
-using ECAssistant.UI;
+using ECAssistant;
 
 namespace ECAssistant.Engine;
 
@@ -11,5 +11,5 @@ public class ToolCallRequest
     public Dictionary<string, string?> Args { get; set; } = new();
     public int Index { get; set; }
 
-    public override string ToString() => $"[{Index}] {ToolName}({string.Join(", ", Args.Select(kvp => $"{kvp.Key}={EGuiBase.Truncate(kvp.Value ?? "", 40)}"))})";
+    public override string ToString() => $"[{Index}] {ToolName}({string.Join(", ", Args.Select(kvp => $"{kvp.Key}={StringUtil.Truncate(kvp.Value ?? "", 40)}"))})";
 }

@@ -19,16 +19,14 @@ public class EGitTool : ITool
     private readonly IProcessRunner _processRunner;
     private readonly IFileSystem _fileSystem;
     private readonly IConfigProvider _configProvider;
-    private readonly IColorFormatter _colorFormatter;
 
     private string WorkingDir => _configProvider.GetValue("git.workingDir", Environment.CurrentDirectory);
 
-    public EGitTool(IProcessRunner processRunner, IFileSystem fileSystem, IConfigProvider configProvider, IColorFormatter colorFormatter)
+    public EGitTool(IProcessRunner processRunner, IFileSystem fileSystem, IConfigProvider configProvider)
     {
         _processRunner = processRunner;
         _fileSystem = fileSystem;
         _configProvider = configProvider;
-        _colorFormatter = colorFormatter;
     }
 
     public string Name => "EGitTool";

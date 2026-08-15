@@ -43,7 +43,7 @@ public class ToolAdapterRoundTripTests
     public async Task EShellAgent_AdapterRoundTrip_CommandExtractedCorrectly()
     {
         var runner = MockProcessRunner("Sat Aug 15 10:00:00 CEST 2026");
-        var tool = new EShellAgent(runner.Object, MockConfig().Object, new Mock<IColorFormatter>().Object, TempDir);
+        var tool = new EShellAgent(runner.Object, MockConfig().Object, TempDir);
         var adapter = new ToolAdapter(tool);
 
         var args = new Dictionary<string, string?> { ["command"] = "date" };
@@ -60,7 +60,7 @@ public class ToolAdapterRoundTripTests
     public async Task EShellAgent_AdapterRoundTrip_ComplexCommand()
     {
         var runner = MockProcessRunner("hello");
-        var tool = new EShellAgent(runner.Object, MockConfig().Object, new Mock<IColorFormatter>().Object, TempDir);
+        var tool = new EShellAgent(runner.Object, MockConfig().Object, TempDir);
         var adapter = new ToolAdapter(tool);
 
         var args = new Dictionary<string, string?> { ["command"] = "echo hello" };
@@ -77,7 +77,7 @@ public class ToolAdapterRoundTripTests
     public async Task EDotnetBuildTool_AdapterRoundTrip_ActionExtractedCorrectly()
     {
         var runner = MockProcessRunner("Build succeeded.", 0);
-        var tool = new EDotnetBuildTool(runner.Object, MockConfig().Object, new Mock<IColorFormatter>().Object);
+        var tool = new EDotnetBuildTool(runner.Object, MockConfig().Object);
         var adapter = new ToolAdapter(tool);
 
         var args = new Dictionary<string, string?> { ["action"] = "build", ["projectPath"] = "MyApp.csproj" };
@@ -97,7 +97,7 @@ public class ToolAdapterRoundTripTests
         fs.Setup(f => f.FileExists(It.IsAny<string>())).Returns(true);
         fs.Setup(f => f.ReadFile(It.IsAny<string>())).Returns("file content");
 
-        var tool = new EFileReaderTool(fs.Object, MockConfig().Object, new Mock<IColorFormatter>().Object);
+        var tool = new EFileReaderTool(fs.Object, MockConfig().Object);
         var adapter = new ToolAdapter(tool);
 
         var args = new Dictionary<string, string?> { ["file"] = "test.txt" };
@@ -114,7 +114,7 @@ public class ToolAdapterRoundTripTests
         http.Setup(h => h.GetAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("<html><body>Hello</body></html>");
 
-        var tool = new EWebFetchTool(http.Object, MockConfig().Object, new Mock<IColorFormatter>().Object);
+        var tool = new EWebFetchTool(http.Object, MockConfig().Object);
         var adapter = new ToolAdapter(tool);
 
         var args = new Dictionary<string, string?> { ["url"] = "https://example.com" };
@@ -133,7 +133,7 @@ public class ToolAdapterRoundTripTests
         http.Setup(h => h.GetAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("<html>results</html>");
 
-        var tool = new EWebSearchTool(http.Object, MockConfig().Object, new Mock<IColorFormatter>().Object);
+        var tool = new EWebSearchTool(http.Object, MockConfig().Object);
         var adapter = new ToolAdapter(tool);
 
         var args = new Dictionary<string, string?> { ["query"] = "C# async tips" };
@@ -160,7 +160,7 @@ public class ToolAdapterRoundTripTests
             config.Setup(c => c.GetValue(It.Is<string>(k => k == "workingDir"), It.IsAny<string>()))
                   .Returns(tmpDir);
 
-            var tool = new ECodeEditorTool(fs.Object, config.Object, new Mock<IColorFormatter>().Object);
+            var tool = new ECodeEditorTool(fs.Object, config.Object);
             var adapter = new ToolAdapter(tool);
 
             var args = new Dictionary<string, string?>
@@ -188,7 +188,7 @@ public class ToolAdapterRoundTripTests
         var runner = MockProcessRunner("On branch main");
         var fs = new Mock<IFileSystem>();
 
-        var tool = new EGitTool(runner.Object, fs.Object, MockConfig().Object, new Mock<IColorFormatter>().Object);
+        var tool = new EGitTool(runner.Object, fs.Object, MockConfig().Object);
         var adapter = new ToolAdapter(tool);
 
         var args = new Dictionary<string, string?> { ["action"] = "status" };

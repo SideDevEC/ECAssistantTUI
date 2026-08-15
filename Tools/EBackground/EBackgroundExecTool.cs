@@ -21,7 +21,6 @@ public class EBackgroundExecTool : ITool
     private readonly IProcessRunner _processRunner;
     private readonly IFileSystem _fileSystem;
     private readonly IConfigProvider _configProvider;
-    private readonly IColorFormatter _colorFormatter;
 
     private string WorkingDir => _configProvider.GetValue("background.workingDir", Environment.CurrentDirectory);
 
@@ -29,14 +28,12 @@ public class EBackgroundExecTool : ITool
         BackgroundProcessManager mgr,
         IProcessRunner processRunner,
         IFileSystem fileSystem,
-        IConfigProvider configProvider,
-        IColorFormatter colorFormatter)
+        IConfigProvider configProvider)
     {
         _mgr = mgr;
         _processRunner = processRunner;
         _fileSystem = fileSystem;
         _configProvider = configProvider;
-        _colorFormatter = colorFormatter;
     }
 
     public string Name => "EBackgroundExec";

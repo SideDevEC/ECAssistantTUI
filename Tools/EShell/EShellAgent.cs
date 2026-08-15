@@ -12,15 +12,13 @@ public class EShellAgent : ITool
 {
     private readonly IProcessRunner _processRunner;
     private readonly IConfigProvider _configProvider;
-    private readonly IColorFormatter _colorFormatter;
     private readonly string _workingDirectory;
     private readonly bool _isWindows = OperatingSystem.IsWindows();
 
-    public EShellAgent(IProcessRunner processRunner, IConfigProvider configProvider, IColorFormatter colorFormatter, string workingDirectory)
+    public EShellAgent(IProcessRunner processRunner, IConfigProvider configProvider, string workingDirectory)
     {
         _processRunner = processRunner;
         _configProvider = configProvider;
-        _colorFormatter = colorFormatter;
         _workingDirectory = Path.GetFullPath(workingDirectory);
     }
 

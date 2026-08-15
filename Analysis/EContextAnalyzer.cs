@@ -1,7 +1,6 @@
 using System.Text;
 using System.Linq;
 using ECAssistant;
-using ECAssistant.Interfaces;
 
 namespace ECAssistant.Analysis;
 
@@ -18,13 +17,10 @@ public class EContextAnalyzer : IDisposable
     private readonly List<FileInfoData> _files = new();
     private List<ProjectRelationship> _relationships = new();
     private ProjectArchitecture? _architecture;
-    private readonly IColorFormatter _color;
 
-    public EContextAnalyzer(string projectRoot, IColorFormatter color)
+    public EContextAnalyzer(string projectRoot)
     {
         _projectRoot = Path.GetFullPath(projectRoot);
-        _color = color;
-        _color.TagBold(_color.Cyan, "Analyzer", $"Initialized for: {_projectRoot}");
     }
 
     public async Task<ProjectArchitecture> AnalyzeProjectAsync(
@@ -41,22 +37,18 @@ public class EContextAnalyzer : IDisposable
 
         // ── Phase 1: Scan all files ──
         await ScanFiles(scanDir, exts);
-        _color.Tag(_color.Green, "Scan", $"{_files.Count} files found.");
 
         // ── Phase 2: Analyze content (line counts, TODOs, imports) ──
         foreach (var file in _files)
         {
             await AnalyzeFileContent(file);
         }
-        _color.Tag(_color.Green, "Analyze", "Content analysis complete.");
 
         // ── Phase 3: Map relationships (imports, references) ──
         _relationships = MapRelationships();
-        _color.Tag(_color.Cyan, "Map", $"{_relationships.Count} relationships found.");
 
         // ── Phase 4: Build architecture summary ──
         _architecture = BuildArchitecture();
-        _color.TagBold(_color.Cyan, "Arch", $"Type: {_architecture.ProjectType}");
 
         return _architecture;
     }
@@ -94,7 +86,6 @@ public class EContextAnalyzer : IDisposable
             }
             catch (Exception ex)
             {
-                _color.Tag(_color.Cyan, "Skip", $"Skipped {file}: {ex.Message}");
             }
         }
     }

@@ -7,11 +7,10 @@ public class EDotnetBuildToolTests
 {
     private readonly Mock<IProcessRunner> _processRunner = new();
     private readonly Mock<IConfigProvider> _configProvider = new();
-    private readonly Mock<IColorFormatter> _colorFormatter = new();
 
     private EDotnetBuildTool CreateTool()
     {
-        return new EDotnetBuildTool(_processRunner.Object, _configProvider.Object, _colorFormatter.Object);
+        return new EDotnetBuildTool(_processRunner.Object, _configProvider.Object);
     }
 
     private ProcessResult SuccessResult(string stdout = "Build succeeded.") =>

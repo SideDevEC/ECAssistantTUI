@@ -670,7 +670,7 @@ public class Program
         Gui.WriteLineColored(_color.Cyan + _color.Bold + "[Mode] The agent decides tools automatically." + _color.Reset);
         Gui.BlankLine();
 
-        // Set ESC handler — stops the active session
+        // Set ESC handler + silent input check — stops the active session
         if (Gui is EGuiConsole console)
         {
             console.SetHandlers(onSubmit: null, onEscape: () =>
@@ -681,10 +681,23 @@ public class Program
                     stopSession.Stop();
                 }
             });
+            // Silent input while session is running
+            console.SetSilentInputCheck(() =>
+            {
+                var s = sessionManager.ActiveSession;
+                return s != null && s.RunState == SessionRunState.Running;
+            });
         }
 
         while (true)
         {
+            // Set initial silent state based on session state before reading input
+            if (Gui is EGuiConsole console2)
+            {
+                var s = sessionManager.ActiveSession;
+                console2.SetSilentInputInitial(s != null && s.RunState == SessionRunState.Running);
+            }
+
             var input = Gui.PromptRaw(_color.Cyan + "> " + _color.Reset)?.Trim();
             if (string.IsNullOrEmpty(input)) continue;
 

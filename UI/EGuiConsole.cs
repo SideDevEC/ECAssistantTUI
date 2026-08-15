@@ -15,11 +15,14 @@ namespace ECAssistant.UI;
 /// Thread safety: all console writes go through _writeLock.
 /// Input is read on the main thread; output comes from session background threads.
 ///
-/// Key principle: there is only ONE way to write to the console — through the
-/// locked RedrawPrompt / WriteOutput methods. Individual keystrokes are NEVER
-/// written directly to the console (no Console.Write(key.KeyChar)). Instead,
-/// each keystroke updates the buffer and triggers a full prompt line redraw.
-/// This eliminates race conditions between input echo and output streaming.
+/// Rendering strategy:
+///   - Regular characters: written directly at cursor position (no redraw).
+///     The cursor is already at the end of the prompt line, so the character
+///     appears in the right place. If output arrives between keystrokes,
+///     WriteOutput reprints "> " + full buffer, restoring correct state.
+///   - Backspace: full RedrawPrompt (need to erase the last visible char).
+///   - Enter/Escape/Tab: full redraw (state change).
+///   - Output (WriteOutput): clear line, write output, reprint "> " + buffer.
 /// </summary>
 public sealed class EGuiConsole : EGuiBase
 {
@@ -85,7 +88,7 @@ public sealed class EGuiConsole : EGuiBase
     }
 
     // ═══════════════════════════════════════════════════
-    //  PROMPT REDRAW — the only way to render the input line
+    //  PROMPT REDRAW
     // ═══════════════════════════════════════════════════
 
     /// <summary>
@@ -167,14 +170,19 @@ public sealed class EGuiConsole : EGuiBase
     /// Read a line of input from the console.
     ///
     /// The "> " prompt is always visible. While the user types, output from
-    /// background sessions may arrive — WriteOutput will preserve the input
-    /// buffer and reprint it after writing output.
+    /// background sessions may arrive — WriteOutput preserves the input
+    /// buffer and reprints it after writing output.
     ///
-    /// Key principle: keystrokes are NEVER echoed directly to the console.
-    /// Each keystroke updates _inputBuffer and calls RedrawPrompt(), which
-    /// clears the line and rewrites "> " + buffer. This ensures the prompt
-    /// is always in the correct position, even if output arrived between
-    /// keystrokes and scrolled the previous prompt line up.
+    /// Rendering strategy for keystrokes:
+    ///   - Regular chars: echo directly at cursor (cursor is at end of prompt
+    ///     line, so the char appears in the right place). No full redraw —
+    ///     this avoids flashing partial input between output lines.
+    ///   - Backspace: full RedrawPrompt (need to erase the visible char).
+    ///   - Enter/Escape/Tab: full redraw (state change).
+    ///
+    /// If output arrives between keystrokes, WriteOutput clears the line,
+    /// writes output, then reprints "> " + full buffer — so the typed text
+    /// reappears correctly without the user seeing it flash.
     /// </summary>
     private string? ReadInputLine()
     {
@@ -246,12 +254,19 @@ public sealed class EGuiConsole : EGuiBase
                 else if (key.Key == ConsoleKey.Tab)
                 {
                     _inputBuffer.Append("    ");
+                    // Redraw to show the spaces
                     RedrawPrompt();
                 }
                 else if (key.KeyChar != '\0' && !char.IsControl(key.KeyChar))
                 {
+                    // Add to buffer and echo at cursor position.
+                    // No full redraw — the cursor is already at the end of
+                    // the prompt line, so the char appears in the right place.
+                    // If WriteOutput fires between keystrokes, it reprints
+                    // "> " + full buffer, keeping everything consistent.
                     _inputBuffer.Append(key.KeyChar);
-                    RedrawPrompt();
+                    Console.Write(key.KeyChar);
+                    Console.Out.Flush();
                 }
             }
         }

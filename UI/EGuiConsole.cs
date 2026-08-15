@@ -43,7 +43,7 @@ public sealed class EGuiConsole : EGuiBase
 
     // ── Screen model ──
     // Output lines stored with ANSI color codes already embedded.
-    private readonly List<string> _outputLines = new();
+    internal readonly List<string> _outputLines = new();
     private string _statusBar = "";
 
     // Scroll position: 0 = bottom (newest), N = scrolled up N lines from bottom
@@ -420,25 +420,51 @@ public sealed class EGuiConsole : EGuiBase
     // ═══════════════════════════════════════════════════
 
     /// <summary>Remove ANSI escape sequences from a string to get visible length.</summary>
-    private static string StripAnsi(string text)
+    internal static string StripAnsi(string text)
     {
         var sb = new StringBuilder();
-        bool inEscape = false;
-        foreach (char c in text)
+        int i = 0;
+        while (i < text.Length)
         {
-            if (c == '\x1b') { inEscape = true; continue; }
-            if (inEscape)
+            if (text[i] == '\x1b')
             {
-                if (c >= 0x40 && c <= 0x7E) inEscape = false;
-                continue;
+                i++;
+                // Skip CSI sequence: \x1b[ params intermediates final
+                if (i < text.Length && text[i] == '[')
+                {
+                    i++; // skip '['
+                    // Skip parameter bytes 0x30-0x3F (digits, ;, :, etc.)
+                    while (i < text.Length && text[i] >= 0x30 && text[i] <= 0x3F) i++;
+                    // Skip intermediate bytes 0x20-0x2F
+                    while (i < text.Length && text[i] >= 0x20 && text[i] <= 0x2F) i++;
+                    // Skip final byte 0x40-0x7E
+                    if (i < text.Length && text[i] >= 0x40 && text[i] <= 0x7E) i++;
+                }
+                // Skip OSC sequence: \x1b] ... BEL or ST
+                else if (i < text.Length && text[i] == ']')
+                {
+                    i++; // skip ']'
+                    while (i < text.Length && text[i] != '\x07' && text[i] != '\x1b') i++;
+                    if (i < text.Length && text[i] == '\x1b' && i + 1 < text.Length && text[i + 1] == '\\') i += 2;
+                    else if (i < text.Length) i++; // skip BEL
+                }
+                // Other escape sequences: skip next char
+                else if (i < text.Length)
+                {
+                    i++; // skip single char after ESC
+                }
             }
-            sb.Append(c);
+            else
+            {
+                sb.Append(text[i]);
+                i++;
+            }
         }
         return sb.ToString();
     }
 
     /// <summary>Truncate a string with ANSI codes to a max visible width.</summary>
-    private static string TruncateAnsi(string text, int maxWidth)
+    internal static string TruncateAnsi(string text, int maxWidth)
     {
         var visible = StripAnsi(text);
         if (visible.Length <= maxWidth) return text;
@@ -474,7 +500,7 @@ public sealed class EGuiConsole : EGuiBase
     /// Lines are stored with ANSI color codes intact.
     /// </summary>
     /// <summary>Wrap a line with ANSI codes into multiple rows, each ≤ maxCols visible width.</summary>
-    private static List<string> WrapLine(string text, int maxCols)
+    internal static List<string> WrapLine(string text, int maxCols)
     {
         var result = new List<string>();
         var visible = StripAnsi(text);
@@ -497,17 +523,17 @@ public sealed class EGuiConsole : EGuiBase
         return result;
     }
 
-    private void AddOutputLine(string text)
+    internal void AddOutputLine(string text)
     {
         // Split multi-line text into individual lines
         var lines = text.Split('\n');
-        foreach (var line in lines)
+        for (int i = 0; i < lines.Length; i++)
         {
             // Remove trailing \r if present (Windows line endings)
-            string clean = line.EndsWith('\r') ? line[..^1] : line;
-            // Skip empty trailing entries from text ending with \n
-            // (the split produces a trailing "" — don't add it as a blank line)
-            if (string.IsNullOrEmpty(clean) && ReferenceEquals(line, lines[^1]))
+            string clean = lines[i].EndsWith('\r') ? lines[i][..^1] : lines[i];
+            // Skip empty trailing entry from text ending with \n
+            // (split of "text\n" gives ["text", ""] — don't add the trailing "")
+            if (i == lines.Length - 1 && string.IsNullOrEmpty(clean) && lines.Length > 1)
                 continue;
             _outputLines.Add(clean);
         }

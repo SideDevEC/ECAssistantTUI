@@ -12,6 +12,10 @@
           </PropertyGroup>
 
           <ItemGroup>
+              <InternalsVisibleTo Include="ECAssistant.Tests" />
+          </ItemGroup>
+
+          <ItemGroup>
               <!-- Exclude test project from main compilation -->
               <Compile Remove="Tests/**" />
           </ItemGroup>

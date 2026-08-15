@@ -14,11 +14,11 @@ namespace ECAssistant;
 ///       .ContextSize(16384)
 ///       .GpuLayers(15)
 ///       .Temperature(0.3)
-///       .WorkingDirectory("/my/project")
 ///       .EnableSubAgents(true)
 ///       .Build();
+///   // WorkingDirectory defaults to .eca-data next to the app executable
 ///
-///   var sessionManager = new SessionManager(config, modelPath, workingDir, logger);
+///   var sessionManager = new SessionManager(config, config.Llm.ModelPath, workingDir, logger);
 ///   var session = sessionManager.Main;
 ///   var builder = new SessionBuilder(config, workingDir, userConfigDir, logger);
 ///   await builder.BuildAsync(session);
@@ -37,7 +37,7 @@ public class AgentConfigBuilder
     private float _topP = 0.9f;
     private int _topK = 40;
     private float _repeatPenalty = 1.1f;
-    private string _workingDir = ".";
+    private string? _workingDir = null;  // null = auto: AppContext.BaseDirectory/.eca-data
     private bool _enableVectorMemory = false;
     private bool _enableSubAgents = false;
     private bool _enableSecondaryModel = false;
@@ -75,7 +75,11 @@ public class AgentConfigBuilder
     /// <summary>Repeat penalty. Default: 1.1.</summary>
     public AgentConfigBuilder RepeatPenalty(float penalty) { _repeatPenalty = penalty; return this; }
 
-    /// <summary>Working directory for the agent. Default: current directory.</summary>
+    /// <summary>
+    /// Working directory for agent data (sessions, memory, vector store, transcripts).
+    /// Default: <c>AppContext.BaseDirectory/.eca-data</c> — a hidden folder next to the app executable.
+    /// Override if you want data elsewhere (e.g. alongside your app's data folder).
+    /// </summary>
     public AgentConfigBuilder WorkingDirectory(string dir) { _workingDir = dir; return this; }
 
     /// <summary>Enable FAISS vector memory (semantic search). Default: false.</summary>
@@ -93,9 +97,13 @@ public class AgentConfigBuilder
     /// <summary>Build the EAgentConfig.</summary>
     public EAgentConfig Build()
     {
+        // Resolve working directory: explicit > default (.eca-data next to executable)
+        var workingDir = _workingDir ?? Path.Combine(AppContext.BaseDirectory, ".eca-data");
+
         return new EAgentConfig
         {
-            RootPath = ".",
+            RootPath = workingDir,
+            AgentSettings = new AgentConfig { WorkingDirectory = workingDir },
             Llm = new LlmConfig
             {
                 ModelPath = _modelPath,

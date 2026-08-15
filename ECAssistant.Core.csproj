@@ -18,9 +18,16 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Exclude Program.cs (App project) and Tests -->
+    <!-- Exclude Program.cs, Tests, and concrete UI classes (EGuiConsole, layers, LoadingIndicator, ConsoleUiRenderer) -->
+    <!-- Keep abstract bases: EGuiBase, IGuiLayer -->
     <Compile Remove="Program.cs" />
     <Compile Remove="Tests/**" />
+    <Compile Remove="UI/EGuiConsole.cs" />
+    <Compile Remove="UI/HelpLayer.cs" />
+    <Compile Remove="UI/IGuiLayer.cs" />
+    <Compile Remove="UI/SessionLayer.cs" />
+    <Compile Remove="UI/LoadingIndicator.cs" />
+    <Compile Remove="UI/ConsoleUiRenderer.cs" />
   </ItemGroup>
 
   <ItemGroup>

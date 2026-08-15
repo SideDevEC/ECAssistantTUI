@@ -27,6 +27,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ECAssistant.Core.csproj" />
+    <ProjectReference Include="..\ECAssistant.csproj" />
   </ItemGroup>
 
 </Project>

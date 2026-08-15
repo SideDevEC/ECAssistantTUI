@@ -1,6 +1,6 @@
 # ECAssistant — Project Summary
 
-**Updated:** 2026-08-15 (v10.23.1)
+**Updated:** 2026-08-15 (v10.23.2)
 **Build:** 0 errors, 0 warnings
 **Tests:** 940/940 passing
 
@@ -19,15 +19,32 @@ ECAssistant.sln
 └── Tests/ECAssistant.Tests.csproj ← Tests, references Core
 ```
 
-### Library Integration — No appsettings.json needed
-- **`AgentConfigBuilder`** — fluent config: `.WithModel().ContextSize().GpuLayers().Temperature().Build()`
-- **`SystemPromptBuilder`** — required `<lm>` tag rules + domain context: `.WithAgentName().WithDescription().WithCustomRules().Build()`
+### Library Integration
+- **`AgentConfigBuilder`** — fluent config, JSON-first: generates `appsettings.json` on first run, loads it after. JSON is source of truth.
+- **`SystemPromptBuilder`** — required `<lm>` tag rules + domain context (fluent)
 - **`SessionBuilder`** — initializes sessions with standard tools (or skip with `RegisterBuiltInTools = false`)
 - **`EGuiBase`** — abstract UI base, implement for custom UIs (Avalonia, web, etc.)
 - **`IOutputListener`** — implement to receive live session output
 - **`EToolBase`** — subclass for custom domain-specific tools
 - **`EAgentEngine.SystemPromptPath` / `SystemPromptText`** — injectable system prompts
 - **`AgentSession`** — central hub: create, register tools, attach listeners, `Prompt()`
+
+### Config Flow (v10.23.2: JSON is source of truth)
+1. **First run:** `AgentConfigBuilder.Build()` generates `appsettings.json` in `<workingDir>/eca-data/` with code values + defaults
+2. **Subsequent runs:** loads existing JSON — code values are ignored
+3. **End users** edit `appsettings.json` to change settings (model path, temperature, context size, etc.) — they never see code
+4. Working directory: always `<given_path>/eca-data/` (default: `./eca-data/`)
+
+### On-disk layout (library consumer)
+```
+./eca-data/
+├── appsettings.json          ← generated on first run, editable by end users
+├── .sessions/main/
+│   ├── transcript.json
+│   └── ui_output.jsonl
+├── Memory/
+└── vecmem/
+```
 
 ### No Disk Dependencies
 - `SubAgentManager` receives config via constructor injection — no `~/ECAssistant/` reads
@@ -51,23 +68,23 @@ ECAssistant.csproj            ← console exe (references Core)
 Program.cs                    ← entry point, binder, command routing (App only)
 ARCHITECTURE.md               ← dependency flow, layers, library integration guide
 SUMMARY.md                    ← this file
-SystemPromptBuilder.cs        ← NEW (v10.23.1): fluent system prompt builder with <lm> tag rules
+SystemPromptBuilder.cs        ← fluent system prompt builder with <lm> tag rules
 Config/
-  ├── AgentConfigBuilder.cs   ← NEW (v10.23.1): fluent config builder for library consumers
-  ├── EAgentConfig.cs         ← RootPath default: "." (v10.23.1)
+  ├── AgentConfigBuilder.cs   ← fluent config builder, JSON-first (generates/loads appsettings.json)
+  ├── EAgentConfig.cs         ← RootPath default: "."
   └── ...                     ← config models + loader
 Engine/
   ├── EAgentEngine.cs         ← SystemPromptPath + SystemPromptText + ModelPath properties
-  ├── SubAgentManager.cs      ← config injected, no hardcoded ~/ECAssistant/ reads (v10.23.1)
+  ├── SubAgentManager.cs      ← config injected, no hardcoded ~/ECAssistant/ reads
   └── ...                     ← Orchestrator, DecisionLoop, ParallelToolExecutor, etc.
 Interfaces/                   ← ITool, ILogger, IProcessRunner, IFileSystem, IHttpClient, IConfigProvider, etc.
 Memory/                       ← EMemoryManager (persistent context cards)
 Services/
-  ├── ConfigProvider.cs       ← supports preloaded EAgentConfig (no file I/O) (v10.23.1)
+  ├── ConfigProvider.cs       ← supports preloaded EAgentConfig (no file I/O)
   └── ...                     ← Logger, LlamaInferenceEngine, adapters
 Session/
   ├── SessionBuilder.cs       ← public API for library consumers
-  ├── AgentSession.cs         ← accepts optional EAgentConfig for passing to orchestrator (v10.23.1)
+  ├── AgentSession.cs         ← accepts optional EAgentConfig for passing to orchestrator
   └── ...                     ← SessionManager, ISessionOutput, IOutputListener, ConsoleUiRenderer
 Tools/                        ← 10 tools across subfolders + EToolBase (subclass for custom)
 UI/                           ← EGuiConsole, EGuiBase, IGuiLayer, SessionLayer, HelpLayer
@@ -79,18 +96,7 @@ SystemPrompt.Windows.md       ← Windows-specific prompt
 ```
 
 ## Recent Changes (2026-08-15)
-- **v10.23.1: Clean library** — removed all hardcoded `~/ECAssistant/` disk reads from Core
-  - `SubAgentManager`: config + model path injected via constructor (was reading `~/ECAssistant/appsettings.json`)
-  - `ConfigProvider`: new constructor taking `EAgentConfig` directly (no file I/O)
-  - `EAgentConfig.RootPath`: default `"."` instead of `"ECAssistant"`
-  - `AgentConfigBuilder`: fluent config API — `.WithModel().ContextSize().GpuLayers().Temperature().Build()`
-  - `SystemPromptBuilder`: fluent system prompt — required `<lm>` tag rules + domain context
-  - `EAgentEngine.ModelPath`: public property for SubAgentManager access
-  - `AgentSession`: accepts optional `EAgentConfig`, passes to orchestrator → SubAgentManager
-  - `Orchestrator`: accepts optional `EAgentConfig`, passes to SubAgentManager
-- **v10.23: Core + App split** — ECAssistant.Core.csproj (class library) + ECAssistant.csproj (console exe)
-  - `SessionBuilder` — public class for library consumers
-  - Injectable system prompt (`SystemPromptPath` / `SystemPromptText`)
-  - `TestRunner` decoupled from `Program.Gui`
-  - 940 tests passing
+- **v10.23.2: JSON-first config** — `AgentConfigBuilder.Build()` generates `appsettings.json` on first run, loads it on subsequent runs. JSON is source of truth — code values only seed initial file. Working dir always appends `eca-data` to given path. End users edit JSON to change settings without touching code.
+- **v10.23.1: Clean library** — removed all hardcoded `~/ECAssistant/` disk reads from Core. `SubAgentManager` config injected. `ConfigProvider` supports preloaded config. `AgentConfigBuilder` + `SystemPromptBuilder` added. `EAgentConfig.RootPath` defaults to `"."`.
+- **v10.23: Core + App split** — `ECAssistant.Core.csproj` (class library) + `ECAssistant.csproj` (console exe). `SessionBuilder` public API. Injectable system prompt. `TestRunner` decoupled from `Program.Gui`. 940 tests passing.
 - **Previous:** Layer system, session/UI rewrite with ISessionOutput, headless engine

@@ -1,6 +1,6 @@
 # ECAssistant — Architecture
 
-**Updated:** 2026-08-15 (v10.23.1)
+**Updated:** 2026-08-15 (v10.23.2)
 **Build:** 0 errors, 0 warnings
 **Tests:** 940/940 passing
 
@@ -50,28 +50,57 @@ Program.cs (App — Main → binder)
 **ECAssistant.Core.dll** can be referenced by any .NET 8 project (e.g., ECSQL).
 
 ### Integration Points
-- **`AgentConfigBuilder`** — fluent config builder, no appsettings.json needed
+- **`AgentConfigBuilder`** — fluent config builder, generates/loads `appsettings.json`
 - **`SystemPromptBuilder`** — required `<lm>` tag rules + custom domain context
-- **`SessionBuilder`** — public class, initializes sessions with standard tools
+- **`SessionBuilder`** — initializes sessions with standard tools
 - **`EGuiBase`** (abstract) — implement for custom UI (Avalonia, web, etc.)
 - **`IOutputListener`** — implement to receive live output events from sessions
 - **`EToolBase`** (abstract) — subclass for custom domain-specific tools
 - **`AgentSession`** — central hub: create, register tools, attach listeners, call `Prompt()`
-- **`EAgentEngine.SystemPromptPath`** / `SystemPromptText` — inject custom system prompt
+- **`EAgentEngine.SystemPromptPath`** / `SystemPromptText`** — inject custom system prompt
+
+### Config Flow (v10.23.2: JSON is source of truth)
+
+```
+AgentConfigBuilder.Build()
+  │
+  ├── 1. Resolve working dir: given path + "eca-data" (default: ./eca-data/)
+  │
+  ├── 2. appsettings.json exists there?
+  │     ├── YES → load it, return it (code values IGNORED)
+  │     └── NO  → generate it with code values + defaults, return it
+  │
+  └── Result: EAgentConfig
+```
+
+- **First run:** code values seed the initial `appsettings.json`
+- **Subsequent runs:** JSON is loaded as-is, code values irrelevant
+- **End users** edit `./eca-data/appsettings.json` to change settings — they never see code
+- Working directory: always `<given_path>/eca-data/` (default: `./eca-data/`)
+
+### On-disk layout (library consumer)
+```
+./eca-data/
+├── appsettings.json          ← generated on first run, editable by end users
+├── .sessions/
+│   └── main/
+│       ├── transcript.json
+│       └── ui_output.jsonl
+├── Memory/
+└── vecmem/
+```
 
 ### Usage Example (from ECSQL or any .NET 8 app)
 ```csharp
-// 1. Build config in code (no appsettings.json needed)
+// 1. Build config — generates appsettings.json on first run, loads it after
 var config = AgentConfigBuilder.Create()
     .WithModel("/path/to/model.gguf")
     .ContextSize(16384)
     .GpuLayers(15)
-    .Temperature(0.3)
-    .WorkingDirectory("/my/project")
-    .EnableSubAgents(true)
     .Build();
 
 // 2. Create session manager — loads GGUF into RAM
+var workingDir = config.AgentSettings.WorkingDirectory;
 var sessionManager = new SessionManager(config, config.Llm.ModelPath, workingDir, logger);
 var session = sessionManager.Main;
 
@@ -80,11 +109,11 @@ session.Engine.SystemPromptText = SystemPromptBuilder.Create()
     .WithAgentName("ECSQL Assistant")
     .WithDescription("You help users manage SQL databases.")
     .WithPlatform("macOS")
-    .WithCustomRules("Always explain SQL before executing. Use SqlQuery for SELECT statements.")
+    .WithCustomRules("Always explain SQL before executing.")
     .Build();
 
 // 4. Initialize with standard tools
-var builder = new SessionBuilder(config, workingDir, userConfigDir, logger);
+var builder = new SessionBuilder(config, workingDir, workingDir, logger);
 await builder.BuildAsync(session);
 
 // 5. Add custom tools
@@ -97,7 +126,7 @@ session.AddListener(new AvaloniaUiListener(mainWindow));
 session.Prompt("Find all tables without indexes");
 ```
 
-### No Disk Dependencies (v10.23.1)
+### No Disk Dependencies (v10.23.1+)
 - `SubAgentManager` receives config via constructor injection — no `~/ECAssistant/` reads
 - `ConfigProvider` has an `EAgentConfig` constructor — no file I/O for library consumers
 - `EAgentConfig.RootPath` defaults to `"."` (not `"ECAssistant"`)
@@ -153,7 +182,11 @@ Library consumers provide domain context via `SystemPromptBuilder`, but the tag 
 ### Config Layer (`Config/`) — Core
 - `EAgentConfig` — strongly-typed app settings (RootPath defaults to `"."`)
 - `ConfigLoader` — JSON deserialization with case-insensitive matching
-- `AgentConfigBuilder` — fluent API for library consumers (no JSON needed)
+- `AgentConfigBuilder` — fluent config builder, JSON-first (v10.23.2)
+  - Generates `appsettings.json` on first run in `<workingDir>/eca-data/`
+  - Loads existing JSON on subsequent runs — JSON is source of truth
+  - Code values only seed the initial JSON
+  - End users edit JSON to change settings without touching code
 
 ### System Prompt (`SystemPromptBuilder.cs`) — Core
 - `SystemPromptBuilder` — fluent builder for custom system prompts
@@ -189,3 +222,4 @@ Library consumers provide domain context via `SystemPromptBuilder`, but the tag 
 - `SessionBuilder` is the public API for library consumers — no need to touch `Program.cs`
 - No hardcoded `~/ECAssistant/` paths in Core (v10.23.1) — all config via injection
 - `<lm>` tag format rules are always included via `SystemPromptBuilder` — not optional
+- `AgentConfigBuilder`: JSON is source of truth — code values only seed initial file (v10.23.2)

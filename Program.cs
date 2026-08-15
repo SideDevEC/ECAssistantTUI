@@ -671,8 +671,10 @@ public class Program
         Gui.BlankLine();
 
         // Set ESC handler — stops the active session
-        if (Gui is EGuiConsole console)
+        EGuiConsole? console = null;
+        if (Gui is EGuiConsole guiConsole)
         {
+            console = guiConsole;
             console.SetHandlers(onSubmit: null, onEscape: () =>
             {
                 var stopSession = sessionManager.ActiveSession;
@@ -681,10 +683,22 @@ public class Program
                     stopSession.Stop();
                 }
             });
+            // Check function: silent mode active while any session is running
+            console.SetSilentInputCheck(() =>
+            {
+                var s = sessionManager.ActiveSession;
+                return s != null && s.RunState == SessionRunState.Running;
+            });
         }
 
         while (true)
         {
+            // Check if session is running — enable silent input to prevent
+            // typed characters from mixing into output
+            var activeForSilent = sessionManager.ActiveSession;
+            if (console != null)
+                console.SetSilentInput(activeForSilent != null && activeForSilent.RunState == SessionRunState.Running);
+
             var input = Gui.PromptRaw(_color.Cyan + "> " + _color.Reset)?.Trim();
             if (string.IsNullOrEmpty(input)) continue;
 

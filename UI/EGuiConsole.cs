@@ -3,23 +3,21 @@ using System.Text;
 namespace ECAssistant.UI;
 
 /// <summary>
-/// Console-based EGuiBase with always-visible input prompt.
+/// Console-based EGuiBase with always-visible input prompt and silent buffering.
 ///
 /// Design:
-///   - "> " + buffer is ALWAYS shown at the bottom of the terminal.
-///   - Output writes ABOVE the prompt line: clear last line, write output,
-///     reprint "> " + buffer. The buffer is always preserved and restored.
-///   - In silent mode (session running): keystrokes update the buffer and
-///     redraw the prompt line via RenderPrompt(). No direct Console.Write
-///     of characters — everything goes through the locked render path.
-///     This prevents typed text from leaking into the output stream.
-///   - In normal mode (session idle): same behavior, same render path.
-///   - The difference between silent and normal mode is only in how
-///     we render — but both show "> " + buffer on the last line.
+///   - "> " is ALWAYS shown at the bottom of the terminal.
+///   - When the session is running (silent mode):
+///     * Typed characters are buffered but NOT shown on screen
+///     * "> " stays visible — never disappears
+///     * On Enter, the buffered input is submitted
+///     * Buffer is never written to the output stream
+///   - When the session is idle (normal mode):
+///     * "> " + typed characters are visible
+///     * Standard interactive input
+///   - Output always writes ABOVE the prompt line, then reprints "> "
 ///
-/// The critical rule: there is only ONE way to write to the screen —
-/// through RenderPrompt() or WriteOutput(), both inside _writeLock.
-/// Never Console.Write(key.KeyChar) directly.
+/// Thread safety: all console writes go through _writeLock.
 /// </summary>
 public sealed class EGuiConsole : EGuiBase
 {
@@ -32,10 +30,11 @@ public sealed class EGuiConsole : EGuiBase
 
     private volatile bool _promptActive;
 
-    // Silent mode: when true, we still show "> " + buffer but ALL
-    // keystroke rendering goes through RenderPrompt() (no direct echo).
-    // This ensures typed text can't leak into output streams.
+    // Silent mode: typed characters are buffered but not echoed.
+    // Set by the main loop when the session is running.
     private volatile bool _silentInput;
+
+    // Callback to check if silent mode should still be active.
     private Func<bool>? _silentInputCheck;
 
     public void InitConsole()
@@ -59,6 +58,7 @@ public sealed class EGuiConsole : EGuiBase
         _silentInputCheck = check;
     }
 
+    /// <summary>Set the initial silent state at the start of ReadInputLine.</summary>
     public void SetSilentInputInitial(bool silent)
     {
         _silentInput = silent;
@@ -99,33 +99,36 @@ public sealed class EGuiConsole : EGuiBase
     }
 
     // ═══════════════════════════════════════════════════
-    //  PROMPT RENDER — the ONLY way to draw the input line
+    //  PROMPT RENDER
     // ═══════════════════════════════════════════════════
 
     /// <summary>
-    /// Clear current line and write "> " + buffer.
-    /// Always shows the buffer — silent or normal mode.
-    /// Must be called inside _writeLock.
+    /// Render the prompt line. In silent mode: just "> ".
+    /// In normal mode: "> " + buffer. Must be inside _writeLock.
     /// </summary>
     private void RenderPrompt()
     {
         Console.Write("\r\x1b[2K");
         Console.Write(PromptStr);
-        Console.Write(_inputBuffer.ToString());
+        if (!_silentInput)
+            Console.Write(_inputBuffer.ToString());
         Console.Out.Flush();
     }
 
     // ═══════════════════════════════════════════════════
-    //  OUTPUT — clear prompt line, write output, restore prompt
+    //  OUTPUT
     // ═══════════════════════════════════════════════════
 
     /// <summary>
-    /// 1. Clear current line (removes "> " + buffer from screen)
-    /// 2. Write output text (scrolls up into scrollback)
-    /// 3. Ensure newline at end
-    /// 4. Reprint "> " + buffer on the new last line
+    /// Write output above the prompt line, then reprint "> ".
     ///
-    /// The buffer is ALWAYS restored after output — it never disappears.
+    /// 1. Clear current line (removes "> " from screen)
+    /// 2. Write output text (scrolls up)
+    /// 3. Ensure newline at end
+    /// 4. Reprint "> " (or "> " + buffer in normal mode)
+    ///
+    /// The prompt is ALWAYS reprinted after output — it never disappears.
+    /// In silent mode, the buffer is NOT shown (just "> ").
     /// </summary>
     private void WriteOutput(string text)
     {
@@ -144,7 +147,7 @@ public sealed class EGuiConsole : EGuiBase
                 return;
             }
 
-            // Clear current line (where "> " + buffer is)
+            // Clear current line (where "> " is)
             Console.Write("\r\x1b[2K");
 
             // Write the output
@@ -154,7 +157,9 @@ public sealed class EGuiConsole : EGuiBase
             if (!text.EndsWith("\n"))
                 Console.Write("\n");
 
-            // Reprint "> " + buffer — always, silent or not
+            // Reprint the prompt — ALWAYS "> " visible
+            // In silent mode: just "> " (no buffer shown)
+            // In normal mode: "> " + buffer
             RenderPrompt();
         }
     }
@@ -190,12 +195,12 @@ public sealed class EGuiConsole : EGuiBase
             ConsoleKeyInfo key;
             try
             {
-                // Check if silent mode should turn off (session finished)
+                // Poll: check if silent mode should turn off
+                // (session finished while we're waiting for input)
                 if (_silentInput && _silentInputCheck != null && !_silentInputCheck())
                 {
                     _silentInput = false;
-                    // No need to redraw — RenderPrompt already shows buffer
-                    // in both modes. The only difference is no more direct echo.
+                    lock (_writeLock) { RenderPrompt(); }
                 }
 
                 if (!Console.KeyAvailable)
@@ -203,7 +208,7 @@ public sealed class EGuiConsole : EGuiBase
                     Thread.Sleep(10);
                     continue;
                 }
-                key = Console.ReadKey(true); // intercept: never auto-echo
+                key = Console.ReadKey(true); // intercept: don't auto-echo
             }
             catch (InvalidOperationException)
             {
@@ -217,7 +222,8 @@ public sealed class EGuiConsole : EGuiBase
                     var result = _inputBuffer.ToString();
                     _inputBuffer.Clear();
 
-                    // Print submitted input: "> text\n"
+                    // Print the submitted input: "> text\n"
+                    // This shows what was entered even in silent mode
                     Console.Write("\r\x1b[2K");
                     Console.Write(PromptStr);
                     Console.Write(result);
@@ -234,7 +240,8 @@ public sealed class EGuiConsole : EGuiBase
                     if (_inputBuffer.Length > 0)
                     {
                         _inputBuffer.Remove(_inputBuffer.Length - 1, 1);
-                        RenderPrompt();
+                        if (!_silentInput)
+                            RenderPrompt();
                     }
                 }
                 else if (key.Key == ConsoleKey.Escape)
@@ -242,7 +249,8 @@ public sealed class EGuiConsole : EGuiBase
                     if (_inputBuffer.Length > 0)
                     {
                         _inputBuffer.Clear();
-                        RenderPrompt();
+                        if (!_silentInput)
+                            RenderPrompt();
                     }
                     else
                     {
@@ -253,18 +261,19 @@ public sealed class EGuiConsole : EGuiBase
                 else if (key.Key == ConsoleKey.Tab)
                 {
                     _inputBuffer.Append("    ");
-                    RenderPrompt();
+                    if (!_silentInput)
+                        RenderPrompt();
                 }
                 else if (key.KeyChar != '\0' && !char.IsControl(key.KeyChar))
                 {
                     _inputBuffer.Append(key.KeyChar);
-                    // ALWAYS render through RenderPrompt — never direct echo.
-                    // This is the key fix: in both silent and normal mode,
-                    // every keystroke redraws the full prompt line through
-                    // the locked render path. WriteOutput also uses RenderPrompt
-                    // to restore the buffer after output. So the buffer is
-                    // always correctly positioned and never leaks into output.
-                    RenderPrompt();
+                    // Silent mode: don't echo, just buffer
+                    // Normal mode: echo at cursor
+                    if (!_silentInput)
+                    {
+                        Console.Write(key.KeyChar);
+                        Console.Out.Flush();
+                    }
                 }
             }
         }

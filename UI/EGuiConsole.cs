@@ -5,13 +5,12 @@ namespace ECAssistant.UI;
 /// <summary>
 /// Console-based EGuiBase.
 ///
-/// "> " prompt is ALWAYS the last line on screen.
+/// Simplest possible approach: "> " is always at the start of the current line.
+/// Output writes on the current line (overwriting "> "), then the \n scrolls
+/// it up, and we immediately write "> " on the new line.
 ///
-/// Output: clear input line → move up → newline → write output → reprint "> "
-/// Enter:  clear input line → move up → newline → write "> text" → reprint "> "
-///
-/// The trick: after any output, we ALWAYS reprint "> " + buffer.
-/// The prompt never goes away.
+/// This is just: write output + \n, then write "> " + buffer.
+/// No cursor movement, no clear-line tricks.
 /// </summary>
 public sealed class EGuiConsole : EGuiBase
 {
@@ -78,21 +77,15 @@ public sealed class EGuiConsole : EGuiBase
     // ═══════════════════════════════════════════════════
 
     /// <summary>
-    /// Reprint "> " + input buffer. Must hold lock.
-    /// </summary>
-    private void ReprintPrompt()
-    {
-        Console.Write("\r\x1b[2K");
-        Console.Write(PromptStr);
-        Console.Write(_inputBuffer.ToString());
-        Console.Out.Flush();
-    }
-
-    /// <summary>
-    /// Write output above the input line.
+    /// Write output then reprint "> " + buffer.
     ///
-    /// If prompt is showing: clear line, move up, newline, write output,
-    /// then reprint "> " + buffer on the new bottom line.
+    /// If prompt is showing:
+    ///   - \r to go to start of line (where "> " is)
+    ///   - \x1b[2K to clear the line (clears "> " + partial input)
+    ///   - write the output text (its trailing \n scrolls up)
+    ///   - write "> " + buffer on the new line
+    ///
+    /// If prompt not showing yet: just write.
     /// </summary>
     private void WriteOutput(string text)
     {
@@ -110,18 +103,17 @@ public sealed class EGuiConsole : EGuiBase
                 return;
             }
 
-            // Clear input line, write output on it.
-            // The trailing \n in text scrolls everything up.
-            // Then reprint prompt on the new line.
-            //
-            // We do NOT move cursor up — that overwrites the last output line.
-            // Instead: clear input line, write output here, the \n scrolls it up.
-            Console.Write("\r\x1b[2K");       // clear input line
-            Console.Write(text);                // write output (replaces the cleared line)
+            // Clear current line (where "> " + input is)
+            Console.Write("\r\x1b[2K");
+            // Write the output — trailing \n scrolls it up into the scrollback
+            Console.Write(text);
+            // Ensure we end on a newline so "> " starts on a fresh line
             if (!text.EndsWith("\n"))
-                Console.Write("\n");           // ensure newline — scrolls up
-            // Reprint prompt + partial input on the new bottom line
-            ReprintPrompt();
+                Console.Write("\n");
+            // Reprint "> " + partial input
+            Console.Write(PromptStr);
+            Console.Write(_inputBuffer.ToString());
+            Console.Out.Flush();
         }
     }
 
@@ -147,8 +139,9 @@ public sealed class EGuiConsole : EGuiBase
 
         lock (_writeLock)
         {
-            ReprintPrompt();
+            Console.Write(PromptStr);
             _promptShowing = true;
+            Console.Out.Flush();
         }
 
         while (true)
@@ -171,15 +164,15 @@ public sealed class EGuiConsole : EGuiBase
                     var result = _inputBuffer.ToString();
                     _inputBuffer.Clear();
 
-                    // Clear input line, write '> text' on it, newline scrolls it up.
-                    // Then reprint '> ' for next input.
-                    Console.Write("\r\x1b[2K");       // clear input line
-                    Console.Write(PromptStr);             // write '> text'
+                    // Clear line, write "> text", newline scrolls it up
+                    Console.Write("\r\x1b[2K");
+                    Console.Write(PromptStr);
                     Console.Write(result);
-                    Console.Write("\n");                // newline — scrolls up
+                    Console.Write("\n");
 
                     // Reprint "> " for next input
-                    ReprintPrompt();
+                    Console.Write(PromptStr);
+                    Console.Out.Flush();
 
                     return result;
                 }
@@ -196,7 +189,9 @@ public sealed class EGuiConsole : EGuiBase
                     if (_inputBuffer.Length > 0)
                     {
                         _inputBuffer.Clear();
-                        ReprintPrompt();
+                        Console.Write("\r\x1b[2K");
+                        Console.Write(PromptStr);
+                        Console.Out.Flush();
                     }
                     else
                     {

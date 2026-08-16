@@ -33,7 +33,6 @@
 
   <ItemGroup>
     <Compile Remove="**/*.cs" />
-    <Compile Include="Program.cs" />
     <Compile Include="Controller/AppController.cs" />
     <Compile Include="UI/IGuiConsole.cs" />
     <Compile Include="UI/EGuiConsole.cs" />

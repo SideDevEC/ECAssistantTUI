@@ -807,7 +807,6 @@ public sealed class EGuiConsole : EGuiBase
 
     private string? ReadInputLine()
     {
-        Console.Error.WriteLine("[DEBUG] ReadInputLine: entered");
         _inputBuffer.Clear();
 
         if (_ansiSupported)
@@ -822,8 +821,6 @@ public sealed class EGuiConsole : EGuiBase
             }
         }
 
-        // DEBUG: confirm we reached the input loop
-        Console.Error.WriteLine("[DEBUG] ReadInputLine: entering while(true) loop");
         while (true)
         {
             ConsoleKeyInfo key;
@@ -850,9 +847,7 @@ public sealed class EGuiConsole : EGuiBase
                     Thread.Sleep(10);
                     continue;
                 }
-                Console.Error.WriteLine("[DEBUG] KeyAvailable is true, reading key...");
                 key = Console.ReadKey(true); // intercept: don't auto-echo
-                Console.Error.WriteLine($"[DEBUG] Key received: {key.Key} char='{key.KeyChar}'");
             }
             catch (InvalidOperationException)
             {

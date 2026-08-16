@@ -16,10 +16,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Core is referenced as a compiled DLL from the ECAssistantCore project. -->
-    <!-- Build ECAssistantCore first, then copy the DLL here. -->
+    <!-- Core.dll is a pre-built binary in lib/ — no project reference, no source dependency -->
+    <!-- Rebuild ECAssistantCore and copy the DLL to lib/ to update -->
     <Reference Include="ECAssistant.Core">
-      <HintPath>..\ECAssistantCore\bin\Debug\net8.0\ECAssistant.Core.dll</HintPath>
+      <HintPath>lib\ECAssistant.Core.dll</HintPath>
       <Private>true</Private>
     </Reference>
   </ItemGroup>

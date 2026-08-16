@@ -1,5 +1,6 @@
+using ECAssistant.Core;
 using System.Text.Json;
-using ECAssistant.Config;
+using ECAssistant.Core.Config;
 
 namespace ECAssistant.TUI.UI;
 

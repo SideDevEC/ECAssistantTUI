@@ -1,15 +1,16 @@
-using ECAssistant.Config;
-using ECAssistant.Engine;
-using ECAssistant.Orchestration;
-using ECAssistant.Tools;
-using ECAssistant.Tools.Shell;
-using ECAssistant.Tools.Background;
+using ECAssistant.Core;
+using ECAssistant.Core.Config;
+using ECAssistant.Core.Engine;
+using ECAssistant.Core.Orchestration;
+using ECAssistant.Core.Tools;
+using ECAssistant.Core.Tools.Shell;
+using ECAssistant.Core.Tools.Background;
 using ECAssistant.TUI.UI;
-using ECAssistant.Session;
+using ECAssistant.Core.Session;
 using ECAssistant.TUI.Session;
-using ECAssistant.Services;
-using ECAssistant.Analysis;
-using ECAssistant.Interfaces;
+using ECAssistant.Core.Services;
+using ECAssistant.Core.Analysis;
+using ECAssistant.Core.Interfaces;
 
 namespace ECAssistant.TUI.Controller;
 

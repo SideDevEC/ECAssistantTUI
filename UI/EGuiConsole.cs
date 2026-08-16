@@ -1,5 +1,6 @@
+using ECAssistant.Core;
 using System.Text;
-using ECAssistant.UI;
+using ECAssistant.Core.UI;
 
 namespace ECAssistant.TUI.UI;
 

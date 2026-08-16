@@ -1,4 +1,5 @@
-using ECAssistant.Session;
+using ECAssistant.Core;
+using ECAssistant.Core.Session;
 using ECAssistant.TUI.Session;
 using ECAssistant.TUI.UI;
 

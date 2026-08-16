@@ -1,3 +1,4 @@
+using ECAssistant.Core;
 using ECAssistant.TUI.UI;
 
 namespace ECAssistant.TUI.Tests.UI;

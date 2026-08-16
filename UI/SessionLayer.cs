@@ -1,5 +1,6 @@
-using ECAssistant.Engine;
-using ECAssistant.Session;
+using ECAssistant.Core;
+using ECAssistant.Core.Engine;
+using ECAssistant.Core.Session;
 using ECAssistant.TUI.Session;
 
 namespace ECAssistant.TUI.UI;

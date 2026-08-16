@@ -1,3 +1,4 @@
+using ECAssistant.Core;
 using System.Text;
 
 namespace ECAssistant.TUI.UI;

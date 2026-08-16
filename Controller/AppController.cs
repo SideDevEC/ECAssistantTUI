@@ -62,7 +62,7 @@ public sealed class AppController
         string workingDir,
         string userConfigDir,
         ILogger logger)
-        : this(console, config, modelPath, workingDir, userConfigDir, logger, null)
+        : this(console, config, modelPath, workingDir, userConfigDir, logger, null, null, null)
     {
     }
 
@@ -74,6 +74,20 @@ public sealed class AppController
         string userConfigDir,
         ILogger logger,
         List<EToolBase>? externalTools)
+        : this(console, config, modelPath, workingDir, userConfigDir, logger, externalTools, null, null)
+    {
+    }
+
+    public AppController(
+        IGuiConsole console,
+        EAgentConfig config,
+        string modelPath,
+        string workingDir,
+        string userConfigDir,
+        ILogger logger,
+        List<EToolBase>? externalTools,
+        BackgroundProcessManager? backgroundProcesses,
+        FileWatcherService? fileWatcher)
     {
         _config = config;
         _modelPath = modelPath;
@@ -82,6 +96,8 @@ public sealed class AppController
         _logger = logger;
         _color = new EColor();
         _externalTools = externalTools;
+        _bgMgr = backgroundProcesses ?? new BackgroundProcessManager();
+        _fileWatcher = fileWatcher;
         
         _console = console;
         _console.SetCallbacks(OnPrompt, OnEscapePressed);
@@ -110,12 +126,12 @@ public sealed class AppController
         // ── Startup output (goes to startup layer's buffer) ──
         _console.WriteLineColored(_color.Cyan + _color.Bold + $"[ECAssistant] {VersionString}" + _color.Reset);
         
-        // ── Background process manager ──
-        _bgMgr = new BackgroundProcessManager();
+        // ── Background process manager (injected or created) ──
+        if (_bgMgr == null!) _bgMgr = new BackgroundProcessManager();
         _console.WriteLineColored(_color.Cyan + _color.Bold + "[Background] Process manager ready." + _color.Reset);
         
-        // ── File watcher ──
-        _fileWatcher = new FileWatcherService(_workingDir, logger: _logger);
+        // ── File watcher (injected or created) ──
+        _fileWatcher ??= new FileWatcherService(_workingDir, logger: _logger);
         _fileWatcher.Start();
         
         // ── Session manager (loads model weights ONCE) ──

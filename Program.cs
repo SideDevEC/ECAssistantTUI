@@ -152,7 +152,7 @@ public class Program
                         // v10.23: Use SessionBuilder from Core (replaces old InitSessionAsync)
                         var builder = new SessionBuilder(_config, effectiveDir, userConfigDir, _logger, bgMgr);
                         // Attach console UI listener before building
-                        var uiRenderer = new ConsoleUiRenderer(Gui, _color); _activeUi = uiRenderer;
+                        var uiRenderer = new ConsoleUiRenderer(Gui, _color, session.GetStreamBuffer); _activeUi = uiRenderer;
                         session.AddListener(uiRenderer);
                         await builder.BuildAsync(session);
                     });
@@ -417,7 +417,7 @@ public class Program
                         // Re-attach UI
                         foreach (var s in sessionManager.List())
                             if (s != newActive) if (_activeUi != null) s.RemoveListener(_activeUi);
-                        var ui = new ConsoleUiRenderer(Gui, _color); _activeUi = ui;
+                        var ui = new ConsoleUiRenderer(Gui, _color, newActive.GetStreamBuffer); _activeUi = ui;
                         newActive.AddListener(ui);
                         // Clear screen and render the new session's output history
                         Gui.ClearCanvas();
@@ -433,7 +433,7 @@ public class Program
                     var newActive = sessionManager.ActiveSession!;
                     foreach (var s in sessionManager.List())
                         if (s != newActive) if (_activeUi != null) s.RemoveListener(_activeUi);
-                    var ui = new ConsoleUiRenderer(Gui, _color); _activeUi = ui;
+                    var ui = new ConsoleUiRenderer(Gui, _color, newActive.GetStreamBuffer); _activeUi = ui;
                     newActive.AddListener(ui);
                     // Clear screen and render the new session's output history
                     Gui.ClearCanvas();
@@ -453,7 +453,7 @@ public class Program
                     var newSession = sessionManager.CreateSession(name, label: arg);
                     var builder = new SessionBuilder(_config, workingDir, userConfigDir, _logger, bgMgr);
                     // Attach console UI listener
-                    var uiRenderer = new ConsoleUiRenderer(Gui, _color); _activeUi = uiRenderer;
+                    var uiRenderer = new ConsoleUiRenderer(Gui, _color, newSession.GetStreamBuffer); _activeUi = uiRenderer;
                     newSession.AddListener(uiRenderer);
                     await builder.BuildAsync(newSession);
                     Gui.BlankLine();

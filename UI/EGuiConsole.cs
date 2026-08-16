@@ -608,6 +608,63 @@ public sealed class EGuiConsole : EGuiBase
     public override void WriteRawDirect(string text) => WriteOutput(text);
 
     // ═══════════════════════════════════════════════════
+    //  LIVE STREAM LINE (polling-based live token display)
+    // ═══════════════════════════════════════════════════
+
+    private string? _liveStreamText;
+    private int _liveStreamLineIndex = -1; // index in _outputLines of the live line
+
+    /// <summary>
+    /// Update or create a live stream line at the bottom of the output.
+    /// Called by the stream poll timer to show tokens as they arrive.
+    /// </summary>
+    public void UpdateLiveStreamLine(string text)
+    {
+        if (!_ansiSupported) return;
+
+        lock (_writeLock)
+        {
+            if (_liveStreamLineIndex < 0 || _liveStreamLineIndex >= _outputLines.Count)
+            {
+                // First token — add a new line
+                _outputLines.Add(text);
+                _liveStreamLineIndex = _outputLines.Count - 1;
+            }
+            else
+            {
+                // Update existing line
+                _outputLines[_liveStreamLineIndex] = text;
+            }
+
+            _liveStreamText = text;
+            _scrollOffset = 0; // snap to bottom
+            _outputDirty = true;
+            UpdateScrollStatus();
+            Repaint();
+            PositionCursorAtInput();
+            Console.Out.Flush();
+        }
+    }
+
+    /// <summary>
+    /// Clear the live stream line marker. Called when streaming stops.
+    /// The line stays in output history (it will be replaced by the flush).
+    /// </summary>
+    public void ClearLiveStreamLine()
+    {
+        lock (_writeLock)
+        {
+            // Remove the live line from output — it will be replaced by the flush
+            if (_liveStreamLineIndex >= 0 && _liveStreamLineIndex < _outputLines.Count)
+            {
+                _outputLines.RemoveAt(_liveStreamLineIndex);
+                _liveStreamLineIndex = -1;
+            }
+            _liveStreamText = null;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════
     //  SCROLL NAVIGATION
     // ═══════════════════════════════════════════════════
 

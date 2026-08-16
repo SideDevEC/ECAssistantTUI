@@ -8,16 +8,24 @@ namespace ECAssistant.Session;
 /// This is the ONLY class outside UI/ that knows about colors.
 /// It maps OutputState → ANSI colors and routes through EGuiConsole.
 /// Everything upstream just uses ISessionOutput with states.
+///
+/// v10.26: Live stream polling — during streaming, a timer polls the session's
+/// stream buffer every 80ms and writes the live content to the last output line,
+/// giving the appearance of real-time token output.
 /// </summary>
-public class ConsoleUiRenderer : IOutputListener
+public class ConsoleUiRenderer : IOutputListener, IDisposable
 {
     private readonly EGuiBase _gui;
     private readonly EColor _color;
+    private readonly Func<string>? _streamBufferGetter;
+    private Timer? _streamPollTimer;
+    private string _lastStreamSnapshot = "";
 
-    public ConsoleUiRenderer(EGuiBase gui, EColor color)
+    public ConsoleUiRenderer(EGuiBase gui, EColor color, Func<string>? streamBufferGetter = null)
     {
         _gui = gui;
         _color = color;
+        _streamBufferGetter = streamBufferGetter;
     }
 
     /// <summary>Map output states to ANSI color codes.</summary>
@@ -62,8 +70,39 @@ public class ConsoleUiRenderer : IOutputListener
             _gui.WriteLineColored($"{color}{text}{_color.Reset}");
     }
 
-    public void OnStreamStart() { }
-    public void OnStreamStop() { }
+    public void OnStreamStart()
+    {
+        // Stop any existing poll timer
+        _streamPollTimer?.Dispose();
+        _lastStreamSnapshot = "";
+
+        if (_streamBufferGetter == null) return;
+        if (_gui is not EGuiConsole console) return;
+
+        // Start polling the stream buffer every 80ms
+        _streamPollTimer = new Timer(_ =>
+        {
+            try
+            {
+                var current = _streamBufferGetter();
+                if (current == _lastStreamSnapshot) return; // no change
+                _lastStreamSnapshot = current;
+
+                // Write the live stream content to the console's last line
+                console.UpdateLiveStreamLine(current);
+            }
+            catch { }
+        }, null, 80, 80);
+    }
+
+    public void OnStreamStop()
+    {
+        _streamPollTimer?.Dispose();
+        _streamPollTimer = null;
+
+        if (_gui is EGuiConsole console)
+            console.ClearLiveStreamLine();
+    }
 
     public bool OnRequestApproval(string message)
     {
@@ -101,5 +140,10 @@ public class ConsoleUiRenderer : IOutputListener
                     break;
             }
         }
+    }
+
+    public void Dispose()
+    {
+        _streamPollTimer?.Dispose();
     }
 }

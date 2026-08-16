@@ -1,7 +1,8 @@
 # ECAssistant App — Architecture
 
 **Updated:** 2026-08-16 (v11.0)
-**Status:** Design document — refactor in progress
+**Build:** 0 errors, 0 warnings
+**Tests:** 66/66 passing
 
 ## Overview
 
@@ -9,7 +10,7 @@ ECAssistant is a full-screen terminal UI (TUI) for a local, offline AI coding as
 
 The architecture follows a strict three-layer separation:
 
-1. **Controller** — application logic, command parsing, session/layer lifecycle
+1. **Controller** — application logic, layer-switching commands, session/layer lifecycle
 2. **EGuiConsole** — terminal rendering engine, input reading, delta rendering
 3. **BaseLayer** — per-screen state: output buffers, scroll position, status bar
 
@@ -22,28 +23,30 @@ ECAssistant.sln / ECAssistant.slnx
 ├── ECAssistant.csproj              ← Console exe (App)
 │     OutputType=Exe, AssemblyName=e-assistant
 │     References: ECAssistant.Core.dll (from ECAssistantCore repo)
-│     No LLamaSharp packages — Core ships everything
+│     No LLamaSharp packages in source — runtime deps only
 │     No content files — system prompts + config embedded in Core DLL
 │
 └── Tests/ECAssistant.Tests.csproj  ← UI tests only
       ProjectReference → ECAssistant.csproj
       Reference → ECAssistant.Core.dll
+      66 tests
 ```
 
-## Files (v11.0 target)
+## Files (v11.0)
 
 ```
 Program.cs                          ← Minimal entry point — creates Controller, calls Run()
+Controller/
+└── AppController.cs                ← Application logic, layer-switching, session management
 UI/
 ├── EGuiConsole.cs                  ← Terminal engine (render + input + delta)
-├── IGuiLayer.cs                    ← (removed — replaced by BaseLayer)
-├── BaseLayer.cs                    ← Abstract layer: output buffer, scroll, status, repaint
-├── SessionLayer.cs                 ← One per session, owns output buffer, fills continuously
-├── HelpLayer.cs                    ← Static help content layer
-├── LoadingIndicator.cs             ← Animated loading dots (status bar)
+├── BaseLayer.cs                    ← Abstract layer: output buffer, scroll, status, ANSI helpers
+├── SessionLayer.cs                 ← One per session, owns output buffer, handles session commands
+├── StartupLayer.cs                 ← Always-present home screen, boot log, app status
+├── HelpLayer.cs                    ← Help overlay
+├── ConfigLayer.cs                  ← Config inspection overlay
+├── LoadingIndicator.cs             ← Animated loading dots
 └── ConsoleUiRenderer.cs            ← Bridges Core IOutputListener → SessionLayer buffer
-Controller/
-└── AppController.cs                ← Application logic, command parsing, layer lifecycle
 ```
 
 ## Dependency Flow
@@ -57,7 +60,7 @@ Program.cs
   ▼
 AppController
   ├── creates → EGuiConsole (owns it)
-  ├── creates → Dictionary<LayerKey, BaseLayer> (owns all layers)
+  ├── creates → Dictionary<string, BaseLayer> (owns all layers)
   ├── holds  → ActiveLayer reference
   ├── holds  → SessionManager (Core)
   ├── holds  → config, logger, bgMgr (injected from Program)
@@ -66,12 +69,15 @@ AppController
   │   controller.OnPrompt(string input)       ← user hit Enter
   │   controller.OnEscapePressed()            ← user hit ESC
   │
-  │ EGuiConsole talks directly to ActiveLayer:
-  │   layer.HandleScroll(lines)               ← scroll keys / mouse wheel
-  │   layer.OnResize()                        ← terminal resize
-  │   layer.GetVisibleRows()                  ← for rendering
-  │   layer.GetStatusBar()                    ← for rendering
-  │   layer.GetInputPrompt()                  ← for input line prefix
+  │ Controller handles only layer-switching:
+  │   /help → switch to HelpLayer
+  │   /home → switch to StartupLayer
+  │   /config → switch to ConfigLayer
+  │   /quit → shutdown
+  │   /session <n> → switch to SessionLayer
+  │   /session-new <name> → create + switch
+  │   Everything else → activeLayer.ProcessInput(input)
+  │   Layer returns false → controller handles SessionManager commands
   │
   ▼
 EGuiConsole
@@ -87,7 +93,7 @@ EGuiConsole
   │   Enter                   → controller.OnPrompt(input) → clear input buffer
   │   ESC                     → controller.OnEscapePressed()
   │   scroll keys / mouse     → activeLayer.HandleScroll(...)
-  │   resize                  → activeLayer.OnResize()
+  │   resize                  → activeLayer.UpdateDimensions(...)
   │
   ▼
 BaseLayer (abstract)
@@ -100,242 +106,103 @@ BaseLayer (abstract)
   │
   ├── GetVisibleRows() → List<string>     ← rows to render, after scroll + wrap
   ├── GetStatusBar() → string             ← status bar content
-  ├── HandleScroll(int lines)             ← scroll up/down, updates offset
-  ├── ScrollToBottom()                    ← reset scroll to newest
-  ├── OnResize()                          ← recalculate visible region
+  ├── GetInputPrompt() → string           ← "> " (default, override to change)
+  ├── ProcessInput(string) → bool         ← /clear handled here, override for layer-specific
+  ├── HandleScroll(int direction, int lines)
+  ├── AddOutputLine(string text)          ← splits on \n, strips \r
+  ├── UpdateLiveStreamLine(string text)   ← streaming token display
+  ├── ClearLiveStreamLine()               ← remove live stream line
   ├── BindToConsole(EGuiConsole)          ← layer gets console reference for repaint
-  ├── UnbindFromConsole()                 ← clear console reference
-  ├── RequestRepaint()                    ← calls console.Repaint() if bound and active
+  ├── UnbindFromConsole()                 ← clear reference
+  ├── RequestRepaint()                    ← calls console.RequestRepaint() if bound
   │
   ├── SessionLayer : BaseLayer
   │     ├── holds: Core AgentSession reference
-  │     ├── holds: ConsoleUiRenderer (writes to THIS layer's buffer, not to console)
+  │     ├── holds: ConsoleUiRenderer (writes to THIS layer's buffer)
   │     ├── buffer fills continuously — even when not the active layer
-  │     ├── stream updates write to LiveStreamLine, triggers RequestRepaint()
-  │     └── GetInputPrompt() → "> " (standard session prompt)
+  │     ├── ProcessInput: /clear-history, /save-context, /context-status,
+  │     │   /stop, /tools, /single + forwards non-commands as prompts to Core
+  │     └── defers /sessions, /session-peek, etc. to controller (returns false)
   │
-  └── HelpLayer : BaseLayer
-        ├── static content (help text lines)
-        ├── GetInputPrompt() → "" (no input prompt in help)
-        └── all keys handled by controller (Enter/ESC → switch back)
+  ├── StartupLayer : BaseLayer
+  │     ├── always present, never deleted
+  │     ├── shows boot log during startup, home screen after
+  │     ├── displays: version, model, secondary model, config path, working dir, session count
+  │     ├── ProcessInput: shows hint for non-commands, defers session commands to controller
+  │     └── default active layer when no sessions exist
+  │
+  ├── HelpLayer : BaseLayer
+  │     ├── static help content
+  │     ├── ProcessInput: any input → return false (controller pops layer)
+  │     └── ESC → controller pops layer
+  │
+  └── ConfigLayer : BaseLayer
+        ├── read-only config inspection (LLM, agent, memory, workspace, tools, subagent)
+        ├── BuildFromConfig() populates buffer from EAgentConfig
+        ├── ProcessInput: any input → return false (controller pops layer)
+        └── ESC → controller pops layer
 ```
-
-## Component Responsibilities
-
-### Program.cs
-
-Minimal entry point. Only responsibility:
-
-1. Build config from `AgentConfigBuilder` + command-line args
-2. Create `AppController` with config, model path, working dir, logger
-3. Call `controller.Run()`
-4. Return exit code
-
-Program.cs does NOT know about EGuiConsole, layers, sessions, or UI rendering.
-
-### AppController
-
-The binder and application logic hub.
-
-**Construction:**
-- Creates `EGuiConsole` instance
-- Loads Core session manager, discovers sessions
-- Creates first `SessionLayer` for the "main" session
-- Binds console ↔ layer, sets active layer
-
-**Run loop:**
-- Calls `console.InitConsole()` → enters alternate buffer
-- Calls `console.InputLoop()` → blocks here forever; EGuiConsole reads keys
-- On quit: calls `console.ShutdownConsole()`
-
-**Callbacks from EGuiConsole:**
-- `OnPrompt(string input)` — user hit Enter:
-  - `/help` → create/switch to HelpLayer
-  - `/quit`, `/exit` → stop all sessions, end loop
-  - `/clear` → active session layer clears its buffer
-  - `/session <n>` → switch to SessionLayer #n
-  - `/session-new <name>` → create new session + new SessionLayer
-  - `/tools`, `/context-status`, etc. → query Core, write result to active layer buffer
-  - everything else → forward as prompt to active Core session
-- `OnEscapePressed()` — user hit ESC:
-  - Active layer is SessionLayer → stop running session
-  - Active layer is HelpLayer → switch back to prior active layer
-
-**Layer lifecycle:**
-```
-SwitchLayer(LayerKey key):
-  1. oldLayer = ActiveLayer
-  2. oldLayer.UnbindFromConsole()
-  3. console.SetActiveLayer(null)
-  4. newLayer = layers[key]
-  5. newLayer.BindToConsole(console)
-  6. console.SetActiveLayer(newLayer)
-  7. console.Repaint()
-  8. ActiveLayer = newLayer
-```
-
-### EGuiConsole
-
-Pure terminal engine. No application logic. No output storage. No command parsing.
-
-**Owns:**
-- Terminal state (alternate buffer, cursor position, ANSI support detection)
-- Input buffer (StringBuilder — what the user is currently typing)
-- Delta rendering cache (`_screenRows[]` — what's currently on screen)
-- Screen dimensions (width, height, region boundaries)
-- Resize watcher (200ms timer polling `Console.WindowWidth/Height`)
-- ActiveLayer reference (who to ask for visible rows)
-- Controller reference (for OnPrompt / OnEscapePressed callbacks)
-
-**Does NOT own:**
-- Output line buffers (those live on layers)
-- Scroll position (lives on layers)
-- Status bar content (lives on layers)
-- Any application state
-
-**Layout:**
-```
-┌─────────────────────────────────┐  row 0
-│ Output region (from ActiveLayer) │  → layer.GetVisibleRows()
-├─────────────────────────────────┤  row (height-2)
-│ Status bar (from ActiveLayer)    │  → layer.GetStatusBar()
-├─────────────────────────────────┤  row (height-1)
-│ > user input (from input buffer) │  → EGuiConsole owns this
-└─────────────────────────────────┘
-```
-
-**Delta rendering:**
-- `_screenRows[]` cache tracks what's currently on screen
-- `Repaint()` asks ActiveLayer for visible rows, diffs against cache
-- Only writes rows that changed (common case: 1 row for new output line)
-- Full repaint on resize / layer switch / clear (invalidates cache)
-
-**Input loop:**
-```
-while running:
-  key = Console.ReadKey(true)
-
-  if printable char or backspace or tab:
-    → update input buffer locally
-    → repaint input line only
-    → continue (no controller involvement)
-
-  if Enter:
-    → input = inputBuffer.ToString()
-    → clear input buffer
-    → repaint input line
-    → controller.OnPrompt(input)
-    → continue
-
-  if ESC:
-    → controller.OnEscapePressed()
-    → continue
-
-  if scroll keys (PageUp/PageDown/ArrowUp/ArrowDown/Home/End):
-    → activeLayer.HandleScroll(direction, amount)
-    → repaint output region
-    → continue
-
-  if mouse wheel (X10 escape sequence):
-    → parse button (64=up, 65=down)
-    → activeLayer.HandleScroll(direction, 3)
-    → repaint output region
-    → continue
-```
-
-### BaseLayer (Abstract)
-
-Per-screen state container. Each layer represents one full screen of content.
-
-**Properties:**
-- `OutputLines` — `List<string>` with ANSI codes, the layer's output history
-- `ScrollOffset` — int, 0 = bottom (newest), N = scrolled up N lines
-- `StatusBar` — string, content for the status bar row
-- `LiveStreamText` — string?, current live stream content (or null when not streaming)
-- `LiveStreamLineIndex` — int, index in OutputLines of the live stream line (-1 = none)
-- `IsDirty` — bool, buffer changed since last render
-- `Console` — EGuiConsole?, set by BindToConsole, cleared by UnbindFromConsole
-
-**Methods:**
-- `GetVisibleRows()` — returns wrapped, scrolled rows for the output region
-- `GetStatusBar()` — returns status bar string (or empty)
-- `GetInputPrompt()` — returns the prompt prefix ("> " for sessions, "" for help)
-- `HandleScroll(int direction, int lines)` — updates scroll offset, triggers repaint
-- `ScrollToBottom()` — resets scroll to 0
-- `OnResize()` — recalculates visible region
-- `AddOutputLine(string text)` — adds a line to the buffer (splits on \n, strips \r)
-- `BindToConsole(EGuiConsole console)` — stores reference for repaint calls
-- `UnbindFromConsole()` — clears reference
-- `RequestRepaint()` — if console is bound, calls `console.Repaint()`
-- `Clear()` — clears output buffer, resets scroll
-
-**Static helpers (moved from EGuiConsole):**
-- `StripAnsi(string text)` — remove ANSI escape sequences
-- `TruncateAnsi(string text, int maxWidth)` — truncate with ANSI codes
-- `WrapLine(string text, int maxCols)` — wrap long lines into multiple rows
-
-### SessionLayer : BaseLayer
-
-One instance per Core session. Owns the output buffer for that session.
-
-**Additional properties:**
-- `SessionKey` — string, the Core session key
-- `CoreSession` — AgentSession reference (from Core)
-- `Renderer` — ConsoleUiRenderer, writes to THIS layer's buffer
-
-**Behavior:**
-- ConsoleUiRenderer writes output to this layer's `AddOutputLine()` — NOT to EGuiConsole
-- Stream polling (80ms timer) updates `LiveStreamLine` in this layer's buffer
-- Buffer keeps filling even when this layer is not the active one
-- When user switches back to this layer, all output is already there
-- RequestRepaint() only fires if the layer is bound to the console (i.e., is active)
-
-### HelpLayer : BaseLayer
-
-Static content layer. Shows the help screen.
-
-**Behavior:**
-- Pre-filled with help text lines at construction
-- No live updates, no streaming
-- GetInputPrompt() returns "" (no input prompt on help screen)
-- Controller handles ESC/Enter by switching back to the prior active layer
-
-### ConsoleUiRenderer
-
-Bridges Core's `IOutputListener` to a `SessionLayer`'s buffer.
-
-**Changes from v10.25:**
-- Previously wrote to `EGuiConsole` directly
-- Now writes to `SessionLayer.AddOutputLine()` — the layer owns the buffer
-- Stream polling timer still runs here, but updates the layer's LiveStreamLine, not console's
-- Session switching: new ConsoleUiRenderer per session, each pointing at its own layer
 
 ## Screen Layout
 
 ```
 ┌─────────────────────────────────┐  row 0
-│ Output region (scrolls)          │  → ActiveLayer.GetVisibleRows()
+│ Output region (from ActiveLayer) │  → layer.GetVisibleRows()
 │ ...                              │  → EGuiConsole delta-renders against cache
 │                                  │
 ├─────────────────────────────────┤  row (height-2)
-│ Status bar                       │  → ActiveLayer.GetStatusBar()
+│ Status bar                       │  → layer.GetStatusBar()
 ├─────────────────────────────────┤  row (height-1)
-│ > user input here                │  → EGuiConsole input buffer
+│ > user input here                │  → EGuiConsole input buffer (always visible)
 └─────────────────────────────────┘
 ```
 
 - Output region: rows 0 to (height-3)
 - Status bar: row (height-2)
-- Input line: row (height-1)
+- Input line: row (height-1) — `> ` prompt visible on all layers
 - EGuiConsole owns the input line (terminal concern)
 - ActiveLayer owns the output region + status bar content
+
+## Command Routing
+
+```
+User types input → Enter → Controller.OnPrompt(input)
+  │
+  ├── /help, /home, /config, /quit, /session, /session-new
+  │     → Controller handles directly (layer switching / shutdown)
+  │
+  └── Everything else → activeLayer.ProcessInput(input)
+        │
+        ├── Returns true → handled by layer (e.g., /clear, /stop, /tools, prompt)
+        │
+        └── Returns false → Controller.HandleSessionManagerCommand(input)
+              → /sessions, /session-peek, /session-stop, /session-close,
+                /session-rename, /session-info, /session-queue, /tools
+```
+
+## ESC Handling
+
+```
+User presses ESC → Controller.OnEscapePressed()
+  │
+  ├── ActiveLayer is HelpLayer or ConfigLayer → pop back to prior layer
+  ├── ActiveLayer is StartupLayer → no-op
+  └── ActiveLayer is SessionLayer → stop running session
+```
+
+## Config
+
+- Single config file: `~/ECAssistant/appsettings.json`
+- No `eca-data/` subdirectory (removed in v11.0)
+- Core's `AgentConfigBuilder` uses working directory directly
+- Secondary model: `config.SecondaryModel.Enabled` and `.ModelPath`
 
 ## Key Constraints
 
 - `Console.Write/WriteLine` ONLY in `EGuiConsole`
-- `EColor` used ONLY by `ConsoleUiRenderer`, `LoadingIndicator`, `Program.cs` (injected into controller)
+- `EColor` used ONLY by `ConsoleUiRenderer`, `LoadingIndicator`, layers, `Program.cs`
 - App has zero LLamaSharp dependencies in source code (runtime deps only)
-- App has zero external file dependencies (no appsettings.json, no system prompts)
+- App has zero external file dependencies (no appsettings.json in repo, no system prompts)
 - Program.cs only interacts with AppController — nothing else
 - EGuiConsole has no application logic — it renders and forwards input
 - Layers have no knowledge of each other or the controller
@@ -345,24 +212,17 @@ Bridges Core's `IOutputListener` to a `SessionLayer`'s buffer.
 
 ```
 1. Build ECAssistantCore.sln → produces ECAssistant.Core.dll
-2. Build ECAssistant.sln → references the DLL via HintPath
+2. Copy DLL to ECAssistant/lib/
+3. Build ECAssistant.sln → references the DLL via HintPath
 ```
 
-App csproj references Core DLL:
-```xml
-<Reference Include="ECAssistant.Core">
-  <HintPath>lib\ECAssistant.Core.dll</HintPath>
-  <Private>true</Private>
-</Reference>
-```
+## Test Summary (66 tests)
 
-## Test Migration (v10.25 → v11.0)
-
-| Current Test File | New Location | Notes |
+| File | Tests | What |
 |---|---|---|
-| `EGuiConsoleAnsiTests.cs` | `BaseLayerAnsiTests.cs` | StripAnsi, TruncateAnsi, WrapLine move to BaseLayer |
-| `EGuiConsoleBufferTests.cs` | `BaseLayerBufferTests.cs` | AddOutputLine, multi-line, \r\n stripping move to BaseLayer |
-| `LayerStackTests.cs` | `LayerTests.cs` | No stack anymore — test SessionLayer + HelpLayer directly |
-| `ConsoleUiRendererTests.cs` | `ConsoleUiRendererTests.cs` | Updated to verify writes go to SessionLayer buffer, not EGuiConsole |
-| (new) | `EGuiConsoleRenderingTests.cs` | Test delta rendering with mock layer |
-| (new) | `AppControllerTests.cs` | Test OnPrompt command parsing, layer switching, ESC handling |
+| `BaseLayerAnsiTests.cs` | 15 | StripAnsi, TruncateAnsi, WrapLine |
+| `BaseLayerBufferTests.cs` | 10 | AddOutputLine, multi-line, \r\n, scroll reset, clear |
+| `LayerTests.cs` | 21 | SessionLayer, HelpLayer, StartupLayer, ConfigLayer, scroll, live stream, ProcessInput |
+| `ConsoleUiRendererTests.cs` | 16 | OnOutput tags, stream, RenderHistory, writes to SessionLayer |
+| `EGuiConsoleRenderingTests.cs` | (planned) | Delta rendering with mock layer |
+| `AppControllerTests.cs` | (planned) | OnPrompt command parsing, layer switching |

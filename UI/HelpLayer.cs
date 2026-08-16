@@ -33,4 +33,14 @@ public sealed class HelpLayer : BaseLayer
         _scrollOffset = 0;
         _isDirty = true;
     }
+    
+    public override bool ProcessInput(string input)
+    {
+        // Let base handle common commands (/clear)
+        if (base.ProcessInput(input)) return true;
+        
+        // Any other input (Enter with empty, or any text) → signal return
+        // The controller handles the actual layer switch back
+        return false;
+    }
 }

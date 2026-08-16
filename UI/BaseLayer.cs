@@ -273,6 +273,38 @@ public abstract class BaseLayer
     }
     
     // ═══════════════════════════════════════════════════
+    //  INPUT PROCESSING
+    // ═══════════════════════════════════════════════════
+    
+    /// <summary>
+    /// Process user input. Called by the controller after it has handled
+    /// layer-switching commands (/help, /home, /quit, /session, /session-new).
+    /// 
+    /// Base implementation handles common commands that work on any layer:
+    /// /clear — clears the output buffer.
+    /// Returns true if handled, false if the layer didn't recognize it.
+    /// Override in subclasses for layer-specific commands and prompt routing.
+    /// </summary>
+    public virtual bool ProcessInput(string input)
+    {
+        if (string.IsNullOrEmpty(input)) return true;
+        
+        bool isCommand = input.StartsWith("/");
+        if (!isCommand) return false;
+        
+        var cmd = input[1..].ToLower().Trim();
+        
+        switch (cmd)
+        {
+            case "clear":
+                Clear();
+                return true;
+            default:
+                return false;
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════
     //  ANSI HELPERS (moved from EGuiConsole)
     // ═══════════════════════════════════════════════════
     

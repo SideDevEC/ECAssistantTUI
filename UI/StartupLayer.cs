@@ -87,4 +87,41 @@ public sealed class StartupLayer : BaseLayer
         _isDirty = true;
         RequestRepaint();
     }
+    
+    public override bool ProcessInput(string input)
+    {
+        // Let base handle common commands (/clear)
+        if (base.ProcessInput(input)) return true;
+        
+        bool isCommand = input.StartsWith("/");
+        if (!isCommand)
+        {
+            // Non-command on startup → show hint
+            AddOutputLine($"{_color.Cyan}[Hint] Switch to a session first — use /session <n> or /session-new <name>{_color.Reset}");
+            return true;
+        }
+        
+        // Sessions listing and session info need SessionManager — controller handles them
+        var cmd = input[1..].ToLower().Trim();
+        var parts = cmd.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+        switch (parts[0])
+        {
+            case "sessions":
+            case "session-peek":
+            case "session-stop":
+            case "session-close":
+            case "session-rename":
+            case "session-info":
+            case "session-queue":
+            case "session-queue-remove":
+            case "session-queue-clear":
+            case "tools":
+                // These need SessionManager or active session — controller handles them
+                return false;
+            default:
+                // Unknown command
+                AddOutputLine($"{_color.Red}[Error] Unknown command: {input}{_color.Reset}");
+                return true;
+        }
+    }
 }

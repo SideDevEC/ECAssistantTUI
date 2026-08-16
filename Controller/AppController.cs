@@ -121,6 +121,9 @@ public sealed class AppController
             
             // Create a SessionLayer for this session
             var layer = new SessionLayer(session.Key);
+            layer.CoreSession = session;
+            layer.Color = _color;
+            layer.WorkingDir = _workingDir;
             _layers[layer.Name] = layer;
             _sessionLayers[session.Key] = layer;
             
@@ -235,151 +238,59 @@ public sealed class AppController
     //  CALLBACKS FROM EGUICONSOLE
     // ═══════════════════════════════════════════════════
     
-    /// <summary>Called when user hits Enter. Receives the full input string.</summary>
+    /// <summary>Called when user hits Enter. Receives the full input string.
+    /// Controller handles only layer-switching commands. Everything else
+    /// is delegated to the active layer's ProcessInput.
+    /// </summary>
     private void OnPrompt(string input)
     {
         input = input.Trim();
         if (string.IsNullOrEmpty(input)) return;
         
-        // ── Commands use / prefix ──
-        bool isCommand = input.StartsWith("/");
-        if (isCommand)
-            input = input[1..]; // strip the /
-        
-        // ── Simple commands ──
-        switch (input.ToLower())
+        // ── Controller handles layer-switching commands only ──
+        if (input.StartsWith("/"))
         {
-            case "quit":
-            case "exit":
-                _console.WriteLineColored(_color.Cyan + _color.Bold + "[Bye] Goodbye." + _color.Reset);
-                _console.BlankLine();
-                _console.Quit();
-                return;
+            var lowerInput = input[1..].ToLower().Trim();
+            var parts = lowerInput.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+            var cmd = parts[0];
+            var arg = parts.Length > 1 ? parts[1].Trim() : "";
             
-            case "clear":
-                _activeLayer?.Clear();
-                return;
-            
-            case "home":
-                GoHome();
-                return;
-            
-            case "help":
-                ShowHelp();
-                return;
-            
-            case "tools":
-                ListTools();
-                return;
-            
-            case "clear-history":
-                _sessionManager?.ActiveSession?.Engine.ClearHistory();
-                return;
-            
-            case "save-context":
-                SaveContext();
-                return;
-            
-            case "single":
-                var orchestrator = _sessionManager?.ActiveSession?.Orchestrator;
-                if (orchestrator != null)
-                {
-                    _console.WriteLineColored(_color.Cyan + "[Mode] Single-turn mode reset." + _color.Reset);
-                    orchestrator.Reset();
-                }
-                return;
-            
-            case "stop":
-                StopActiveSession();
-                return;
-            
-            case "context-status":
-                ShowContextStatus();
-                return;
-            
-            default:
-                break;
+            switch (cmd)
+            {
+                case "quit":
+                case "exit":
+                    _console.WriteLineColored(_color.Cyan + _color.Bold + "[Bye] Goodbye." + _color.Reset);
+                    _console.BlankLine();
+                    _console.Quit();
+                    return;
+                
+                case "home":
+                    GoHome();
+                    return;
+                
+                case "help":
+                    ShowHelp();
+                    return;
+                
+                case "session":
+                    SwitchSession(arg);
+                    return;
+                
+                case "session-new":
+                    CreateNewSession(arg);
+                    return;
+            }
         }
         
-        // ── Commands with arguments ──
-        var parts = input.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
-        var cmd = parts[0].ToLower();
-        var arg = parts.Length > 1 ? parts[1].Trim() : "";
-        
-        switch (cmd)
+        // ── Everything else goes to the active layer ──
+        if (_activeLayer != null)
         {
-            case "sessions":
-                ShowSessionList();
-                return;
-            
-            case "session":
-                SwitchSession(arg);
-                return;
-            
-            case "session-new":
-                CreateNewSession(arg);
-                return;
-            
-            case "session-stop":
-                StopSession(arg);
-                return;
-            
-            case "session-close":
-                CloseSession(arg);
-                return;
-            
-            case "session-peek":
-                PeekSession(arg);
-                return;
-            
-            case "session-rename":
-                RenameSession(arg);
-                return;
-            
-            case "session-info":
-                SessionInfo(arg);
-                return;
-            
-            case "session-queue":
-                ShowQueue();
-                return;
-            
-            case "session-queue-remove":
-                RemoveFromQueue(arg);
-                return;
-            
-            case "session-queue-clear":
-                _sessionManager?.ActiveSession?.ClearQueue();
-                _console.WriteLineColored(_color.Green + "[Queue] Cleared." + _color.Reset);
-                return;
-            
-            default:
-                break;
+            bool handled = _activeLayer.ProcessInput(input);
+            if (handled) return;
         }
         
-        // ── Not a command — route as prompt to active session ──
-        if (isCommand)
-        {
-            _console.WriteLineColored(_color.Red + $"[Error] Unknown command: /{input}" + _color.Reset);
-            return;
-        }
-        
-        // If on startup layer, don't route prompts to sessions
-        if (_activeLayer is StartupLayer)
-        {
-            _console.WriteLineColored(_color.Cyan + "[Hint] Switch to a session first — use /session <n> or /session-new <name>" + _color.Reset);
-            return;
-        }
-        
-        var activeSession = _sessionManager?.ActiveSession;
-        if (activeSession != null)
-        {
-            activeSession.Prompt(input);
-        }
-        else
-        {
-            _console.WriteLineColored(_color.Yellow + "[Hint] No active session. Use /session-new to create one." + _color.Reset);
-        }
+        // Layer returned false — it needs the controller for SessionManager commands
+        HandleSessionManagerCommand(input);
     }
     
     /// <summary>Called when user hits ESC (with empty input buffer).</summary>
@@ -403,6 +314,77 @@ public sealed class AppController
                 stopSession.Stop();
                 _console.WriteLineColored(_color.Red + _color.Bold + "[Stop] Cancelling active session..." + _color.Reset);
             }
+        }
+    }
+    
+    // ═══════════════════════════════════════════════════
+    //  SESSION MANAGER COMMANDS (deferred by layers)
+    // ═══════════════════════════════════════════════════
+    
+    /// <summary>
+    /// Handle commands that layers deferred to the controller because they
+    /// need access to SessionManager. These are session management commands
+    /// that don't involve layer switching.
+    /// </summary>
+    private void HandleSessionManagerCommand(string input)
+    {
+        if (!input.StartsWith("/"))
+        {
+            // Non-command that wasn't handled by any layer — just ignore
+            return;
+        }
+        
+        var lowerInput = input[1..].ToLower().Trim();
+        var parts = lowerInput.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+        var cmd = parts[0];
+        var arg = parts.Length > 1 ? parts[1].Trim() : "";
+        
+        switch (cmd)
+        {
+            case "sessions":
+                ShowSessionList();
+                return;
+            
+            case "session-peek":
+                PeekSession(arg);
+                return;
+            
+            case "session-stop":
+                StopSession(arg);
+                return;
+            
+            case "session-close":
+                CloseSession(arg);
+                return;
+            
+            case "session-rename":
+                RenameSession(arg);
+                return;
+            
+            case "session-info":
+                SessionInfo(arg);
+                return;
+            
+            case "session-queue":
+                ShowQueue();
+                return;
+            
+            case "session-queue-remove":
+                RemoveFromQueue(arg);
+                return;
+            
+            case "session-queue-clear":
+                _sessionManager?.ActiveSession?.ClearQueue();
+                _console.WriteLineColored(_color.Green + "[Queue] Cleared." + _color.Reset);
+                return;
+            
+            case "tools":
+                ListTools();
+                return;
+            
+            default:
+                _console.WriteLineColored(_color.Red + $"[Error] Unknown command: {input}" + _color.Reset);
+                return;
         }
     }
     
@@ -533,40 +515,6 @@ public sealed class AppController
         }
     }
     
-    private void SaveContext()
-    {
-        var session = _sessionManager?.ActiveSession;
-        if (session == null) return;
-        var p = Path.Combine(_workingDir, ".sessions", session.Key, "transcript.json");
-        session.Engine.SaveTranscript(p);
-        _console.BlankLine();
-    }
-    
-    private void StopActiveSession()
-    {
-        var stopSession = _sessionManager?.ActiveSession;
-        if (stopSession != null && stopSession.RunState == SessionRunState.Running)
-        {
-            stopSession.Stop();
-            _console.WriteLineColored(_color.Red + _color.Bold + "[Stop] Cancelling active session..." + _color.Reset);
-        }
-        else
-        {
-            _console.WriteLineColored(_color.Cyan + "[Stop] Nothing is running." + _color.Reset);
-        }
-    }
-    
-    private void ShowContextStatus()
-    {
-        var s = _sessionManager?.ActiveSession;
-        if (s != null)
-        {
-            _console.BlankLine();
-            _console.WriteLineColored(_color.Cyan + _color.Bold + "[Context] " + s.Engine.ContextStatusSummary + _color.Reset);
-            _console.BlankLine();
-        }
-    }
-    
     private void ShowSessionList()
     {
         if (_sessionManager == null) return;
@@ -625,6 +573,9 @@ public sealed class AppController
             
             // Create a SessionLayer for the new session
             var layer = new SessionLayer(newSession.Key);
+            layer.CoreSession = newSession;
+            layer.Color = _color;
+            layer.WorkingDir = _workingDir;
             _layers[layer.Name] = layer;
             _sessionLayers[newSession.Key] = layer;
             

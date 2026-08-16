@@ -130,6 +130,37 @@ public class LayerTests
         Assert.Contains(layer._outputLines, l => l.Contains("/session"));
     }
     
+    // ── BaseLayer ProcessInput ──
+    
+    [Fact]
+    public void BaseLayer_ProcessInput_Clear_ClearsBuffer()
+    {
+        var layer = new SessionLayer("test");
+        layer.AddOutputLine("content");
+        Assert.Single(layer._outputLines);
+        bool handled = layer.ProcessInput("/clear");
+        Assert.True(handled);
+        Assert.Empty(layer._outputLines);
+    }
+    
+    [Fact]
+    public void BaseLayer_ProcessInput_UnknownCommand_ReturnsFalse()
+    {
+        // Use HelpLayer which doesn't have a default catch-all like SessionLayer
+        var layer = new HelpLayer(new EColor(), Array.Empty<string>());
+        bool handled = layer.ProcessInput("/totally-made-up-command");
+        Assert.False(handled);
+    }
+    
+    [Fact]
+    public void SessionLayer_ProcessInput_NonCommand_ForwardsToSession()
+    {
+        var layer = new SessionLayer("test");
+        // Without a CoreSession, it still returns true (handled)
+        bool handled = layer.ProcessInput("hello world");
+        Assert.True(handled);
+    }
+    
     // ── BaseLayer scroll ──
 
     [Fact]

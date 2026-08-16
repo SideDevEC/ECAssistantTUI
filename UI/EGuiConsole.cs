@@ -93,8 +93,8 @@ public sealed class EGuiConsole : EGuiBase
             return;
         }
 
-        // Enter alternate screen buffer + hide cursor
-        Console.Write("\x1b[?1049h\x1b[?25l");
+        // Enter alternate screen buffer + hide cursor + enable mouse wheel tracking
+        Console.Write("\x1b[?1049h\x1b[?25l\x1b[?1000h");
         Console.Out.Flush();
 
         UpdateDimensions();
@@ -137,8 +137,8 @@ public sealed class EGuiConsole : EGuiBase
 
         if (!_ansiSupported) return;
 
-        // Leave alternate screen buffer + show cursor
-        Console.Write("\x1b[?25h\x1b[?1049l");
+        // Leave alternate screen buffer + show cursor + disable mouse tracking
+        Console.Write("\x1b[?1000l\x1b[?25h\x1b[?1049l");
         Console.Out.Flush();
     }
 
@@ -854,6 +854,51 @@ public sealed class EGuiConsole : EGuiBase
                     continue;
                 }
                 key = Console.ReadKey(true); // intercept: don't auto-echo
+
+                // ── Mouse wheel events (X10 mode: \x1b[M + 3 bytes) ──
+                if (key.KeyChar == '\x1b' && Console.KeyAvailable)
+                {
+                    // Read the rest of the escape sequence
+                    var next = Console.ReadKey(true);
+                    if (next.KeyChar == '[' && Console.KeyAvailable)
+                    {
+                        var m = Console.ReadKey(true);
+                        if (m.KeyChar == 'M' && Console.KeyAvailable)
+                        {
+                            // Mouse event: read 3 more bytes (button, col, row)
+                            var b = Console.ReadKey(true); // button+32
+                            var cx = Console.ReadKey(true); // col+33 (1-based)
+                            var cy = Console.ReadKey(true); // row+33 (1-based)
+                            int button = b.KeyChar - 32;
+
+                            // Wheel up = 64 (0x40), wheel down = 65 (0x41)
+                            if (button == 64) // scroll up
+                            {
+                                lock (_writeLock)
+                                {
+                                    ScrollUp(3);
+                                    Console.Out.Flush();
+                                }
+                                continue;
+                            }
+                            else if (button == 65) // scroll down
+                            {
+                                lock (_writeLock)
+                                {
+                                    ScrollDown(3);
+                                    Console.Out.Flush();
+                                }
+                                continue;
+                            }
+                            // Other mouse buttons — ignore for now
+                            continue;
+                        }
+                        // Not a mouse event — could be another escape sequence, ignore
+                        continue;
+                    }
+                    // Lone ESC — treat as escape press
+                    key = new ConsoleKeyInfo('\x1b', ConsoleKey.Escape, false, false, false);
+                }
             }
             catch (InvalidOperationException)
             {

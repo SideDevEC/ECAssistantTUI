@@ -37,6 +37,7 @@
     <Compile Include="Controller/AppController.cs" />
     <Compile Include="UI/EGuiConsole.cs" />
     <Compile Include="UI/BaseLayer.cs" />
+    <Compile Include="UI/StartupLayer.cs" />
     <Compile Include="UI/HelpLayer.cs" />
     <Compile Include="UI/SessionLayer.cs" />
     <Compile Include="UI/LoadingIndicator.cs" />

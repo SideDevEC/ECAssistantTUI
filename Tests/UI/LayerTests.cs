@@ -86,6 +86,33 @@ public class LayerTests
         Assert.Contains("Enter", layer._outputLines[1]);
     }
 
+    // ── StartupLayer ──
+    
+    [Fact]
+    public void StartupLayer_Name_IsStartup()
+    {
+        var layer = new StartupLayer(new EColor());
+        Assert.Equal("startup", layer.Name);
+    }
+    
+    [Fact]
+    public void StartupLayer_GetInputPrompt_ReturnsGreaterThan()
+    {
+        var layer = new StartupLayer(new EColor());
+        Assert.Equal("> ", layer.GetInputPrompt());
+    }
+    
+    [Fact]
+    public void StartupLayer_UpdateStatus_RebuildsHomeScreen()
+    {
+        var layer = new StartupLayer(new EColor());
+        layer.UpdateStatus("v11.0", "/path/to/model.gguf", "/working/dir", "/config/path", 3, "main");
+        Assert.True(layer._outputLines.Count > 0);
+        Assert.Contains(layer._outputLines, l => l.Contains("ECAssistant"));
+        Assert.Contains(layer._outputLines, l => l.Contains("v11.0"));
+        Assert.Contains(layer._outputLines, l => l.Contains("model.gguf"));
+    }
+    
     // ── BaseLayer scroll ──
 
     [Fact]

@@ -46,6 +46,11 @@ public sealed class AppController
     // Each Core session has a corresponding SessionLayer
     private readonly Dictionary<string, SessionLayer> _sessionLayers = new();
     
+    // ── Startup layer (always present, never deleted) ──
+    private StartupLayer? _startupLayer;
+    
+    private const string VersionString = "v11.0";
+    
     public AppController(
         EAgentConfig config,
         string modelPath,
@@ -62,6 +67,10 @@ public sealed class AppController
         
         _console = new EGuiConsole();
         _console.SetCallbacks(OnPrompt, OnEscapePressed);
+        
+        // ── Create the startup layer immediately — it's always present ──
+        _startupLayer = new StartupLayer(_color);
+        _layers[_startupLayer.Name] = _startupLayer;
     }
     
     // ═══════════════════════════════════════════════════
@@ -74,8 +83,14 @@ public sealed class AppController
     /// </summary>
     public async Task<int> RunAsync()
     {
-        // ── Startup output (buffered until InitConsole) ──
-        _console.WriteLineColored(_color.Cyan + _color.Bold + "[ECAssistant] v11.0 — architecture refactor" + _color.Reset);
+        // ── Bind startup layer as active BEFORE any output ──
+        // This ensures all startup messages go into the startup layer's buffer
+        _startupLayer!.BindToConsole(_console);
+        _console.SetActiveLayer(_startupLayer);
+        _activeLayer = _startupLayer;
+        
+        // ── Startup output (goes to startup layer's buffer) ──
+        _console.WriteLineColored(_color.Cyan + _color.Bold + $"[ECAssistant] {VersionString}" + _color.Reset);
         
         // ── Background process manager ──
         _bgMgr = new BackgroundProcessManager();
@@ -123,28 +138,40 @@ public sealed class AppController
         _console.WriteLineColored(_color.Green + _color.Bold + "[Ready] " + $"Active session: {activeKey} ({_sessionManager.List().Count} total)" + _color.Reset);
         _console.BlankLine();
         
-        // ── Enter alternate buffer + flush startup output ──
+        // ── Enter alternate buffer + flush startup output into startup layer ──
         _console.InitConsole();
         
-        // ── Bind the active session's layer to the console ──
-        var activeLayerKey = $"session:{activeKey}";
-        if (_layers.TryGetValue(activeLayerKey, out var layerToBind))
+        // Update startup layer with current status info
+        UpdateStartupLayerStatus();
+        
+        // ── Decide which layer to show first ──
+        if (_sessionManager != null && _sessionManager.List().Count > 0)
         {
-            SwitchToLayer(activeLayerKey);
+            // Sessions exist — switch to the active session's layer
+            var activeLayerKey = $"session:{activeKey}";
+            if (_layers.TryGetValue(activeLayerKey, out var layerToBind))
+            {
+                SwitchToLayer(activeLayerKey);
+                
+                // Show initial prompt on the session layer
+                _console.WriteLineColored(_color.Cyan + _color.Bold + $"[{activeSession.Key}] Type your request (/help for commands)" + _color.Reset);
+                _console.WriteLine("===========================================");
+                _console.WriteLineColored(_color.Cyan + _color.Bold + "[Mode] The agent decides tools automatically." + _color.Reset);
+                _console.BlankLine();
+            }
+        }
+        else
+        {
+            // No sessions — stay on the startup layer as the default
+            // User can create a session with /session-new
         }
         
         // ── Set up silent input check ──
         _console.SetSilentInputCheck(() =>
         {
-            var s = _sessionManager.ActiveSession;
+            var s = _sessionManager?.ActiveSession;
             return s != null && s.RunState == SessionRunState.Running;
         });
-        
-        // ── Show initial prompt ──
-        _console.WriteLineColored(_color.Cyan + _color.Bold + $"[{activeSession.Key}] Type your request (/help for commands)" + _color.Reset);
-        _console.WriteLine("===========================================");
-        _console.WriteLineColored(_color.Cyan + _color.Bold + "[Mode] The agent decides tools automatically." + _color.Reset);
-        _console.BlankLine();
         
         // ── Input loop — blocks here until quit ──
         while (!_console.IsQuitRequested)
@@ -231,6 +258,10 @@ public sealed class AppController
             
             case "clear":
                 _activeLayer?.Clear();
+                return;
+            
+            case "home":
+                GoHome();
                 return;
             
             case "help":
@@ -338,6 +369,10 @@ public sealed class AppController
         {
             activeSession.Prompt(input);
         }
+        else
+        {
+            _console.WriteLineColored(_color.Yellow + "[Hint] No active session. Use /session-new to create one." + _color.Reset);
+        }
     }
     
     /// <summary>Called when user hits ESC (with empty input buffer).</summary>
@@ -347,6 +382,10 @@ public sealed class AppController
         {
             // ESC on help → return to prior layer
             PopOverlayLayer();
+        }
+        else if (_activeLayer is StartupLayer)
+        {
+            // ESC on startup → nothing to do
         }
         else
         {
@@ -363,6 +402,24 @@ public sealed class AppController
     // ═══════════════════════════════════════════════════
     //  COMMAND IMPLEMENTATIONS
     // ═══════════════════════════════════════════════════
+    
+    private void GoHome()
+    {
+        UpdateStartupLayerStatus();
+        SwitchToLayer("startup");
+    }
+    
+    /// <summary>Update the startup layer with current app status info.</summary>
+    private void UpdateStartupLayerStatus()
+    {
+        if (_startupLayer == null) return;
+        
+        int sessionCount = _sessionManager?.List().Count ?? 0;
+        string activeKey = _sessionManager?.ActiveSession?.Key ?? "none";
+        string configPath = Path.Combine(_userConfigDir, "eca-data", "appsettings.json");
+        
+        _startupLayer.UpdateStatus(VersionString, _modelPath, _workingDir, configPath, sessionCount, activeKey);
+    }
     
     private void ShowHelp()
     {
@@ -385,6 +442,7 @@ public sealed class AppController
             $"{_color.Yellow}{_color.Bold}  /clear                Clear console output{_color.Reset}",
             $"{_color.Yellow}{_color.Bold}  /quit or /exit        Stop all sessions and exit{_color.Reset}",
             $"{_color.Yellow}{_color.Bold}  /help                 Show this help{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /home                 Go to home/startup screen{_color.Reset}",
             $"{_color.Yellow}{_color.Bold}  /tools                List registered tools{_color.Reset}",
             "",
             $"{_color.Dim}  Context:{_color.Reset}",

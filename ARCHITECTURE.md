@@ -104,7 +104,7 @@ Program.cs (App — Main → binder)
 App csproj references Core DLL:
 ```xml
 <Reference Include="ECAssistant.Core">
-  <HintPath>..\ECAssistantCore\bin\Debug\net8.0\ECAssistant.Core.dll</HintPath>
+  <HintPath>lib\ECAssistant.Core.dll</HintPath>
   <Private>true</Private>
 </Reference>
 ```

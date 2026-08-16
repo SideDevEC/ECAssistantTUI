@@ -18,8 +18,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Core.dll is a pre-built binary in lib/ — no project reference, no source dependency -->
-    <!-- Rebuild ECAssistantCore and copy the DLL to lib/ to update -->
+    <!-- Core.dll is a pre-built binary in lib/ — no source project reference. -->
+    <!-- To update: rebuild the Core library, copy the DLL into lib/ -->
     <Reference Include="ECAssistant.Core">
       <HintPath>lib\ECAssistant.Core.dll</HintPath>
       <Private>true</Private>

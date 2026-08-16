@@ -292,7 +292,7 @@ public class Program
         var results = await runner.RunAllAsync(tests);
 
         // Write detailed results to a log file
-        var logPath = Path.Combine(runner._testRootDir, "test_results.log");
+        var logPath = Path.Combine(runner.TestRootDir, "test_results.log");
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"ECAssistant Test Results — {DateTime.UtcNow:O}");
         sb.AppendLine($"Model: {(useMock ? "MOCK ENGINE" : modelPath)}");

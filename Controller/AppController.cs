@@ -272,6 +272,10 @@ public sealed class AppController
                     ShowHelp();
                     return;
                 
+                case "config":
+                    ShowConfig();
+                    return;
+                
                 case "session":
                     SwitchSession(arg);
                     return;
@@ -296,9 +300,9 @@ public sealed class AppController
     /// <summary>Called when user hits ESC (with empty input buffer).</summary>
     private void OnEscapePressed()
     {
-        if (_activeLayer is HelpLayer)
+        if (_activeLayer is HelpLayer or ConfigLayer)
         {
-            // ESC on help → return to prior layer
+            // ESC on help/config → return to prior layer
             PopOverlayLayer();
         }
         else if (_activeLayer is StartupLayer)
@@ -442,6 +446,14 @@ public sealed class AppController
         PushOverlayLayer("help");
     }
     
+    private void ShowConfig()
+    {
+        var configLayer = new ConfigLayer(_color);
+        configLayer.BuildFromConfig(_config, _modelPath);
+        _layers["config"] = configLayer;
+        PushOverlayLayer("config");
+    }
+    
     private string[] BuildHelpLines()
     {
         return new[]
@@ -454,6 +466,7 @@ public sealed class AppController
             $"{_color.Yellow}{_color.Bold}  /clear                Clear console output{_color.Reset}",
             $"{_color.Yellow}{_color.Bold}  /quit or /exit        Stop all sessions and exit{_color.Reset}",
             $"{_color.Yellow}{_color.Bold}  /help                 Show this help{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /config               Show configuration values{_color.Reset}",
             $"{_color.Yellow}{_color.Bold}  /home                 Go to home/startup screen{_color.Reset}",
             $"{_color.Yellow}{_color.Bold}  /tools                List registered tools{_color.Reset}",
             "",

@@ -130,6 +130,15 @@ public class LayerTests
         Assert.Contains(layer._outputLines, l => l.Contains("/session"));
     }
     
+    // ── ConfigLayer ──
+    
+    [Fact]
+    public void ConfigLayer_Name_IsConfig()
+    {
+        var layer = new ConfigLayer(new EColor());
+        Assert.Equal("config", layer.Name);
+    }
+    
     // ── BaseLayer ProcessInput ──
     
     [Fact]

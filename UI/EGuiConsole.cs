@@ -969,13 +969,10 @@ public sealed class EGuiConsole : EGuiBase
                 else if (key.KeyChar != '\0' && !char.IsControl(key.KeyChar))
                 {
                     _inputBuffer.Append(key.KeyChar);
-                    if (!_silentInput)
-                    {
-                        _inputDirty = true;
-                        Repaint();
-                        PositionCursorAtInput();
-                        Console.Out.Flush();
-                    }
+                    _inputDirty = true;
+                    Repaint();
+                    PositionCursorAtInput();
+                    Console.Out.Flush();
                 }
             }
         }

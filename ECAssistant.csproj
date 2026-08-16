@@ -34,6 +34,7 @@
   <ItemGroup>
     <Compile Remove="**/*.cs" />
     <Compile Include="Program.cs" />
+    <Compile Include="UI/AnsiHelpers.cs" />
     <Compile Include="UI/EGuiConsole.cs" />
     <Compile Include="UI/IGuiLayer.cs" />
     <Compile Include="UI/HelpLayer.cs" />

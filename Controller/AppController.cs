@@ -409,7 +409,7 @@ public sealed class AppController
         
         int sessionCount = _sessionManager?.List().Count ?? 0;
         string activeKey = _sessionManager?.ActiveSession?.Key ?? "none";
-        string configPath = Path.Combine(_userConfigDir, "eca-data", "appsettings.json");
+        string configPath = Path.Combine(_userConfigDir, "appsettings.json");
         
         // Try to get secondary model info from config
         string secondaryPath = "";

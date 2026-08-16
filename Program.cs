@@ -22,16 +22,6 @@ public class Program
         var logPath = Path.Combine(userConfigDir, "ECAssistant.log");
         var logger = new Logger(logPath, LogLevel.Info);
 
-        // Migrate: if old appsettings.json exists in ~/ECAssistant/ but not in eca-data/, copy it
-        var ecaDataDir = Path.Combine(userConfigDir, "eca-data");
-        var oldConfigPath = Path.Combine(userConfigDir, "appsettings.json");
-        var newConfigPath = Path.Combine(ecaDataDir, "appsettings.json");
-        if (File.Exists(oldConfigPath) && !File.Exists(newConfigPath))
-        {
-            Directory.CreateDirectory(ecaDataDir);
-            File.Copy(oldConfigPath, newConfigPath, overwrite: false);
-        }
-
         var builder = AgentConfigBuilder.Create()
             .WorkingDirectory(userConfigDir);
         ApplyCommandLineArgsToBuilder(ref builder, args);

@@ -106,11 +106,28 @@ public class LayerTests
     public void StartupLayer_UpdateStatus_RebuildsHomeScreen()
     {
         var layer = new StartupLayer(new EColor());
-        layer.UpdateStatus("v11.0", "/path/to/model.gguf", "/working/dir", "/config/path", 3, "main");
+        layer.UpdateStatus("v11.0", "/path/to/model.gguf", "/path/to/secondary.gguf", true, "/working/dir", "/config/path", 3, "main");
         Assert.True(layer._outputLines.Count > 0);
         Assert.Contains(layer._outputLines, l => l.Contains("ECAssistant"));
         Assert.Contains(layer._outputLines, l => l.Contains("v11.0"));
         Assert.Contains(layer._outputLines, l => l.Contains("model.gguf"));
+        Assert.Contains(layer._outputLines, l => l.Contains("secondary.gguf"));
+    }
+    
+    [Fact]
+    public void StartupLayer_UpdateStatus_SecondaryDisabled_ShowsDisabled()
+    {
+        var layer = new StartupLayer(new EColor());
+        layer.UpdateStatus("v11.0", "/path/to/model.gguf", "", false, "/working/dir", "/config/path", 0, "none");
+        Assert.Contains(layer._outputLines, l => l.Contains("disabled"));
+    }
+    
+    [Fact]
+    public void StartupLayer_UpdateStatus_ShowsSessionSwitchCommand()
+    {
+        var layer = new StartupLayer(new EColor());
+        layer.UpdateStatus("v11.0", "/path/to/model.gguf", "", false, "/working/dir", "/config/path", 2, "main");
+        Assert.Contains(layer._outputLines, l => l.Contains("/session"));
     }
     
     // ── BaseLayer scroll ──

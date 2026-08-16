@@ -16,6 +16,8 @@ public sealed class StartupLayer : BaseLayer
     // ── Status info (updated by controller) ──
     private string _version = "";
     private string _modelPath = "";
+    private string _secondaryModelPath = "";
+    private bool _secondaryEnabled;
     private string _workingDir = "";
     private string _configPath = "";
     private int _sessionCount;
@@ -29,10 +31,12 @@ public sealed class StartupLayer : BaseLayer
     }
     
     /// <summary>Update the status info and refresh the home screen content.</summary>
-    public void UpdateStatus(string version, string modelPath, string workingDir, string configPath, int sessionCount, string activeSessionKey)
+    public void UpdateStatus(string version, string modelPath, string secondaryModelPath, bool secondaryEnabled, string workingDir, string configPath, int sessionCount, string activeSessionKey)
     {
         _version = version;
         _modelPath = modelPath;
+        _secondaryModelPath = secondaryModelPath;
+        _secondaryEnabled = secondaryEnabled;
         _workingDir = workingDir;
         _configPath = configPath;
         _sessionCount = sessionCount;
@@ -47,7 +51,6 @@ public sealed class StartupLayer : BaseLayer
     /// </summary>
     private void RebuildHomeScreen()
     {
-        // Clear and rebuild with current status
         _outputLines.Clear();
         _scrollOffset = 0;
         
@@ -56,6 +59,10 @@ public sealed class StartupLayer : BaseLayer
         _outputLines.Add("");
         _outputLines.Add($"{_color.Cyan}  Version:    {_color.Reset}{_version}");
         _outputLines.Add($"{_color.Cyan}  Model:      {_color.Reset}{Path.GetFileName(_modelPath)}");
+        if (_secondaryEnabled && !string.IsNullOrEmpty(_secondaryModelPath))
+            _outputLines.Add($"{_color.Cyan}  Secondary:  {_color.Reset}{Path.GetFileName(_secondaryModelPath)} ✓");
+        else
+            _outputLines.Add($"{_color.Cyan}  Secondary:  {_color.Dim}disabled{_color.Reset}");
         _outputLines.Add($"{_color.Cyan}  Config:     {_color.Reset}{_configPath}");
         _outputLines.Add($"{_color.Cyan}  WorkingDir: {_color.Reset}{_workingDir}");
         _outputLines.Add("");
@@ -65,12 +72,12 @@ public sealed class StartupLayer : BaseLayer
         _outputLines.Add($"{_color.Dim}  ────────────────────────────────────────{_color.Reset}");
         _outputLines.Add("");
         _outputLines.Add($"{_color.Yellow}{_color.Bold}  Quick Start:{_color.Reset}");
-        _outputLines.Add($"{_color.Dim}  • Type a message to chat with the active session{_color.Reset}");
-        _outputLines.Add($"{_color.Dim}  • /help     — Show all commands{_color.Reset}");
-        _outputLines.Add($"{_color.Dim}  • /sessions — List all sessions{_color.Reset}");
-        _outputLines.Add($"{_color.Dim}  • /session-new <name> — Create a new session{_color.Reset}");
-        _outputLines.Add($"{_color.Dim}  • /home     — Return to this screen{_color.Reset}");
-        _outputLines.Add($"{_color.Dim}  • /quit     — Exit ECAssistant{_color.Reset}");
+        _outputLines.Add($"{_color.Dim}  • /session \u003cn\u003e       Switch to session n{_color.Reset}");
+        _outputLines.Add($"{_color.Dim}  • /session-new \u003cname\u003e  Create a new session{_color.Reset}");
+        _outputLines.Add($"{_color.Dim}  • /sessions         List all sessions{_color.Reset}");
+        _outputLines.Add($"{_color.Dim}  • /help             Show all commands{_color.Reset}");
+        _outputLines.Add($"{_color.Dim}  • /home             Return to this screen{_color.Reset}");
+        _outputLines.Add($"{_color.Dim}  • /quit             Exit ECAssistant{_color.Reset}");
         _outputLines.Add("");
         _outputLines.Add($"{_color.Dim}  ────────────────────────────────────────{_color.Reset}");
         _outputLines.Add("");

@@ -425,7 +425,30 @@ public sealed class AppController
         string activeKey = _sessionManager?.ActiveSession?.Key ?? "none";
         string configPath = Path.Combine(_userConfigDir, "eca-data", "appsettings.json");
         
-        _startupLayer.UpdateStatus(VersionString, _modelPath, _workingDir, configPath, sessionCount, activeKey);
+        // Try to get secondary model info from config
+        string secondaryPath = "";
+        bool secondaryEnabled = false;
+        try
+        {
+            // SecondaryModelConfig is in EAgentConfig or LlmConfig
+            var secondaryProp = _config.GetType().GetProperty("SecondaryModel");
+            if (secondaryProp != null)
+            {
+                var secondaryConfig = secondaryProp.GetValue(_config);
+                if (secondaryConfig != null)
+                {
+                    var modelProp = secondaryConfig.GetType().GetProperty("SecondaryModel");
+                    var enabledProp = secondaryConfig.GetType().GetProperty("EnableSecondaryModel");
+                    if (modelProp != null)
+                        secondaryPath = modelProp.GetValue(secondaryConfig) as string ?? "";
+                    if (enabledProp != null)
+                        secondaryEnabled = (bool)(enabledProp.GetValue(secondaryConfig) ?? false);
+                }
+            }
+        }
+        catch { }
+        
+        _startupLayer.UpdateStatus(VersionString, _modelPath, secondaryPath, secondaryEnabled, _workingDir, configPath, sessionCount, activeKey);
     }
     
     private void ShowHelp()

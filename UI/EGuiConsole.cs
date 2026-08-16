@@ -412,17 +412,16 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         Console.Write(prompt);
         Console.Write(_inputBuffer.ToString());
         
-        // Steady cursor at end of input
-        int col = prompt.Length + _inputBuffer.Length;
-        if (col < ScreenWidth)
-            Console.Write("\x1b[7m \x1b[0m"); // reverse-video space = block cursor
+        // Position cursor right after the last typed character
+        PositionCursorAtInput();
     }
     
     private void PositionCursorAtInput()
     {
         string prompt = _activeLayer?.GetInputPrompt() ?? PromptStr;
         int col = prompt.Length + _inputBuffer.Length;
-        Console.Write($"\x1b[{_inputRow + 1};{col + 1}H");
+        // Position cursor at end of input, show it
+        Console.Write($"\x1b[{_inputRow + 1};{col + 1}H\x1b[?25h");
     }
     
     // ═══════════════════════════════════════════════════

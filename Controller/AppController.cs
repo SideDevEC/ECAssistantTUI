@@ -1,6 +1,7 @@
 using ECAssistant.Config;
 using ECAssistant.Engine;
 using ECAssistant.Orchestration;
+using ECAssistant.Tools;
 using ECAssistant.Tools.Shell;
 using ECAssistant.Tools.Background;
 using ECAssistant.UI;
@@ -30,9 +31,10 @@ public sealed class AppController
     private readonly string _userConfigDir;
     private readonly ILogger _logger;
     private readonly EColor _color;
+    private readonly List<EToolBase>? _externalTools;
     
     // ── Owned objects ──
-    private readonly EGuiConsole _console;
+    private readonly IGuiConsole _console;
     private readonly Dictionary<string, BaseLayer> _layers = new();
     private BaseLayer? _activeLayer;
     private string? _previousLayerKey; // for help → return to prior layer
@@ -52,11 +54,24 @@ public sealed class AppController
     private const string VersionString = "v11.0";
     
     public AppController(
+        IGuiConsole console,
         EAgentConfig config,
         string modelPath,
         string workingDir,
         string userConfigDir,
         ILogger logger)
+        : this(console, config, modelPath, workingDir, userConfigDir, logger, null)
+    {
+    }
+
+    public AppController(
+        IGuiConsole console,
+        EAgentConfig config,
+        string modelPath,
+        string workingDir,
+        string userConfigDir,
+        ILogger logger,
+        List<EToolBase>? externalTools)
     {
         _config = config;
         _modelPath = modelPath;
@@ -64,8 +79,9 @@ public sealed class AppController
         _userConfigDir = userConfigDir;
         _logger = logger;
         _color = new EColor();
+        _externalTools = externalTools;
         
-        _console = new EGuiConsole();
+        _console = console;
         _console.SetCallbacks(OnPrompt, OnEscapePressed);
         
         // ── Create the startup layer immediately — it's always present ──
@@ -131,7 +147,7 @@ public sealed class AppController
             var renderer = new ConsoleUiRenderer(layer, _color, session.GetStreamBuffer);
             session.AddListener(renderer);
             
-            await builder.BuildAsync(session);
+            await builder.BuildAsync(session, _externalTools);
         });
         
         loading.Stop();
@@ -577,7 +593,7 @@ public sealed class AppController
             var renderer = new ConsoleUiRenderer(layer, _color, newSession.GetStreamBuffer);
             newSession.AddListener(renderer);
             
-            await builder.BuildAsync(newSession);
+            await builder.BuildAsync(newSession, _externalTools);
             _console.BlankLine();
             _console.WriteLineColored(_color.Green + _color.Bold + "[Session] " + $"Created [{name}]. Use '/session <index>' to switch." + _color.Reset);
             _console.BlankLine();

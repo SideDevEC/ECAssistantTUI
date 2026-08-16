@@ -3,6 +3,7 @@ using ECAssistant.Engine;
 using ECAssistant.Controller;
 using ECAssistant.Services;
 using ECAssistant.Testing;
+using ECAssistant.UI;
 
 namespace ECAssistant;
 
@@ -49,13 +50,14 @@ public class Program
             return 1;
         }
 
-        // ── Create controller and run ──
-        // Program.cs only interacts with the controller. Nothing else.
+        // ── Create terminal and controller ──
         Directory.CreateDirectory(userConfigDir);
         Directory.CreateDirectory(Path.Combine(userConfigDir, config.Memory.DataPath));
         Directory.CreateDirectory(Path.Combine(userConfigDir, config.Workspace.Path));
 
+        var console = new EGuiConsole();
         var controller = new AppController(
+            console,
             config,
             effectiveModelPath,
             userConfigDir,

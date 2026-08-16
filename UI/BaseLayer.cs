@@ -36,7 +36,7 @@ public abstract class BaseLayer
     internal bool _isDirty = true;
     
     // Console reference (set by Bind/Unbind, used for repaint requests)
-    protected EGuiConsole? _console;
+    protected IGuiConsole? _console;
     
     // ── Screen dimensions (set by EGuiConsole when bound) ──
     protected int _screenWidth = 80;
@@ -49,7 +49,7 @@ public abstract class BaseLayer
     // ═══════════════════════════════════════════════════
     
     /// <summary>Bind this layer to an EGuiConsole. Layer can now request repaints.</summary>
-    public void BindToConsole(EGuiConsole console)
+    public void BindToConsole(IGuiConsole console)
     {
         _console = console;
         UpdateDimensions(console.ScreenWidth, console.ScreenHeight);

@@ -22,7 +22,7 @@ namespace ECAssistant.UI;
 ///
 /// Thread safety: all console writes go through _writeLock.
 /// </summary>
-public sealed class EGuiConsole : EGuiBase
+public sealed class EGuiConsole : EGuiBase, IGuiConsole
 {
     private bool _ansiSupported;
     private readonly object _writeLock = new();

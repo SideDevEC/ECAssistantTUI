@@ -10,14 +10,14 @@ namespace ECAssistant.Session;
 /// </summary>
 public class LoadingIndicator : IDisposable
 {
-    private readonly EGuiBase _gui;
+    private readonly IGuiConsole _gui;
     private readonly EColor _color;
     private Timer? _timer;
     private int _dotCount = 0;
     private string _label = "";
     private bool _running;
 
-    public LoadingIndicator(EGuiBase gui, EColor color)
+    public LoadingIndicator(IGuiConsole gui, EColor color)
     {
         _gui = gui;
         _color = color;

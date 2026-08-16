@@ -4,7 +4,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <OutputType>Exe</OutputType>
+    <OutputType>Library</OutputType>
     <RootNamespace>ECAssistant</RootNamespace>
     <AssemblyName>e-assistant</AssemblyName>
     <PublishAot>false</PublishAot>
@@ -35,6 +35,7 @@
     <Compile Remove="**/*.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Controller/AppController.cs" />
+    <Compile Include="UI/IGuiConsole.cs" />
     <Compile Include="UI/EGuiConsole.cs" />
     <Compile Include="UI/BaseLayer.cs" />
     <Compile Include="UI/StartupLayer.cs" />

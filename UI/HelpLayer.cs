@@ -12,9 +12,6 @@ public sealed class HelpLayer : BaseLayer
     
     public override string Name => "help";
     
-    /// <summary>Help layer has no input prompt — user just reads and presses Enter/ESC.</summary>
-    public override string GetInputPrompt() => "";
-    
     public HelpLayer(EColor color, string[] helpLines)
     {
         _color = color;

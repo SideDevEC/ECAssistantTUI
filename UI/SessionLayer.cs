@@ -17,8 +17,6 @@ public sealed class SessionLayer : BaseLayer
     
     public override string Name => $"session:{SessionKey}";
     
-    public override string GetInputPrompt() => "> ";
-    
     public SessionLayer(string sessionKey, string label = "")
     {
         SessionKey = sessionKey;

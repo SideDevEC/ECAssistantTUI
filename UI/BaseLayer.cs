@@ -117,8 +117,8 @@ public abstract class BaseLayer
     /// <summary>Return the status bar content (ANSI codes intact). Empty string = no status bar.</summary>
     public string GetStatusBar() => _statusBar;
     
-    /// <summary>Return the input prompt prefix shown before user input. "> " for sessions, "" for help.</summary>
-    public abstract string GetInputPrompt();
+    /// <summary>Return the input prompt prefix shown before user input. Default is "> " — override to change.</summary>
+    public virtual string GetInputPrompt() => "> ";
     
     // ═══════════════════════════════════════════════════
     //  OUTPUT BUFFER MANAGEMENT

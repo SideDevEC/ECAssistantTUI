@@ -55,10 +55,10 @@ public class LayerTests
     }
 
     [Fact]
-    public void HelpLayer_GetInputPrompt_ReturnsEmpty()
+    public void HelpLayer_GetInputPrompt_ReturnsGreaterThan()
     {
         var layer = new HelpLayer(new EColor(), Array.Empty<string>());
-        Assert.Equal("", layer.GetInputPrompt());
+        Assert.Equal("> ", layer.GetInputPrompt());
     }
 
     [Fact]

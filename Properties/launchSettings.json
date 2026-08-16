@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "e-assistant": {
+      "commandName": "Project",
+      "commandLineArgs": "",
+      "workingDirectory": "."
+    }
+  }
+}

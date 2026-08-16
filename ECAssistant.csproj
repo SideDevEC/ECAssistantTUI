@@ -9,7 +9,6 @@
     <AssemblyName>e-assistant</AssemblyName>
     <PublishAot>false</PublishAot>
     <SelfContained>false</SelfContained>
-    <!-- MSB3277: System.Text.Json version unification — harmless. -->
     <NoWarn>$(NoWarn);MSB3277</NoWarn>
   </PropertyGroup>
 
@@ -18,21 +17,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Core.dll is a pre-built self-contained binary in lib/. -->
-    <!-- Build ECAssistantCore, copy the DLL here. Gitignored — not in repo. -->
+    <!-- One DLL. Everything included. Nothing else needed. -->
     <Reference Include="ECAssistant.Core">
       <HintPath>lib\ECAssistant.Core.dll</HintPath>
       <Private>true</Private>
     </Reference>
-    <!-- LLamaSharp native runtime providers — copy llama.dll/libllama.dylib to output. -->
-    <!-- No managed API. App never touches LLamaSharp types. -->
-    <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.27.0" />
-    <PackageReference Include="LLamaSharp.Backend.Cuda12" Version="0.27.0" Condition="'$(OS)' == 'WINDOWS'" />
-    <PackageReference Include="LLamaSharp.Backend.Vulkan" Version="0.27.0" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- App compiles only entry point + concrete UI implementations -->
     <Compile Remove="**/*.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="UI/EGuiConsole.cs" />

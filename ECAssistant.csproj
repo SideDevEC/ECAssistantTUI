@@ -16,12 +16,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- App compiles Program.cs + concrete UI classes (EGuiConsole, layers, LoadingIndicator, ConsoleUiRenderer) -->
+    <!-- App: compile only entry point + concrete UI implementations -->
+    <!-- Abstract types (EGuiBase, EColor, StringUtil) come from ECAssistant.Core via ProjectReference -->
     <Compile Remove="**/*.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="UI/EGuiConsole.cs" />
-    <Compile Include="UI/HelpLayer.cs" />
     <Compile Include="UI/IGuiLayer.cs" />
+    <Compile Include="UI/HelpLayer.cs" />
     <Compile Include="UI/SessionLayer.cs" />
     <Compile Include="UI/LoadingIndicator.cs" />
     <Compile Include="UI/ConsoleUiRenderer.cs" />

@@ -1,0 +1,14 @@
+<Project>
+  <!--
+    Both ECAssistant.csproj and ECAssistant.Core.csproj live in the same directory.
+    Without this, they share the same obj/ folder and collide (especially in VS 2022
+    which builds projects in parallel). This file sets separate intermediate output
+    paths per project BEFORE MSBuild imports, which is required for it to take effect.
+  -->
+  <PropertyGroup Condition="$(MSBuildProjectName) == 'ECAssistant.Core'">
+    <BaseIntermediateOutputPath>obj\Core\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+  <PropertyGroup Condition="$(MSBuildProjectName) == 'ECAssistant'">
+    <BaseIntermediateOutputPath>obj\App\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+</Project>

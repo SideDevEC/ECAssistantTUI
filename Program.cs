@@ -17,8 +17,6 @@ using ECAssistant.Session;
 using ECAssistant.Services;
 using ECAssistant.Interfaces;
 using ECAssistant.Testing;
-using LLama.Common;
-using LLama.Sampling;
 // v10.23.3: App now uses AgentConfigBuilder from Core
 
 namespace ECAssistant;
@@ -117,23 +115,8 @@ public class Program
               Gui.WriteLineColored(_color.Cyan + _color.Bold + "[Root] " + ($"{rootDir}") + _color.Reset);
               Gui.BlankLine();
 
-                // Build inference params from config — ALL values come from appsettings.json
-            var inferenceParams = new InferenceParams
-                   {
-                MaxTokens = _config.Inference.MaxTokens,
-                    AntiPrompts = _config.Inference.AntiPrompts.Length > 0
-                            ? _config.Inference.AntiPrompts
-                              : new string[] { "</s>" },
-                  // v9.3: TruncateAndReprefill handles context overflow gracefully
-                  OverflowStrategy = LLama.Common.ContextOverflowStrategy.TruncateAndReprefill,
-                  SamplingPipeline = new DefaultSamplingPipeline
-                             {
-                      Temperature = _config.Sampling.Temperature,
-                       TopP = _config.Sampling.TopP,
-                        TopK = _config.Sampling.TopK,
-                       RepeatPenalty = _config.Sampling.RepeatPenalty
-                              }
-                    };
+                // Build inference params from config — Core handles all LLamaSharp types
+            var inferenceParams = InferenceParamsFactory.Create(_config);
 
             if (File.Exists(effectiveModelPath))
                        {

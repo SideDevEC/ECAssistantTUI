@@ -298,8 +298,9 @@ public sealed class EGuiConsole : EGuiBase
 
         if (_fullRepaint)
         {
-            // Full repaint: clear screen, draw everything
+            // Full repaint: clear screen, invalidate cache, draw everything
             Console.Write("\x1b[2J");
+            Array.Fill(_screenRows, null);
 
             // Paint output region
             PaintOutputRegion();
@@ -341,14 +342,13 @@ public sealed class EGuiConsole : EGuiBase
     /// Shows lines from _outputLines based on _scrollOffset.
     /// 0 = bottom (newest lines visible), N = scrolled up N lines.
     /// Long lines are wrapped to fit screen width.
+    ///
+    /// Delta rendering: compares each visible row against _screenRows cache.
+    /// Only clears+writes rows that actually changed. Full clear only on resize/fullRepaint.
     /// </summary>
     private void PaintOutputRegion()
     {
         int regionHeight = _outputRegionEnd - _outputRegionStart + 1;
-
-        // Clear the output region
-        for (int row = _outputRegionStart; row <= _outputRegionEnd; row++)
-            Console.Write($"\x1b[{row + 1};1H\x1b[2K");
 
         // Build the list of wrapped visible lines (bottom-up, then reverse)
         // Start from the bottom of the output and work upward
@@ -378,11 +378,21 @@ public sealed class EGuiConsole : EGuiBase
             }
         }
 
-        // Write visible rows to screen
-        for (int i = 0; i < visibleRows.Count; i++)
+        // Delta render: only clear+write rows that differ from _screenRows cache
+        for (int i = 0; i < regionHeight; i++)
         {
-            int row = _outputRegionStart + i;
-            Console.Write($"\x1b[{row + 1};1H{visibleRows[i]}");
+            string? newRow = i < visibleRows.Count ? visibleRows[i] : null;
+            string? oldRow = i < _screenRows.Length ? _screenRows[i] : null;
+
+            if (newRow != oldRow)
+            {
+                int row = _outputRegionStart + i;
+                Console.Write($"\x1b[{row + 1};1H\x1b[2K");
+                if (newRow != null)
+                    Console.Write(newRow);
+                if (i < _screenRows.Length)
+                    _screenRows[i] = newRow;
+            }
         }
     }
 

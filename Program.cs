@@ -331,6 +331,12 @@ public class Program
         input = input.Trim();
         if (string.IsNullOrEmpty(input)) return;
 
+        // ── Commands use / prefix (e.g., /help, /quit, /tools) ──
+        // Everything else is a prompt to the agent.
+        bool isCommand = input.StartsWith("/");
+        if (isCommand)
+            input = input[1..]; // strip the /
+
         switch (input.ToLower())
         {
             case "quit": case "exit":
@@ -590,7 +596,7 @@ public class Program
         string userConfigDir)
     {
         Gui.BlankLine();
-        Gui.WriteLineColored(_color.Cyan + _color.Bold + $"[{activeSession.Key}] Type your request (help | quit)" + _color.Reset);
+        Gui.WriteLineColored(_color.Cyan + _color.Bold + $"[{activeSession.Key}] Type your request (/help for commands)" + _color.Reset);
         Gui.WriteLine("===========================================");
         Gui.WriteLineColored(_color.Cyan + _color.Bold + "[Mode] The agent decides tools automatically." + _color.Reset);
         Gui.BlankLine();
@@ -681,64 +687,61 @@ public class Program
     {
         return new[]
         {
-            $"{_color.Cyan}{_color.Bold}  Commands{_color.Reset}",
+            $"{_color.Cyan}{_color.Bold}  Commands (use / prefix){_color.Reset}",
             "",
-            $"{_color.Yellow}{_color.Bold}  <type request>       Multi-step agent execution{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  stop                 Stop the running session (keeps app alive){_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  ESC                  Stop generation mid-stream (during token output){_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  clear                Clear console output{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  quit / exit          Stop all sessions and exit the application{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  help                 Show this help{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  tools                List registered tools{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  <type request>       Multi-step agent execution (no / prefix){_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /stop                 Stop the running session{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  ESC                   Stop generation mid-stream{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /clear                Clear console output{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /quit or /exit        Stop all sessions and exit{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /help                 Show this help{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /tools                List registered tools{_color.Reset}",
             "",
             $"{_color.Dim}  Context:{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  clear-history        Clear conversation history{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  save-context         Save transcript to disk{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  file-pick            Open file picker, send to LLM{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /clear-history        Clear conversation history{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /save-context         Save transcript to disk{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /context-status       Show context window usage{_color.Reset}",
             "",
             $"{_color.Dim}  Memory:{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  memory-save          Save a memory entry{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  memory-query         Search memory{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  memory-stats         Memory statistics{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  vecmem-stats         Vector memory statistics{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  vecmem-search        Semantic memory search{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  vecmem-add           Add vector memory entry{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /memory-save          Save a memory entry{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /memory-query         Search memory{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /memory-stats         Memory statistics{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /vecmem-stats         Vector memory statistics{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /vecmem-search        Semantic memory search{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /vecmem-add           Add vector memory entry{_color.Reset}",
             "",
             $"{_color.Dim}  Sessions:{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  sessions             List all sessions with status{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  session <n>          Switch to session n (render history + live){_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  session-new <name>   Create a new session{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  session-stop <n>     Stop session n's execution{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  session-close <n>    Close and delete session n{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  session-peek <n>     Quick glance at session n's output{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  session-rename <n> <label>  Rename session n{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  session-info [n]     Detailed session info (KV cache, context, tools){_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  session-queue         Show active session's prompt queue{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  session-queue-remove <i>  Remove prompt i from queue{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  session-queue-clear  Clear active session's queue{_color.Reset}",
-            "",
-            $"{_color.Dim}  Context:{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  context-status       Show context window usage and summarize threshold{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /sessions             List all sessions with status{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /session <n>          Switch to session n{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /session-new <name>   Create a new session{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /session-stop <n>     Stop session n's execution{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /session-close <n>    Close and delete session n{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /session-peek <n>     Quick glance at session n's output{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /session-rename <n> <label>  Rename session n{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /session-info [n]     Detailed session info{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /session-queue         Show prompt queue{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /session-queue-remove <i>  Remove prompt i from queue{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /session-queue-clear  Clear active session's queue{_color.Reset}",
             "",
             $"{_color.Dim}  Background:{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  bg-run <cmd>         Start a background process{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  bg-status            List background processes{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  bg-output <id>       Get output from a process{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  bg-kill <id>         Kill a background process{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  bg-cleanup           Remove finished processes{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /bg-run <cmd>         Start a background process{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /bg-status            List background processes{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /bg-output <id>       Get output from a process{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /bg-kill <id>         Kill a background process{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /bg-cleanup           Remove finished processes{_color.Reset}",
             "",
             $"{_color.Dim}  Files & Watch:{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  watch                Show recent file changes{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  watch-start          Start watching for changes{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  watch-stop           Stop watching{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /watch                Show recent file changes{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /watch-start          Start watching for changes{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /watch-stop           Stop watching{_color.Reset}",
             "",
             $"{_color.Dim}  System:{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  reload-config        Reload appsettings.json{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  swap-model           Switch GGUF model at runtime{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  clipboard-read       Read from Windows clipboard{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  clipboard-write      Write to Windows clipboard{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  log                  Show recent log entries{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  log-level            Set log level (debug/info/warn/error){_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /reload-config        Reload appsettings.json{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /swap-model           Switch GGUF model at runtime{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /clipboard-read       Read from clipboard{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /clipboard-write      Write to clipboard{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /log                  Show recent log entries{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /log-level            Set log level{_color.Reset}",
         };
     }
 }

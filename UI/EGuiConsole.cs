@@ -897,7 +897,9 @@ public sealed class EGuiConsole : EGuiBase
                     _inputBuffer.Clear();
 
                     // Add the submitted input as an output line: "> text"
-                    AddOutputLine(PromptStr + result);
+                    // But skip commands (starting with /) — they're not conversation
+                    if (!result.StartsWith("/"))
+                        AddOutputLine(PromptStr + result);
                     _outputDirty = true;
 
                     // Reset silent mode for next input

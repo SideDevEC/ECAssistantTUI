@@ -7,7 +7,6 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <RootNamespace>ECAssistant.Tests</RootNamespace>
-    <!-- Global test timeout: 30 seconds per test. Prevents hung tests from eating CPU forever. -->
     <xUnitCoreSettings>methodTimeout=30000</xUnitCoreSettings>
     <xUnitReporterSettings>methodTimeout=30000</xUnitReporterSettings>
   </PropertyGroup>
@@ -31,8 +30,6 @@
       <HintPath>..\..\ECAssistantCore\bin\Debug\net8.0\ECAssistant.Core.dll</HintPath>
       <Private>true</Private>
     </Reference>
-    <!-- Tests reference Core types (TokenCounter, ContextWindow) that expose LLamaContext -->
-    <PackageReference Include="LLamaSharp" Version="0.27.0" />
   </ItemGroup>
 
 </Project>

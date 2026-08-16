@@ -26,11 +26,19 @@ namespace ECAssistant.TUI.UI;
 /// </summary>
 public sealed class EGuiConsole : EGuiBase, IGuiConsole
 {
+    private readonly ITerminalOutput _term;
     private bool _ansiSupported;
     private readonly object _writeLock = new();
     private readonly StringBuilder _inputBuffer = new();
     private const string PromptStr = "> ";
     private volatile bool _quitRequested;
+
+    public EGuiConsole() : this(new ConsoleTerminalOutput()) { }
+
+    public EGuiConsole(ITerminalOutput terminal)
+    {
+        _term = terminal ?? throw new ArgumentNullException(nameof(terminal));
+    }
     
     // ── Controller callbacks ──
     private Action<string>? _onPrompt;
@@ -83,8 +91,8 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         }
         
         // Enter alternate screen buffer + hide cursor + enable mouse wheel tracking
-        Console.Write("\x1b[?1049h\x1b[?25l\x1b[?1000h");
-        Console.Out.Flush();
+        _term.Write("\x1b[?1049h\x1b[?25l\x1b[?1000h");
+        _term.Flush();
         
         UpdateDimensions();
         
@@ -101,7 +109,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
             _fullRepaint = true;
             Repaint();
             PositionCursorAtInput();
-            Console.Out.Flush();
+            _term.Flush();
         }
         
         StartResizeWatcher();
@@ -111,8 +119,8 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     private void FlushStartupBuffer()
     {
         foreach (var line in _startupBuffer)
-            Console.Write(line);
-        Console.Out.Flush();
+            _term.Write(line);
+        _term.Flush();
         _startupBuffer.Clear();
     }
 
@@ -123,8 +131,8 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         
         if (!_ansiSupported) return;
         
-        Console.Write("\x1b[?1000l\x1b[?25h\x1b[?1049l");
-        Console.Out.Flush();
+        _term.Write("\x1b[?1000l\x1b[?25h\x1b[?1049l");
+        _term.Flush();
     }
     
     // ═══════════════════════════════════════════════════
@@ -152,7 +160,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
             _fullRepaint = true;
             Repaint();
             PositionCursorAtInput();
-            Console.Out.Flush();
+            _term.Flush();
         }
     }
     
@@ -224,8 +232,8 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     {
         try
         {
-            ScreenWidth = Console.WindowWidth;
-            ScreenHeight = Console.WindowHeight;
+            ScreenWidth = _term.WindowWidth;
+            ScreenHeight = _term.WindowHeight;
         }
         catch
         {
@@ -251,8 +259,8 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     {
         try
         {
-            int w = Console.WindowWidth;
-            int h = Console.WindowHeight;
+            int w = _term.WindowWidth;
+            int h = _term.WindowHeight;
             if (w != ScreenWidth || h != ScreenHeight)
             {
                 UpdateDimensions();
@@ -276,8 +284,8 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         
         try
         {
-            int w = Console.WindowWidth;
-            int h = Console.WindowHeight;
+            int w = _term.WindowWidth;
+            int h = _term.WindowHeight;
             if (w != _lastWidth || h != _lastHeight)
             {
                 _lastWidth = w;
@@ -290,7 +298,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                     _fullRepaint = true;
                     Repaint();
                     PositionCursorAtInput();
-                    Console.Out.Flush();
+                    _term.Flush();
                 }
             }
         }
@@ -314,7 +322,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
             _outputDirty = true;
             Repaint();
             PositionCursorAtInput();
-            Console.Out.Flush();
+            _term.Flush();
         }
     }
     
@@ -324,7 +332,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         
         if (_fullRepaint)
         {
-            Console.Write("\x1b[2J");
+            _term.Write("\x1b[2J");
             Array.Fill(_screenRows, null);
             
             PaintOutputRegion();
@@ -356,7 +364,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
             _inputDirty = false;
         }
         
-        Console.Out.Flush();
+        _term.Flush();
     }
     
     /// <summary>
@@ -378,9 +386,9 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
             if (newRow != oldRow)
             {
                 int row = _outputRegionStart + i;
-                Console.Write($"\x1b[{row + 1};1H\x1b[2K");
+                _term.Write($"\x1b[{row + 1};1H\x1b[2K");
                 if (newRow != null)
-                    Console.Write(newRow);
+                    _term.Write(newRow);
                 if (i < _screenRows.Length)
                     _screenRows[i] = newRow;
             }
@@ -389,7 +397,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     
     private void PaintStatusBar()
     {
-        Console.Write($"\x1b[{_statusRow + 1};1H\x1b[2K");
+        _term.Write($"\x1b[{_statusRow + 1};1H\x1b[2K");
         if (_activeLayer != null)
         {
             string bar = _activeLayer.GetStatusBar();
@@ -398,19 +406,19 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                 int visibleLen = BaseLayer.StripAnsi(bar).Length;
                 if (visibleLen > ScreenWidth)
                     bar = BaseLayer.TruncateAnsi(bar, ScreenWidth);
-                Console.Write(bar);
+                _term.Write(bar);
             }
         }
     }
     
     private void PaintInputLine()
     {
-        Console.Write($"\x1b[{_inputRow + 1};1H\x1b[2K");
+        _term.Write($"\x1b[{_inputRow + 1};1H\x1b[2K");
         
         // Use the active layer's prompt prefix (or default "> ")
         string prompt = _activeLayer?.GetInputPrompt() ?? PromptStr;
-        Console.Write(prompt);
-        Console.Write(_inputBuffer.ToString());
+        _term.Write(prompt);
+        _term.Write(_inputBuffer.ToString());
         
         // Position cursor right after the last typed character
         PositionCursorAtInput();
@@ -421,7 +429,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         string prompt = _activeLayer?.GetInputPrompt() ?? PromptStr;
         int col = prompt.Length + _inputBuffer.Length;
         // Position cursor at end of input, show it
-        Console.Write($"\x1b[{_inputRow + 1};{col + 1}H\x1b[?25h");
+        _term.Write($"\x1b[{_inputRow + 1};{col + 1}H\x1b[?25h");
     }
     
     // ═══════════════════════════════════════════════════
@@ -432,7 +440,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     {
         if (!_ansiSupported)
         {
-            lock (_writeLock) { Console.Write(text); Console.Out.Flush(); }
+            lock (_writeLock) { _term.Write(text); _term.Flush(); }
             return;
         }
         
@@ -469,7 +477,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
             lock (_writeLock)
             {
                 try { Console.Clear(); } catch { }
-                Console.Out.Flush();
+                _term.Flush();
             }
             return;
         }
@@ -480,7 +488,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
             _fullRepaint = true;
             Repaint();
             PositionCursorAtInput();
-            Console.Out.Flush();
+            _term.Flush();
         }
     }
     
@@ -510,7 +518,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                 _inputDirty = true;
                 Repaint();
                 PositionCursorAtInput();
-                Console.Out.Flush();
+                _term.Flush();
             }
         }
         
@@ -530,7 +538,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                             _inputDirty = true;
                             Repaint();
                             PositionCursorAtInput();
-                            Console.Out.Flush();
+                            _term.Flush();
                         }
                     }
                 }
@@ -564,7 +572,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                                     _outputDirty = true;
                                     Repaint();
                                     PositionCursorAtInput();
-                                    Console.Out.Flush();
+                                    _term.Flush();
                                 }
                                 continue;
                             }
@@ -576,7 +584,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                                     _outputDirty = true;
                                     Repaint();
                                     PositionCursorAtInput();
-                                    Console.Out.Flush();
+                                    _term.Flush();
                                 }
                                 continue;
                             }
@@ -618,7 +626,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                     _inputDirty = true;
                     Repaint();
                     PositionCursorAtInput();
-                    Console.Out.Flush();
+                    _term.Flush();
                     
                     // Forward to controller
                     _onPrompt?.Invoke(result);
@@ -633,7 +641,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                         _inputDirty = true;
                         Repaint();
                         PositionCursorAtInput();
-                        Console.Out.Flush();
+                        _term.Flush();
                     }
                     else
                     {
@@ -649,7 +657,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                     _outputDirty = true;
                     Repaint();
                     PositionCursorAtInput();
-                    Console.Out.Flush();
+                    _term.Flush();
                 }
                 else if (key.Key == ConsoleKey.PageDown)
                 {
@@ -658,7 +666,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                     _outputDirty = true;
                     Repaint();
                     PositionCursorAtInput();
-                    Console.Out.Flush();
+                    _term.Flush();
                 }
                 else if (key.Key == ConsoleKey.UpArrow)
                 {
@@ -666,7 +674,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                     _outputDirty = true;
                     Repaint();
                     PositionCursorAtInput();
-                    Console.Out.Flush();
+                    _term.Flush();
                 }
                 else if (key.Key == ConsoleKey.DownArrow)
                 {
@@ -674,7 +682,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                     _outputDirty = true;
                     Repaint();
                     PositionCursorAtInput();
-                    Console.Out.Flush();
+                    _term.Flush();
                 }
                 else if (key.Key == ConsoleKey.Home)
                 {
@@ -684,7 +692,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                     _outputDirty = true;
                     Repaint();
                     PositionCursorAtInput();
-                    Console.Out.Flush();
+                    _term.Flush();
                 }
                 else if (key.Key == ConsoleKey.End)
                 {
@@ -692,7 +700,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                     _outputDirty = true;
                     Repaint();
                     PositionCursorAtInput();
-                    Console.Out.Flush();
+                    _term.Flush();
                 }
                 else if (key.Key == ConsoleKey.Backspace)
                 {
@@ -702,7 +710,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                         _inputDirty = true;
                         Repaint();
                         PositionCursorAtInput();
-                        Console.Out.Flush();
+                        _term.Flush();
                     }
                 }
                 else if (key.Key == ConsoleKey.Tab)
@@ -711,7 +719,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                     _inputDirty = true;
                     Repaint();
                     PositionCursorAtInput();
-                    Console.Out.Flush();
+                    _term.Flush();
                 }
                 else if (key.KeyChar != '\0' && !char.IsControl(key.KeyChar))
                 {
@@ -719,7 +727,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                     _inputDirty = true;
                     Repaint();
                     PositionCursorAtInput();
-                    Console.Out.Flush();
+                    _term.Flush();
                 }
             }
         }
@@ -737,7 +745,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         }
         var sb = new StringBuilder();
         sb.Append(firstKey.KeyChar);
-        Console.Write(firstKey.KeyChar);
+        _term.Write(firstKey.KeyChar.ToString());
         while (true)
         {
             try
@@ -752,12 +760,12 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                 if (key.Key == ConsoleKey.Backspace && sb.Length > 0)
                 {
                     sb.Remove(sb.Length - 1, 1);
-                    Console.Write("\b \b");
+                    _term.Write("\b \b");
                 }
                 else if (key.KeyChar != '\0' && !char.IsControl(key.KeyChar))
                 {
                     sb.Append(key.KeyChar);
-                    Console.Write(key.KeyChar);
+                    _term.Write(key.KeyChar.ToString());
                 }
             }
             catch (InvalidOperationException)

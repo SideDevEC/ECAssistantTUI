@@ -4,13 +4,14 @@ using ECAssistant.Orchestration;
 using ECAssistant.Tools;
 using ECAssistant.Tools.Shell;
 using ECAssistant.Tools.Background;
-using ECAssistant.UI;
+using ECAssistant.TUI.UI;
 using ECAssistant.Session;
+using ECAssistant.TUI.Session;
 using ECAssistant.Services;
 using ECAssistant.Analysis;
 using ECAssistant.Interfaces;
 
-namespace ECAssistant.Controller;
+namespace ECAssistant.TUI.Controller;
 
 /// <summary>
 /// Application controller — the binder between EGuiConsole, layers, and Core.

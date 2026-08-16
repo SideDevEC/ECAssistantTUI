@@ -1,6 +1,6 @@
-using ECAssistant.UI;
+using ECAssistant.TUI.UI;
 
-namespace ECAssistant.Session;
+namespace ECAssistant.TUI.Session;
 
 /// <summary>
 /// Animated loading indicator — writes status messages during startup.

@@ -1,4 +1,4 @@
-namespace ECAssistant.UI;
+namespace ECAssistant.TUI.UI;
 
 /// <summary>
 /// The startup/home layer — always present, never deleted.

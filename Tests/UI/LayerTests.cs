@@ -1,6 +1,6 @@
-using ECAssistant.UI;
+using ECAssistant.TUI.UI;
 
-namespace ECAssistant.Tests.UI;
+namespace ECAssistant.TUI.Tests.UI;
 
 /// <summary>
 /// Tests for BaseLayer subclasses (SessionLayer, HelpLayer).

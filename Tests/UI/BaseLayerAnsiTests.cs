@@ -1,6 +1,6 @@
-using ECAssistant.UI;
+using ECAssistant.TUI.UI;
 
-namespace ECAssistant.Tests.UI;
+namespace ECAssistant.TUI.Tests.UI;
 
 /// <summary>
 /// Unit tests for BaseLayer static methods (ANSI helpers).

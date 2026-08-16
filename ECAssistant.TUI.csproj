@@ -5,15 +5,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <OutputType>Library</OutputType>
-    <RootNamespace>ECAssistant</RootNamespace>
-    <AssemblyName>e-assistant</AssemblyName>
+    <RootNamespace>ECAssistant.TUI</RootNamespace>
+    <AssemblyName>ECAssistant.TUI</AssemblyName>
     <PublishAot>false</PublishAot>
     <SelfContained>false</SelfContained>
     <NoWarn>$(NoWarn);MSB3277</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="ECAssistant.Tests" />
+    <InternalsVisibleTo Include="ECAssistant.TUI.Tests" />
   </ItemGroup>
 
   <ItemGroup>

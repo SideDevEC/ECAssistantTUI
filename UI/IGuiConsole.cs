@@ -1,4 +1,4 @@
-namespace ECAssistant.UI;
+namespace ECAssistant.TUI.UI;
 
 /// <summary>
 /// Interface for the console terminal that AppController and layers depend on.

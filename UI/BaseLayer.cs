@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace ECAssistant.UI;
+namespace ECAssistant.TUI.UI;
 
 /// <summary>
 /// Abstract base class for all layers in the EGuiConsole system.

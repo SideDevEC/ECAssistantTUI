@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-    <RootNamespace>ECAssistant.Tests</RootNamespace>
+    <RootNamespace>ECAssistant.TUI.Tests</RootNamespace>
     <xUnitCoreSettings>methodTimeout=30000</xUnitCoreSettings>
     <xUnitReporterSettings>methodTimeout=30000</xUnitReporterSettings>
     <NoWarn>$(NoWarn);MSB3277</NoWarn>
@@ -26,7 +26,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\ECAssistant.csproj" />
+    <ProjectReference Include="..\ECAssistant.TUI.csproj" />
     <Reference Include="ECAssistant.Core">
       <HintPath>..\lib\ECAssistant.Core.dll</HintPath>
       <Private>true</Private>

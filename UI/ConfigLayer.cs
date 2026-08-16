@@ -1,7 +1,7 @@
 using System.Text.Json;
 using ECAssistant.Config;
 
-namespace ECAssistant.UI;
+namespace ECAssistant.TUI.UI;
 
 /// <summary>
 /// Config layer — displays all EAgentConfig values in a readable format.

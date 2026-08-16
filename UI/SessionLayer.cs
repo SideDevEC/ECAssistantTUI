@@ -1,7 +1,8 @@
 using ECAssistant.Engine;
 using ECAssistant.Session;
+using ECAssistant.TUI.Session;
 
-namespace ECAssistant.UI;
+namespace ECAssistant.TUI.UI;
 
 /// <summary>
 /// One instance per Core session. Owns the output buffer for that session.

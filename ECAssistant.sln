@@ -1,6 +1,6 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ECAssistant.App", "ECAssistant.csproj", "{A1B2C3D4-0002-0000-0000-000000000002}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ECAssistant.App", "ECAssistant.TUI.csproj", "{A1B2C3D4-0002-0000-0000-000000000002}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ECAssistant.Tests", "Tests\ECAssistant.Tests.csproj", "{A1B2C3D4-0003-0000-0000-000000000003}"
 EndProject

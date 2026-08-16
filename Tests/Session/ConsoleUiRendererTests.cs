@@ -1,7 +1,8 @@
 using ECAssistant.Session;
-using ECAssistant.UI;
+using ECAssistant.TUI.Session;
+using ECAssistant.TUI.UI;
 
-namespace ECAssistant.Tests.Session;
+namespace ECAssistant.TUI.Tests.Session;
 
 /// <summary>
 /// Tests for ConsoleUiRenderer — verifies it writes to SessionLayer's buffer

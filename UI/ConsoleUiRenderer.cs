@@ -1,6 +1,7 @@
-using ECAssistant.UI;
+using ECAssistant.Session;
+using ECAssistant.TUI.UI;
 
-namespace ECAssistant.Session;
+namespace ECAssistant.TUI.Session;
 
 /// <summary>
 /// Bridges Core's IOutputListener to a SessionLayer's buffer.

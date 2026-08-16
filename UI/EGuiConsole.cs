@@ -1,6 +1,7 @@
 using System.Text;
+using ECAssistant.UI;
 
-namespace ECAssistant.UI;
+namespace ECAssistant.TUI.UI;
 
 /// <summary>
 /// Pure terminal engine for ECAssistant.

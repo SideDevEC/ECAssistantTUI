@@ -1,4 +1,4 @@
-namespace ECAssistant.UI;
+namespace ECAssistant.TUI.UI;
 
 /// <summary>
 /// Static help content layer. Shows the help screen with all available commands.

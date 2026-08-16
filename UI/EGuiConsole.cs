@@ -421,11 +421,10 @@ public sealed class EGuiConsole : EGuiBase
     {
         Console.Write($"\x1b[{_inputRow + 1};1H\x1b[2K");
         Console.Write(PromptStr);
-        if (!_silentInput)
-            Console.Write(_inputBuffer.ToString());
+        Console.Write(_inputBuffer.ToString());
 
         // Steady cursor at end of input
-        int col = PromptStr.Length + (_silentInput ? 0 : _inputBuffer.Length);
+        int col = PromptStr.Length + _inputBuffer.Length;
         if (col < _screenWidth)
             Console.Write("\x1b[7m \x1b[0m"); // reverse-video space = block cursor
     }
@@ -437,7 +436,7 @@ public sealed class EGuiConsole : EGuiBase
     {
         // Cursor is drawn as part of PaintInputLine (block cursor)
         // Just position after it — the block cursor is at the end of input
-        int col = PromptStr.Length + (_silentInput ? 0 : _inputBuffer.Length);
+        int col = PromptStr.Length + _inputBuffer.Length;
         Console.Write($"\x1b[{_inputRow + 1};{col + 1}H");
     }
 

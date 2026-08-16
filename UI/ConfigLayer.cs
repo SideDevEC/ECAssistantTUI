@@ -42,26 +42,8 @@ public sealed class ConfigLayer : BaseLayer
         TryAddProperty(config.Llm, "RepeatPenalty");
         
         // Secondary model
-        string secondaryPath = "";
-        bool secondaryEnabled = false;
-        try
-        {
-            var secondaryProp = config.GetType().GetProperty("SecondaryModel");
-            if (secondaryProp != null)
-            {
-                var secondaryConfig = secondaryProp.GetValue(config);
-                if (secondaryConfig != null)
-                {
-                    var modelProp = secondaryConfig.GetType().GetProperty("SecondaryModel");
-                    var enabledProp = secondaryConfig.GetType().GetProperty("EnableSecondaryModel");
-                    if (modelProp != null)
-                        secondaryPath = modelProp.GetValue(secondaryConfig) as string ?? "";
-                    if (enabledProp != null)
-                        secondaryEnabled = (bool)(enabledProp.GetValue(secondaryConfig) ?? false);
-                }
-            }
-        }
-        catch { }
+        string secondaryPath = config.SecondaryModel?.ModelPath ?? "";
+        bool secondaryEnabled = config.SecondaryModel?.Enabled ?? false;
         
         _outputLines.Add($"{_color.Cyan}  Secondary:    {_color.Reset}{(secondaryEnabled ? $"{secondaryPath} ✓" : $"{_color.Dim}disabled{_color.Reset}")}");
         _outputLines.Add("");

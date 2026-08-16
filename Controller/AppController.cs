@@ -411,28 +411,9 @@ public sealed class AppController
         string activeKey = _sessionManager?.ActiveSession?.Key ?? "none";
         string configPath = Path.Combine(_userConfigDir, "appsettings.json");
         
-        // Try to get secondary model info from config
-        string secondaryPath = "";
-        bool secondaryEnabled = false;
-        try
-        {
-            // SecondaryModelConfig is in EAgentConfig or LlmConfig
-            var secondaryProp = _config.GetType().GetProperty("SecondaryModel");
-            if (secondaryProp != null)
-            {
-                var secondaryConfig = secondaryProp.GetValue(_config);
-                if (secondaryConfig != null)
-                {
-                    var modelProp = secondaryConfig.GetType().GetProperty("SecondaryModel");
-                    var enabledProp = secondaryConfig.GetType().GetProperty("EnableSecondaryModel");
-                    if (modelProp != null)
-                        secondaryPath = modelProp.GetValue(secondaryConfig) as string ?? "";
-                    if (enabledProp != null)
-                        secondaryEnabled = (bool)(enabledProp.GetValue(secondaryConfig) ?? false);
-                }
-            }
-        }
-        catch { }
+        // Secondary model info from config
+        string secondaryPath = _config.SecondaryModel?.ModelPath ?? "";
+        bool secondaryEnabled = _config.SecondaryModel?.Enabled ?? false;
         
         _startupLayer.UpdateStatus(VersionString, _modelPath, secondaryPath, secondaryEnabled, _workingDir, configPath, sessionCount, activeKey);
     }

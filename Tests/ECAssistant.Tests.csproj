@@ -27,6 +27,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ECAssistant.csproj" />
+    <Reference Include="ECAssistant.Core">
+      <HintPath>..\lib\ECAssistant.Core.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
   </ItemGroup>
 
 </Project>

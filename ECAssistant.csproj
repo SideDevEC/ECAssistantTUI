@@ -18,11 +18,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Core NuGet package — brings managed DLL + all dependencies automatically. -->
-    <PackageReference Include="ECAssistant.Core" Version="1.0.0" />
-    <!-- LLamaSharp.Backend.* — native runtime file providers only. -->
-    <!-- These copy llama.dll / libllama.dylib to the output folder. -->
-    <!-- No managed API — just native binaries. App never touches LLamaSharp types. -->
+    <!-- Core.dll is a pre-built self-contained binary in lib/. -->
+    <!-- Build ECAssistantCore, copy the DLL here. Gitignored — not in repo. -->
+    <Reference Include="ECAssistant.Core">
+      <HintPath>lib\ECAssistant.Core.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <!-- LLamaSharp native runtime providers — copy llama.dll/libllama.dylib to output. -->
+    <!-- No managed API. App never touches LLamaSharp types. -->
     <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.27.0" />
     <PackageReference Include="LLamaSharp.Backend.Cuda12" Version="0.27.0" Condition="'$(OS)' == 'WINDOWS'" />
     <PackageReference Include="LLamaSharp.Backend.Vulkan" Version="0.27.0" />

@@ -39,7 +39,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- No LLamaSharp packages needed — Core.dll ships everything. -->
+    <!-- LLamaSharp native runtime packages — ensure native libs (llama.dll, libllama.dylib) are copied to output. -->
+    <!-- The managed API is inside Core.dll; these only provide the native backend binaries. -->
+    <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.27.0" />
+    <PackageReference Include="LLamaSharp.Backend.Cuda12" Version="0.27.0" Condition="'$(OS)' == 'WINDOWS'" />
+    <PackageReference Include="LLamaSharp.Backend.Vulkan" Version="0.27.0" />
   </ItemGroup>
 
   <!-- No content files needed — Core.dll ships appsettings.json and system prompts as embedded resources -->

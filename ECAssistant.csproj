@@ -40,10 +40,6 @@
     <!-- No LLamaSharp packages needed — Core.dll ships everything. -->
   </ItemGroup>
 
-  <ItemGroup>
-    <Content Include="appsettings.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-  </ItemGroup>
+  <!-- No content files needed — Core.dll ships appsettings.json and system prompts as embedded resources -->
 
 </Project>

@@ -364,6 +364,13 @@ public sealed class AppController
             return;
         }
         
+        // If on startup layer, don't route prompts to sessions
+        if (_activeLayer is StartupLayer)
+        {
+            _console.WriteLineColored(_color.Cyan + "[Hint] Switch to a session first — use /session <n> or /session-new <name>" + _color.Reset);
+            return;
+        }
+        
         var activeSession = _sessionManager?.ActiveSession;
         if (activeSession != null)
         {

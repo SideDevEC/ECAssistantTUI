@@ -17,8 +17,7 @@ EGuiConsole (thin manager)
   ├── Resize watcher (timer → notify active layer)
   ├── Layer stack (push/pop, route keys + output to active layer)
   ├── _writeLock (shared, passed to layers)
-  ├── Screen dimensions (shared, layers read them)
-  └── Active layer pointer (who gets output + keys)
+  └── Screen dimensions (shared, layers read them)
 
 BaseLayer (abstract)
   ├── Output buffer: List<string> _outputLines
@@ -32,12 +31,10 @@ BaseLayer (abstract)
   ├── ANSI helpers: StripAnsi, TruncateAnsi, WrapLine (static, shared)
   └── Live stream: _liveStreamText, _liveStreamLineIndex, UpdateLiveStreamLine()
 
-SessionLayer : BaseLayer  (one per session)
-  ├── Own output buffer — keeps accumulating in background even when not active
+SessionLayer : BaseLayer
+  ├── All session output + input (current EGuiConsole behavior)
   ├── Live stream polling (stream buffer getter)
-  ├── Silent mode (typed but not echoed during generation)
-  ├── HandleKey(): full key processing (text, backspace, enter, scroll, mouse, ESC)
-  └── OnActivate(): full repaint from own buffer
+  └── Silent mode (typed but not echoed during generation)
 
 HelpLayer : BaseLayer
   ├── Own help content buffer
@@ -48,43 +45,29 @@ HelpLayer : BaseLayer
 ## Key Design Decisions
 
 ### 1. EGuiConsole keeps the lock and dimensions
-- `_writeLock` stays in `EGuiConsole` — layers use `console.Lock`
+- `_writeLock` stays in `EGuiConsole` — layers receive it or use a delegate
 - Screen dimensions (`_screenWidth`, `_screenHeight`, `_outputRegionEnd`, etc.) stay in `EGuiConsole` — layers read them via properties
 - This avoids duplicating terminal detection logic in each layer
 
 ### 2. BaseLayer owns its state but borrows the console
-- `BaseLayer` receives an `EGuiConsole` reference
+- `BaseLayer` receives an `EGuiConsole` reference (like current `IGuiLayer.OnActivate(EGuiConsole)`)
 - Uses `console.Lock` for thread safety
 - Uses `console.Width`, `console.Height`, `console.OutputRegionEnd` for layout
-- Calls `Console.Write()` and `Console.Out.Flush()` for raw output (inside lock)
+- Calls `console.Write()` and `console.Flush()` for raw output
 
-### 3. One SessionLayer per session — buffers run in background
-- Each `AgentSession` gets its own `SessionLayer` instance
-- The `SessionLayer` owns its `_outputLines` buffer
-- Output from the session always goes to its `SessionLayer`, even when not active
-- When GUI switches sessions, it just points to the new active `SessionLayer` and calls `Repaint()`
-- No history copying — the layer already has everything
-- Stream on/off stays on the `SessionLayer` — the poll timer lives there
-
-### 4. Output routing
+### 3. Output routing
 - `EGuiConsole.WriteLineColored()` → routes to active layer's `AddOutputLine()` + `Repaint()`
-- If a non-active `SessionLayer` receives output (background session), it adds to its buffer but does NOT repaint — only the active layer repaints
-- `EGuiConsole` implements `EGuiBase` by delegating to active layer
+- If no layer active → route to a default `SessionLayer`
+- `EGuiConsole` implements `EGuiBase` (abstract API) by delegating to active layer
 
-### 5. Input routing
-- `EGuiConsole.PromptRaw()` → delegates to active layer's `HandleInput()`
+### 4. Input routing
+- `EGuiConsole.ReadInputLine()` → delegates to active layer's `HandleInput()`
 - `BaseLayer.HandleInput()` runs the key loop (read key, process, repaint)
 - Each layer controls its own input behavior
 
-### 6. Mouse wheel
-- Mouse escape sequence parsing in a shared helper
-- Parsed scroll events forwarded to active layer's `ScrollUp/ScrollDown`
-
-### 7. Overlay layers (Help)
-- `HelpLayer` is pushed on top of the active `SessionLayer`
-- While `HelpLayer` is active, keys go to `HelpLayer`, output goes to `HelpLayer` (if any)
-- The underlying `SessionLayer` keeps its buffer intact — no interference
-- When `HelpLayer` is popped, `SessionLayer.OnActivate()` repaints from its own buffer
+### 5. Mouse wheel
+- Mouse escape sequence parsing stays in `EGuiConsole.ReadInputLine()` (or a shared helper)
+- Parsed scroll events are forwarded to active layer's `ScrollUp/ScrollDown`
 
 ---
 
@@ -102,10 +85,11 @@ HelpLayer : BaseLayer
 | File | Changes |
 |------|---------|
 | `UI/EGuiConsole.cs` | Strip down to: terminal init/shutdown, dimensions, lock, layer stack, output routing. ~150 lines from ~1000. |
-| `UI/SessionLayer.cs` | Extends `BaseLayer`, one instance per session, silent mode + live stream |
+| `UI/IGuiLayer.cs` | Replace with `abstract class BaseLayer` (or keep interface + add BaseLayer) |
+| `UI/SessionLayer.cs` | Extends `BaseLayer`, adds silent mode + live stream |
 | `UI/HelpLayer.cs` | Extends `BaseLayer`, simple render + Enter to pop |
-| `UI/ConsoleUiRenderer.cs` | Routes to the session's `SessionLayer` directly (not via EGuiConsole) |
-| `Program.cs` | Minor: creates `SessionLayer` per session, attaches to `EGuiConsole` |
+| `UI/ConsoleUiRenderer.cs` | Minor: calls `console.GetActiveLayer()` for stream updates |
+| `Program.cs` | No changes (EGuiBase API stays the same) |
 
 ### Files Not Changed
 
@@ -124,22 +108,18 @@ Move `StripAnsi`, `TruncateAnsi`, `WrapLine` from `EGuiConsole` to static `AnsiH
 
 ### Step 2: Create BaseLayer
 Create `BaseLayer` abstract class with:
-- All state fields: `_outputLines`, `_scrollOffset`, `_screenRows`, dirty flags, `_inputBuffer`, `_statusBar`, `_liveStreamText`, etc.
+- All state fields currently in `EGuiConsole`: `_outputLines`, `_scrollOffset`, `_screenRows`, dirty flags, `_inputBuffer`, `_statusBar`, `_liveStreamText`, etc.
 - All methods: `Repaint()`, `PaintOutputRegion()`, `PaintStatusBar()`, `PaintInputLine()`, `ScrollUp/Down/ToBottom`, `AddOutputLine()`, `UpdateLiveStreamLine()`, `ClearLiveStreamLine()`
-- Abstract: `HandleKey(EGuiConsole, ConsoleKeyInfo)` — each layer implements key handling
+- Abstract: `HandleKey(EGuiConsole, ConsoleKeyInfo)` — each layer implements its key handling
 - Virtual: `OnActivate(EGuiConsole)`, `OnDeactivate(EGuiConsole)`, `OnResize(EGuiConsole)`
 - Uses `EGuiConsole` reference for: lock, dimensions, raw `Console.Write`
-- `RepaintIfActive()` — only repaints if this layer is the active layer
 
 ### Step 3: Convert SessionLayer
 `SessionLayer : BaseLayer`:
-- Constructor takes session key + stream buffer getter
 - `HandleKey()`: full key processing (text, backspace, enter, scroll, mouse wheel, ESC, tab)
-- `OnActivate()`: full repaint from own buffer
-- Live stream: `UpdateLiveStreamLine()` + `ClearLiveStreamLine()` + poll timer (owned by layer)
+- `OnActivate()`: full repaint
+- Live stream: `UpdateLiveStreamLine()` + `ClearLiveStreamLine()` (moved from EGuiConsole)
 - Silent mode: `_silentInput`, `_silentInputCheck`
-- `AddOutputLine()`: always adds to buffer; only repaints if active
-- One instance per session — buffer accumulates in background
 
 ### Step 4: Convert HelpLayer
 `HelpLayer : BaseLayer`:
@@ -161,70 +141,44 @@ Keep in `EGuiConsole`:
 - `_writeLock` (expose as `internal object Lock`)
 - Terminal init/shutdown (ANSI, mouse, cursor)
 - Screen dimensions (expose as properties)
-- `_activeLayer` pointer (BaseLayer)
-- `_layerStack` for overlay layers (HelpLayer etc.)
+- `_layerStack` with `BaseLayer` instead of `IGuiLayer`
 - `WriteLine/WriteLineColored/BlankLine/WriteRaw` → delegate to active layer
 - `PromptRaw/PromptColored` → delegate to active layer's `HandleInput()`
 - Resize watcher → notify active layer
-- `PushLayer/PopLayer` — overlay layers on top of active base layer
+- `PushLayer/PopLayer`
 - `ClearCanvas` → delegate to active layer
-- `SetActiveLayer(BaseLayer)` — switch which SessionLayer is active
 - `EGuiBase` API implementation (InfoColored, WarningColored, etc. → delegate)
 
-### Step 6: Update ConsoleUiRenderer + Program.cs
-- `ConsoleUiRenderer`: holds a reference to the `SessionLayer` (not just `EGuiBase`)
-  - `OnOutput()` → `sessionLayer.AddOutputLine()` + `sessionLayer.RepaintIfActive()`
-  - `OnStreamStart()` → `sessionLayer.StartStreamPolling()`
-  - `OnStreamStop()` → `sessionLayer.StopStreamPolling()`
-- `Program.cs`: create `SessionLayer` per session, call `gui.SetActiveLayer(sessionLayer)`
-  - Session switch: `gui.SetActiveLayer(newSessionLayer)` — layer repaints from its own buffer
-  - Remove manual history copying (`RenderHistory`)
+### Step 6: Update ConsoleUiRenderer
+- `OnStreamStart/OnStreamStop`: get active session layer from `EGuiConsole`
+- `UpdateLiveStreamLine` calls go to the active `SessionLayer`, not `EGuiConsole`
 
 ### Step 7: Test + verify
 - Build clean
 - Run app: session output, input, scroll, mouse wheel
 - Open help: help renders, Enter returns, session view intact
 - Stream: live tokens appear during generation
-- Switch sessions: active layer changes, repaints from own buffer — no history copy
-- Background session output: accumulates in its layer buffer, visible on switch
+- Switch sessions: history renders correctly
 - Resize: active layer repaints
 
 ---
 
-## SessionLayer ↔ Session Mapping
-
-```
-Program.cs creates:
-  SessionManager → AgentSession("main")
-  SessionLayer("main", session.GetStreamBuffer) → attached to EGuiConsole
-  ConsoleUiRenderer(sessionLayer) → session.AddListener(renderer)
-
-  SessionManager → AgentSession("debug")
-  SessionLayer("debug", session.GetStreamBuffer) → NOT attached (inactive)
-  ConsoleUiRenderer(sessionLayer) → session.AddListener(renderer)
-
-Switching to "debug":
-  gui.SetActiveLayer(debugSessionLayer)  → debugSessionLayer.OnActivate() → Repaint()
-  No history copying needed — debugSessionLayer already has all output in _outputLines
-```
-
 ## API Stability
 
-`EGuiBase` (Core) stays unchanged.
-`EGuiConsole` public surface stays the same from `Program.cs`'s perspective:
+`EGuiBase` (Core) stays unchanged — `Program.cs` doesn't need changes.
+The `EGuiConsole` public surface stays the same from `Program.cs`'s perspective:
 - `InitConsole()`, `ShutdownConsole()`
-- `WriteLineColored()`, `WriteLine()`, `BlankLine()`, `WriteRaw()` → delegate to active layer
-- `PromptRaw()`, `PromptColored()` → delegate to active layer
+- `WriteLineColored()`, `WriteLine()`, `BlankLine()`, `WriteRaw()`
+- `PromptRaw()`, `PromptColored()`
 - `PushLayer()`, `PopLayer()`, `ClearCanvas()`
 - `SetHandlers()`, `SetSilentInputCheck()`, `SetSilentInputInitial()`
-- `SetActiveLayer(BaseLayer)` — NEW: switch active session layer
 - `TriggerFullRepaint()`, `SetStatusBar()`
-- `UpdateLiveStreamLine()`, `ClearLiveStreamLine()` → delegate to active layer
+- `UpdateLiveStreamLine()`, `ClearLiveStreamLine()`
+- `PaintLayerScreen()` — may be removed if HelpLayer renders itself
 
 ## Risk Assessment
 
-- **Low risk:** `EGuiBase` API unchanged, `Program.cs` changes minimal
-- **Medium risk:** Mouse wheel parsing moves to shared helper
+- **Low risk:** `Program.cs` API unchanged, tests for UI should still pass
+- **Medium risk:** Mouse wheel parsing moves between layers — need to test on both platforms
 - **Medium risk:** Live stream polling timer ownership moves to SessionLayer
-- **Low risk:** Session switch becomes trivial (no history copy)
 - **Mitigation:** One step at a time, build + test after each step

@@ -115,8 +115,8 @@ public class Program
               Gui.WriteLineColored(_color.Cyan + _color.Bold + "[Root] " + ($"{rootDir}") + _color.Reset);
               Gui.BlankLine();
 
-                // Build inference params from config — Core handles all LLamaSharp types
-            var inferenceParams = InferenceParamsFactory.Create(_config);
+                // InferenceParams are constructed internally by SessionManager via InferenceParamsFactory.
+            // No LLamaSharp types needed in App.
 
             if (File.Exists(effectiveModelPath))
                        {

@@ -37,11 +37,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- LLamaSharp needed as transitive dependency: InferenceParamsFactory returns InferenceParams (LLamaSharp type) -->
-    <PackageReference Include="LLamaSharp" Version="0.27.0" />
-    <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.27.0" />
-    <PackageReference Include="LLamaSharp.Backend.Cuda12" Version="0.27.0" Condition="'$(OS)' == 'WINDOWS'" />
-    <PackageReference Include="LLamaSharp.Backend.Vulkan" Version="0.27.0" />
+    <!-- No LLamaSharp packages needed — Core.dll ships everything. -->
   </ItemGroup>
 
   <ItemGroup>

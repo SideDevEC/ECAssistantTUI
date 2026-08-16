@@ -1,6 +1,7 @@
 <Solution>
+  <Project Path="ECAssistant.Core.csproj" />
+  <Project Path="ECAssistant.csproj" />
   <Folder Name="/Tests/">
     <Project Path="Tests/ECAssistant.Tests.csproj" />
   </Folder>
-  <Project Path="ECAssistant.csproj" />
 </Solution>

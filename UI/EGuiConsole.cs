@@ -725,6 +725,13 @@ public sealed class EGuiConsole : EGuiBase
             {
                 _layerStack.Peek().OnActivate(this);
             }
+            else
+            {
+                // No layers left — restore the session view with a full repaint
+                _fullRepaint = true;
+                Repaint();
+                PositionCursorAtInput();
+            }
             Console.Out.Flush();
         }
     }

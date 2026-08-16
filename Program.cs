@@ -27,8 +27,6 @@ public class Program
         ApplyCommandLineArgsToBuilder(ref builder, args);
 
         var config = builder.Build();
-        config.RootPath = userConfigDir;
-        config.AgentSettings.WorkingDirectory = userConfigDir;
 
         // ── Resolve model path ──
         var effectiveModelPath = config.Llm.ModelPath;

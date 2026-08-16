@@ -115,8 +115,10 @@ public sealed class EGuiConsole : EGuiBase
         // Start background resize watcher
         StartResizeWatcher();
 
-        // Push session layer as the base layer (layer 1)
-        _layerStack.Push(new SessionLayer());
+        // NOTE: SessionLayer removed from stack — it was blocking input and output
+        // routing in ReadInputLine/WriteOutput because _inLayerMode was always true.
+        // The session view is painted by the normal Repaint() path without layers.
+        // Overlay layers (HelpLayer) are pushed dynamically when needed.
     }
 
     /// <summary>Flush buffered startup output to the terminal (non-ANSI path).</summary>
@@ -585,8 +587,10 @@ public sealed class EGuiConsole : EGuiBase
         {
             if (CheckResize()) _fullRepaint = true;
             AddOutputLine(text);
-            // Only repaint session view if no layer is active
-            if (!_inLayerMode)
+            // Repaint when no overlay layer is active.
+            // The base SessionLayer (name="session") doesn't block output rendering.
+            var topForOutput = _inLayerMode ? _layerStack.Peek() : null;
+            if (!_inLayerMode || (topForOutput != null && topForOutput.Name == "session"))
             {
                 UpdateScrollStatus();
                 Repaint();
@@ -803,6 +807,7 @@ public sealed class EGuiConsole : EGuiBase
 
     private string? ReadInputLine()
     {
+        Console.Error.WriteLine("[DEBUG] ReadInputLine: entered");
         _inputBuffer.Clear();
 
         if (_ansiSupported)
@@ -817,6 +822,8 @@ public sealed class EGuiConsole : EGuiBase
             }
         }
 
+        // DEBUG: confirm we reached the input loop
+        Console.Error.WriteLine("[DEBUG] ReadInputLine: entering while(true) loop");
         while (true)
         {
             ConsoleKeyInfo key;
@@ -843,7 +850,9 @@ public sealed class EGuiConsole : EGuiBase
                     Thread.Sleep(10);
                     continue;
                 }
+                Console.Error.WriteLine("[DEBUG] KeyAvailable is true, reading key...");
                 key = Console.ReadKey(true); // intercept: don't auto-echo
+                Console.Error.WriteLine($"[DEBUG] Key received: {key.Key} char='{key.KeyChar}'");
             }
             catch (InvalidOperationException)
             {
@@ -856,8 +865,12 @@ public sealed class EGuiConsole : EGuiBase
                 return ReadInputLineFallback(key);
             }
 
-            // ── Layer mode: route keys to the active layer ──
-            if (_inLayerMode)
+            // ── Layer mode: route keys to overlay layers only ──
+            // The base SessionLayer (name="session") never intercepts keys —
+            // keys fall through to the normal input handler below.
+            // Only overlay layers (HelpLayer, etc.) get key routing.
+            var topLayer = _inLayerMode ? _layerStack.Peek() : null;
+            if (topLayer != null && topLayer.Name != "session")
             {
                 lock (_writeLock)
                 {

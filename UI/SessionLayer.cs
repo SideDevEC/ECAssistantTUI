@@ -23,9 +23,12 @@ public sealed class SessionLayer : IGuiLayer
 
     public bool OnKey(EGuiConsole console, ConsoleKeyInfo key)
     {
-        // Session layer doesn't intercept keys — they're handled by ReadInputLine.
-        // This should never be called because the session layer is the base
-        // and ReadInputLine handles keys directly when no overlay layer is active.
+        // SessionLayer is the base layer — it never intercepts keys.
+        // Returning false would cause ReadInputLine to PopLayer (removing the base),
+        // so instead we return true BUT this should never be reached.
+        // The real fix is in ReadInputLine: it skips layer routing for SessionLayer.
+        // If we ever get here, something is wrong — log it.
+        Console.Error.WriteLine("[WARN] SessionLayer.OnKey called — ReadInputLine should skip SessionLayer routing");
         return true;
     }
 }

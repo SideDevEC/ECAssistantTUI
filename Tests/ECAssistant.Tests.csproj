@@ -9,6 +9,7 @@
     <RootNamespace>ECAssistant.Tests</RootNamespace>
     <xUnitCoreSettings>methodTimeout=30000</xUnitCoreSettings>
     <xUnitReporterSettings>methodTimeout=30000</xUnitReporterSettings>
+    <NoWarn>$(NoWarn);MSB3277</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

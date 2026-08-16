@@ -9,6 +9,8 @@
     <AssemblyName>e-assistant</AssemblyName>
     <PublishAot>false</PublishAot>
     <SelfContained>false</SelfContained>
+    <!-- MSB3277: LLamaSharp transitively pulls System.Text.Json 10.x; net8.0 ships 8.x. Unification is harmless. -->
+    <NoWarn>$(NoWarn);MSB3277</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

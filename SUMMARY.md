@@ -1,70 +1,38 @@
-# ECAssistant App — Summary
+# ECAssistant TUI — Summary
 
-**Updated:** 2026-08-16 (v11.0)
+**Updated:** 2026-08-16 (v11.1)
 **Build:** 0 errors, 0 warnings
 **Tests:** 66/66 passing
-**Repo:** https://github.com/LLamaDudeX/ECAssistant.git
+**Repo:** https://github.com/LLamaDudeX/ECAssistantTUI.git
 **Core repo:** https://github.com/LLamaDudeX/ECAssistantCore.git
+**Namespace:** `ECAssistant.TUI.*`
 
 ## What It Is
 
-The console application frontend for ECAssistant — a local, offline AI coding assistant. Built in C# .NET 8. Provides a full-screen terminal UI (alternate buffer, like nano/vim) that wires into the ECAssistant.Core engine DLL.
-
-## v11.0 Architecture Refactor (2026-08-16)
-
-Major refactor separating concerns into three clean layers:
-
-- **AppController** — application logic, command parsing (layer-switching only), session/layer lifecycle
-- **EGuiConsole** — pure terminal engine (render + input + delta rendering), no app logic
-- **BaseLayer** — per-screen state: output buffers, scroll position, status bar
-
-### New Files
-- `Controller/AppController.cs` — owns console + layer dictionary, handles /help /home /quit /session /session-new, delegates rest to layers
-- `UI/BaseLayer.cs` — abstract layer with output buffer, scroll, status bar, ANSI helpers, ProcessInput
-- `UI/StartupLayer.cs` — always-present home screen, boot log, app status, never deleted
-- `UI/ConfigLayer.cs` — read-only config inspection (/config command)
-
-### Removed Files
-- `UI/IGuiLayer.cs` — replaced by BaseLayer
-
-### Key Changes
-- Each session gets its own SessionLayer with its own buffer — fills continuously even when not active
-- ConsoleUiRenderer writes to SessionLayer buffer, not EGuiConsole
-- Program.cs is minimal — creates controller, calls Run(), done
-- Layer-level command parsing: BaseLayer handles /clear, SessionLayer handles session commands, controller handles only layer switching
-- Input prompt `> ` visible on all layers (BaseLayer default)
-- Startup layer is default when no sessions exist
-- /home, /config, /help are overlay layers — ESC/Enter returns to prior layer
-
-## Config Cleanup
-
-- Removed `eca-data/` subdirectory — `~/ECAssistant/appsettings.json` is the single config file
-- Fixed in both Core (AgentConfigBuilder) and App (Program.cs)
-- Secondary model display fixed — uses config.SecondaryModel.Enabled/.ModelPath directly
+The TUI library for ECAssistant — a full-screen terminal UI (alternate buffer, like nano/vim) that wires into the ECAssistant.Core engine. Built as a **class library** (not an executable) so it can be referenced by any .NET 8 app, including the standalone `ECAssistantConsole` launcher or future GUI hosts (e.g., ECSQL's Avalonia terminal pane).
 
 ## Project Structure
 
 ```
-ECAssistant.sln
-├── ECAssistant.csproj              ← Console exe (references Core.dll)
+ECAssistantTUI/
+├── ECAssistant.TUI.csproj         ← Class library, AssemblyName=ECAssistant.TUI
 ├── Controller/
-│   └── AppController.cs             ← Application logic + layer lifecycle
-├── Program.cs                       ← Minimal entry point
+│   └── AppController.cs            ← Application logic + layer lifecycle
 ├── UI/
-│   ├── EGuiConsole.cs               ← Terminal engine (render + input + delta)
-│   ├── BaseLayer.cs                 ← Abstract layer: buffer, scroll, ANSI helpers
-│   ├── SessionLayer.cs              ← One per session, owns output buffer
-│   ├── StartupLayer.cs              ← Home screen, always present
-│   ├── HelpLayer.cs                 ← Help overlay
-│   ├── ConfigLayer.cs               ← Config inspection overlay
-│   ├── LoadingIndicator.cs          ← Animated loading dots
-│   └── ConsoleUiRenderer.cs         ← Bridges Core output → SessionLayer buffer
+│   ├── IGuiConsole.cs              ← Interface for terminal injection (v11.1)
+│   ├── EGuiConsole.cs              ← Terminal engine (render + input + delta)
+│   ├── BaseLayer.cs                ← Abstract layer: buffer, scroll, ANSI helpers
+│   ├── SessionLayer.cs             ← One per session, owns output buffer
+│   ├── StartupLayer.cs             ← Home screen, always present
+│   ├── HelpLayer.cs                ← Help overlay
+│   ├── ConfigLayer.cs              ← Config inspection overlay
+│   ├── LoadingIndicator.cs         ← Animated loading dots
+│   └── ConsoleUiRenderer.cs        ← Bridges Core output → SessionLayer buffer
 ├── Tests/
-│   ├── UI/                          ← BaseLayer, Layer, ConfigLayer tests
-│   └── Session/                     ← ConsoleUiRenderer tests
+│   └── ECAssistant.TUI.Tests.csproj ← 66 tests
 ├── ARCHITECTURE.md
 ├── SUMMARY.md
-└── lib/ECAssistant.Core.dll         ← Built from ECAssistantCore repo
+└── lib/ECAssistant.Core.dll        ← Built from ECAssistantCore repo
 ```
 
 ## Dependencies
@@ -77,31 +45,28 @@ ECAssistant.sln
 ## Build Order
 
 1. Build `ECAssistantCore.sln` → produces `ECAssistant.Core.dll`
-2. Copy DLL to `ECAssistant/lib/`
-3. Build `ECAssistant.sln`
+2. Copy DLL to `ECAssistantTUI/lib/`
+3. Build `ECAssistant.TUI.csproj`
 
-## Commands
+## v11.1 Changes (2026-08-16)
 
-| Command | Handled By | Description |
-|---|---|---|
-| /help | Controller | Show help overlay |
-| /home | Controller | Go to startup/home layer |
-| /config | Controller | Show config values |
-| /quit, /exit | Controller | Stop all sessions and exit |
-| /session \<n\> | Controller | Switch to session n |
-| /session-new \<name\> | Controller | Create new session |
-| /clear | BaseLayer | Clear output buffer |
-| /clear-history | SessionLayer | Clear conversation history |
-| /save-context | SessionLayer | Save transcript |
-| /context-status | SessionLayer | Show context window usage |
-| /stop | SessionLayer | Stop running session |
-| /tools | SessionLayer | List registered tools |
-| /single | SessionLayer | Reset to single-turn mode |
-| /sessions | Controller (deferred) | List all sessions |
-| /session-peek | Controller (deferred) | Peek at session output |
-| /session-stop | Controller (deferred) | Stop session by index |
-| /session-close | Controller (deferred) | Close session by index |
-| /session-rename | Controller (deferred) | Rename session |
-| /session-info | Controller (deferred) | Detailed session info |
-| /session-queue | Controller (deferred) | Show prompt queue |
-| ESC | Controller | Stop session (session layer) / return (overlay layers) |
+- **Library project** — `OutputType` changed from `Exe` to `Library`
+- **IGuiConsole interface** — enables hosting TUI in external apps
+- **EGuiConsole implements IGuiConsole**
+- **AppController** — accepts `IGuiConsole` via constructor (injectable)
+- **AppController** — constructor overload with `List<EToolBase>` for external tools
+- **AppController** — passes external tools to `SessionBuilder.BuildAsync`
+- **BaseLayer** — uses `IGuiConsole` instead of `EGuiConsole`
+- **LoadingIndicator** — uses `IGuiConsole` instead of `EGuiBase`
+- **Namespace** — `ECAssistant.*` → `ECAssistant.TUI.*` (UI, Controller, Session)
+- **Program.cs removed** — moved to ECAssistantConsole project
+- **Tests renamed** — `ECAssistant.Tests` → `ECAssistant.TUI.Tests`
+
+## v11.0 Architecture (2026-08-16)
+
+- **AppController** — application logic, command parsing, session/layer lifecycle
+- **EGuiConsole** — pure terminal engine (render + input + delta rendering)
+- **BaseLayer** — per-screen state: output buffers, scroll position, status bar
+- Each session gets its own SessionLayer with its own buffer
+- ConsoleUiRenderer writes to SessionLayer buffer, not EGuiConsole
+- Layer-level command parsing: BaseLayer handles /clear, SessionLayer handles session commands

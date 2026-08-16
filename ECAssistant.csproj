@@ -17,11 +17,15 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- One DLL. Everything included. Nothing else needed. -->
+    <!-- Core.dll in lib/ (gitignored, built locally) -->
     <Reference Include="ECAssistant.Core">
       <HintPath>lib\ECAssistant.Core.dll</HintPath>
       <Private>true</Private>
     </Reference>
+    <!-- Native runtime file providers — copy llama.dll/libllama.dylib to output. No managed API. -->
+    <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.27.0" />
+    <PackageReference Include="LLamaSharp.Backend.Cuda12" Version="0.27.0" Condition="'$(OS)' == 'WINDOWS'" />
+    <PackageReference Include="LLamaSharp.Backend.Vulkan" Version="0.27.0" />
   </ItemGroup>
 
   <ItemGroup>

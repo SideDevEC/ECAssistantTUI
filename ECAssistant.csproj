@@ -9,7 +9,7 @@
     <AssemblyName>e-assistant</AssemblyName>
     <PublishAot>false</PublishAot>
     <SelfContained>false</SelfContained>
-    <!-- MSB3277: LLamaSharp transitively pulls System.Text.Json 10.x; net8.0 ships 8.x. Unification is harmless. -->
+    <!-- MSB3277: System.Text.Json version unification — harmless. -->
     <NoWarn>$(NoWarn);MSB3277</NoWarn>
   </PropertyGroup>
 
@@ -18,12 +18,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Core.dll is a pre-built binary in lib/ — no source project reference. -->
-    <!-- To update: rebuild the Core library, copy the DLL into lib/ -->
-    <Reference Include="ECAssistant.Core">
-      <HintPath>lib\ECAssistant.Core.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
+    <!-- Core NuGet package — brings managed DLL + all dependencies automatically. -->
+    <PackageReference Include="ECAssistant.Core" Version="1.0.0" />
+    <!-- LLamaSharp.Backend.* — native runtime file providers only. -->
+    <!-- These copy llama.dll / libllama.dylib to the output folder. -->
+    <!-- No managed API — just native binaries. App never touches LLamaSharp types. -->
+    <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.27.0" />
+    <PackageReference Include="LLamaSharp.Backend.Cuda12" Version="0.27.0" Condition="'$(OS)' == 'WINDOWS'" />
+    <PackageReference Include="LLamaSharp.Backend.Vulkan" Version="0.27.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -37,15 +39,5 @@
     <Compile Include="UI/LoadingIndicator.cs" />
     <Compile Include="UI/ConsoleUiRenderer.cs" />
   </ItemGroup>
-
-  <ItemGroup>
-    <!-- LLamaSharp native runtime packages — ensure native libs (llama.dll, libllama.dylib) are copied to output. -->
-    <!-- The managed API is inside Core.dll; these only provide the native backend binaries. -->
-    <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.27.0" />
-    <PackageReference Include="LLamaSharp.Backend.Cuda12" Version="0.27.0" Condition="'$(OS)' == 'WINDOWS'" />
-    <PackageReference Include="LLamaSharp.Backend.Vulkan" Version="0.27.0" />
-  </ItemGroup>
-
-  <!-- No content files needed — Core.dll ships appsettings.json and system prompts as embedded resources -->
 
 </Project>

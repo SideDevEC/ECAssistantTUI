@@ -3,9 +3,10 @@ using ECAssistant.UI;
 namespace ECAssistant.Session;
 
 /// <summary>
-/// Animated loading indicator — uses the status bar in the TUI layout.
-/// Writes "Loading model weights..." etc. to the status bar row.
-/// When stopped, clears the status bar.
+/// Animated loading indicator — writes status messages during startup.
+/// In v11.0, this writes to the EGuiConsole's buffered output (which goes
+/// to the active layer once InitConsole is called). After InitConsole,
+/// the indicator is stopped and the layer's status bar takes over.
 /// </summary>
 public class LoadingIndicator : IDisposable
 {
@@ -38,9 +39,6 @@ public class LoadingIndicator : IDisposable
         _running = false;
         _timer?.Dispose();
         _timer = null;
-        // Clear the status bar
-        if (_gui is EGuiConsole console)
-            console.SetStatusBar("");
     }
 
     private void OnTick(object? state)
@@ -54,8 +52,9 @@ public class LoadingIndicator : IDisposable
         _dotCount = (_dotCount + 1) % 4;
         var dots = new string('.', _dotCount);
         var line = $"{_color.Cyan}{_label}{_color.Reset} {_color.Dim}{dots}  {_color.Reset}";
-        if (_gui is EGuiConsole console)
-            console.SetStatusBar(line);
+        // Write as output — during startup this is buffered, after init it goes
+        // to the active layer. This replaces the old status bar approach.
+        _gui.WriteLineColored(line);
     }
 
     public void Dispose() => Stop();

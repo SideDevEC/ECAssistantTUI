@@ -1,77 +1,86 @@
 using ECAssistant.Session;
 using ECAssistant.UI;
-using ECAssistant;
 
 namespace ECAssistant.Tests.Session;
 
+/// <summary>
+/// Tests for ConsoleUiRenderer — verifies it writes to SessionLayer's buffer
+/// (not to EGuiConsole directly, as in v10.25).
+/// </summary>
 public class ConsoleUiRendererTests
 {
-    private readonly Mock<EGuiBase> _mockGui;
+    private readonly SessionLayer _layer;
     private readonly ConsoleUiRenderer _renderer;
 
     public ConsoleUiRendererTests()
     {
-        _mockGui = new Mock<EGuiBase>();
-
-        // Setup color properties
-
-
-
-
-
-
-
-
-        _renderer = new ConsoleUiRenderer(_mockGui.Object, new EColor());
+        _layer = new SessionLayer("test");
+        _renderer = new ConsoleUiRenderer(_layer, new EColor());
     }
 
     [Fact]
-    public void OnOutput_WithText_CallsWriteLineColored()
+    public void OnOutput_WithText_AddsToLayerBuffer()
     {
         _renderer.OnOutput("Hello world", OutputState.Info);
-        _mockGui.Verify(g => g.WriteLineColored(It.Is<string>(s => s.Contains("Hello world"))), Times.Once);
+        Assert.Single(_layer._outputLines);
+        Assert.Contains("Hello world", _layer._outputLines[0]);
     }
 
     [Fact]
-    public void OnOutput_EmptyText_CallsBlankLine()
+    public void OnOutput_EmptyText_AddsBlankLine()
     {
         _renderer.OnOutput("", OutputState.Info);
-        _mockGui.Verify(g => g.BlankLine(), Times.Once);
+        Assert.Single(_layer._outputLines);
+        Assert.Equal("", _layer._outputLines[0]);
     }
 
     [Fact]
     public void OnOutput_Warning_AddsWarnTag()
     {
         _renderer.OnOutput("Be careful", OutputState.Warning);
-        _mockGui.Verify(g => g.WriteLineColored(It.Is<string>(s => s.Contains("[WARN]") && s.Contains("Be careful"))), Times.Once);
+        Assert.Single(_layer._outputLines);
+        Assert.Contains("[WARN]", _layer._outputLines[0]);
+        Assert.Contains("Be careful", _layer._outputLines[0]);
     }
 
     [Fact]
     public void OnOutput_Error_AddsErrTag()
     {
         _renderer.OnOutput("Something broke", OutputState.Error);
-        _mockGui.Verify(g => g.WriteLineColored(It.Is<string>(s => s.Contains("[ERR]") && s.Contains("Something broke"))), Times.Once);
+        Assert.Single(_layer._outputLines);
+        Assert.Contains("[ERR]", _layer._outputLines[0]);
+        Assert.Contains("Something broke", _layer._outputLines[0]);
     }
 
     [Fact]
     public void OnOutput_Success_AddsOkTag()
     {
         _renderer.OnOutput("It worked", OutputState.Success);
-        _mockGui.Verify(g => g.WriteLineColored(It.Is<string>(s => s.Contains("[OK]") && s.Contains("It worked"))), Times.Once);
+        Assert.Single(_layer._outputLines);
+        Assert.Contains("[OK]", _layer._outputLines[0]);
+        Assert.Contains("It worked", _layer._outputLines[0]);
     }
 
     [Fact]
     public void OnOutput_System_AddsSysTag()
     {
         _renderer.OnOutput("System message", OutputState.System);
-        _mockGui.Verify(g => g.WriteLineColored(It.Is<string>(s => s.Contains("[SYS]") && s.Contains("System message"))), Times.Once);
+        Assert.Single(_layer._outputLines);
+        Assert.Contains("[SYS]", _layer._outputLines[0]);
+        Assert.Contains("System message", _layer._outputLines[0]);
     }
 
     [Fact]
     public void OnOutput_Info_NoTag()
     {
         _renderer.OnOutput("Just info", OutputState.Info);
-        _mockGui.Verify(g => g.WriteLineColored(It.Is<string>(s => !s.Contains("[OK]") && !s.Contains("[WARN]") && !s.Contains("[ERR]") && !s.Contains("[SYS]") && s.Contains("Just info"))), Times.Once);
+        Assert.Single(_layer._outputLines);
+        var line = _layer._outputLines[0];
+        Assert.Contains("Just info", line);
+        Assert.DoesNotContain("[OK]", line);
+        Assert.DoesNotContain("[WARN]", line);
+        Assert.DoesNotContain("[ERR]", line);
+        Assert.DoesNotContain("[SYS]", line);
     }
 
     [Fact]
@@ -89,49 +98,26 @@ public class ConsoleUiRendererTests
     }
 
     [Fact]
-    public void OnRequestApproval_YesResponse_ReturnsTrue()
+    public void OnStreamStop_ClearsLiveStreamLine()
     {
-        _mockGui.Setup(g => g.PromptRaw(It.IsAny<string>())).Returns("y");
-        var result = _renderer.OnRequestApproval("Approve?");
-        Assert.True(result);
+        // Start with some content
+        _renderer.OnOutput("Content before stream", OutputState.Info);
+        int countBefore = _layer._outputLines.Count;
+        
+        // Simulate streaming
+        _renderer.OnStreamStart();
+        _layer.UpdateLiveStreamLine("streaming text");
+        Assert.Equal(countBefore + 1, _layer._outputLines.Count);
+        
+        // Stop streaming — should remove the live stream line
+        _renderer.OnStreamStop();
+        Assert.Equal(countBefore, _layer._outputLines.Count);
     }
 
-    [Fact]
-    public void OnRequestApproval_NoResponse_ReturnsFalse()
-    {
-        _mockGui.Setup(g => g.PromptRaw(It.IsAny<string>())).Returns("n");
-        var result = _renderer.OnRequestApproval("Approve?");
-        Assert.False(result);
-    }
+    // ── RenderHistory tests ──
 
     [Fact]
-    public void OnRequestApproval_YesFullResponse_ReturnsTrue()
-    {
-        _mockGui.Setup(g => g.PromptRaw(It.IsAny<string>())).Returns("yes");
-        var result = _renderer.OnRequestApproval("Approve?");
-        Assert.True(result);
-    }
-
-    [Fact]
-    public void OnRequestApproval_EmptyResponse_ReturnsFalse()
-    {
-        _mockGui.Setup(g => g.PromptRaw(It.IsAny<string>())).Returns("");
-        var result = _renderer.OnRequestApproval("Approve?");
-        Assert.False(result);
-    }
-
-    [Fact]
-    public void OnRequestApproval_NullResponse_ReturnsFalse()
-    {
-        _mockGui.Setup(g => g.PromptRaw(It.IsAny<string>())).Returns((string?)null);
-        var result = _renderer.OnRequestApproval("Approve?");
-        Assert.False(result);
-    }
-
-    // ── RenderHistory tests (unchanged — method still exists) ──
-
-    [Fact]
-    public void RenderHistory_StreamEntries_CallsWriteLineColored()
+    public void RenderHistory_StreamEntries_AddsToLayerBuffer()
     {
         var entries = new List<OutputEntry>
         {
@@ -141,12 +127,13 @@ public class ConsoleUiRendererTests
 
         _renderer.RenderHistory(entries);
 
-        _mockGui.Verify(g => g.WriteLineColored(It.Is<string>(s => s.Contains("Line 1"))), Times.Once);
-        _mockGui.Verify(g => g.WriteLineColored(It.Is<string>(s => s.Contains("Line 2"))), Times.Once);
+        Assert.Equal(2, _layer._outputLines.Count);
+        Assert.Contains("Line 1", _layer._outputLines[0]);
+        Assert.Contains("Line 2", _layer._outputLines[1]);
     }
 
     [Fact]
-    public void RenderHistory_LineEntries_CallsWriteLineColored()
+    public void RenderHistory_LineEntries_AddsWithTags()
     {
         var entries = new List<OutputEntry>
         {
@@ -156,12 +143,15 @@ public class ConsoleUiRendererTests
 
         _renderer.RenderHistory(entries);
 
-        _mockGui.Verify(g => g.WriteLineColored(It.Is<string>(s => s.Contains("[WARN]") && s.Contains("Message 1"))), Times.Once);
-        _mockGui.Verify(g => g.WriteLineColored(It.Is<string>(s => s.Contains("[ERR]") && s.Contains("Message 2"))), Times.Once);
+        Assert.Equal(2, _layer._outputLines.Count);
+        Assert.Contains("[WARN]", _layer._outputLines[0]);
+        Assert.Contains("Message 1", _layer._outputLines[0]);
+        Assert.Contains("[ERR]", _layer._outputLines[1]);
+        Assert.Contains("Message 2", _layer._outputLines[1]);
     }
 
     [Fact]
-    public void RenderHistory_EmptyLineEntry_CallsBlankLine()
+    public void RenderHistory_EmptyLineEntry_AddsBlankLine()
     {
         var entries = new List<OutputEntry>
         {
@@ -170,11 +160,12 @@ public class ConsoleUiRendererTests
 
         _renderer.RenderHistory(entries);
 
-        _mockGui.Verify(g => g.BlankLine(), Times.Once);
+        Assert.Single(_layer._outputLines);
+        Assert.Equal("", _layer._outputLines[0]);
     }
 
     [Fact]
-    public void RenderHistory_MultipleEntries_AllRendered()
+    public void RenderHistory_MultipleEntries_AllAddedToBuffer()
     {
         var entries = new List<OutputEntry>
         {
@@ -186,9 +177,10 @@ public class ConsoleUiRendererTests
 
         _renderer.RenderHistory(entries);
 
-        _mockGui.Verify(g => g.WriteLineColored(It.Is<string>(s => s.Contains("First"))), Times.Once);
-        _mockGui.Verify(g => g.WriteLineColored(It.Is<string>(s => s.Contains("Second"))), Times.Once);
-        _mockGui.Verify(g => g.WriteLineColored(It.Is<string>(s => s.Contains("Third"))), Times.Once);
-        _mockGui.Verify(g => g.BlankLine(), Times.Once);
+        Assert.Equal(4, _layer._outputLines.Count);
+        Assert.Contains("First", _layer._outputLines[0]);
+        Assert.Equal("", _layer._outputLines[1]);
+        Assert.Contains("Second", _layer._outputLines[2]);
+        Assert.Contains("Third", _layer._outputLines[3]);
     }
 }

@@ -3,27 +3,26 @@ using ECAssistant.UI;
 namespace ECAssistant.Session;
 
 /// <summary>
-/// Console-based IOutputListener implementation.
+/// Bridges Core's IOutputListener to a SessionLayer's buffer.
 ///
-/// This is the ONLY class outside UI/ that knows about colors.
-/// It maps OutputState → ANSI colors and routes through EGuiConsole.
-/// Everything upstream just uses ISessionOutput with states.
+/// v11.0: Writes to the SessionLayer's buffer, NOT to EGuiConsole directly.
+/// The layer owns the output buffer. When the layer is active, its buffer
+/// is what gets rendered. When it's not active, the buffer keeps filling
+/// silently — so when the user switches back, all output is there.
 ///
-/// v10.26: Live stream polling — during streaming, a timer polls the session's
-/// stream buffer every 80ms and writes the live content to the last output line,
-/// giving the appearance of real-time token output.
+/// Stream polling (80ms) updates the layer's LiveStreamLine.
 /// </summary>
 public class ConsoleUiRenderer : IOutputListener, IDisposable
 {
-    private readonly EGuiBase _gui;
+    private readonly SessionLayer _layer;
     private readonly EColor _color;
     private readonly Func<string>? _streamBufferGetter;
     private Timer? _streamPollTimer;
     private string _lastStreamSnapshot = "";
 
-    public ConsoleUiRenderer(EGuiBase gui, EColor color, Func<string>? streamBufferGetter = null)
+    public ConsoleUiRenderer(SessionLayer layer, EColor color, Func<string>? streamBufferGetter = null)
     {
-        _gui = gui;
+        _layer = layer;
         _color = color;
         _streamBufferGetter = streamBufferGetter;
     }
@@ -58,26 +57,24 @@ public class ConsoleUiRenderer : IOutputListener, IDisposable
     {
         if (string.IsNullOrEmpty(text))
         {
-            _gui.BlankLine();
+            _layer.AddOutputLine("");
             return;
         }
 
         var color = StateToColor(state);
         var tag = StateToTag(state);
         if (tag != null)
-            _gui.WriteLineColored($"{color}[{tag}] {text}{_color.Reset}");
+            _layer.AddOutputLine($"{color}[{tag}] {text}{_color.Reset}");
         else
-            _gui.WriteLineColored($"{color}{text}{_color.Reset}");
+            _layer.AddOutputLine($"{color}{text}{_color.Reset}");
     }
 
     public void OnStreamStart()
     {
-        // Stop any existing poll timer
         _streamPollTimer?.Dispose();
         _lastStreamSnapshot = "";
 
         if (_streamBufferGetter == null) return;
-        if (_gui is not EGuiConsole console) return;
 
         // Start polling the stream buffer every 80ms
         _streamPollTimer = new Timer(_ =>
@@ -85,11 +82,11 @@ public class ConsoleUiRenderer : IOutputListener, IDisposable
             try
             {
                 var current = _streamBufferGetter();
-                if (current == _lastStreamSnapshot) return; // no change
+                if (current == _lastStreamSnapshot) return;
                 _lastStreamSnapshot = current;
 
-                // Write the live stream content to the console's last line
-                console.UpdateLiveStreamLine(current);
+                // Write the live stream content to the layer's buffer
+                _layer.UpdateLiveStreamLine(current);
             }
             catch { }
         }, null, 80, 80);
@@ -99,15 +96,15 @@ public class ConsoleUiRenderer : IOutputListener, IDisposable
     {
         _streamPollTimer?.Dispose();
         _streamPollTimer = null;
-
-        if (_gui is EGuiConsole console)
-            console.ClearLiveStreamLine();
+        _layer.ClearLiveStreamLine();
     }
 
     public bool OnRequestApproval(string message)
     {
-        var response = _gui.PromptRaw($"{_color.Yellow}{message} [y/N] {_color.Reset}")?.Trim().ToLower();
-        return response == "y" || response == "yes";
+        // TODO: In v11.0, approval should go through the controller.
+        // For now, we keep the old behavior via EGuiBase prompt.
+        // This will be addressed when the controller gets an approval interface.
+        throw new NotImplementedException("Approval routing through controller — not yet implemented");
     }
 
     /// <summary>Render output history when switching to a session.</summary>
@@ -121,21 +118,21 @@ public class ConsoleUiRenderer : IOutputListener, IDisposable
                     if (!string.IsNullOrEmpty(entry.Text))
                     {
                         var c = StateToColor(entry.State);
-                        _gui.WriteLineColored(c + entry.Text + _color.Reset);
+                        _layer.AddOutputLine(c + entry.Text + _color.Reset);
                     }
                     break;
 
                 case "line":
                     if (string.IsNullOrEmpty(entry.Text))
-                        _gui.BlankLine();
+                        _layer.AddOutputLine("");
                     else
                     {
                         var c = StateToColor(entry.State);
                         var tag = StateToTag(entry.State);
                         if (tag != null)
-                            _gui.WriteLineColored($"{c}[{tag}] {entry.Text}{_color.Reset}");
+                            _layer.AddOutputLine($"{c}[{tag}] {entry.Text}{_color.Reset}");
                         else
-                            _gui.WriteLineColored($"{c}{entry.Text}{_color.Reset}");
+                            _layer.AddOutputLine($"{c}{entry.Text}{_color.Reset}");
                     }
                     break;
             }

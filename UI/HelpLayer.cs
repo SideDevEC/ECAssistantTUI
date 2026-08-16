@@ -1,54 +1,39 @@
 namespace ECAssistant.UI;
 
 /// <summary>
-/// Full-screen help layer.
-/// Shows formatted help content, waits for Enter, then pops back.
+/// Static help content layer. Shows the help screen with all available commands.
+/// No live updates, no streaming. Controller swaps back to the prior active layer
+/// on ESC or Enter.
 /// </summary>
-public sealed class HelpLayer : IGuiLayer
+public sealed class HelpLayer : BaseLayer
 {
     private readonly EColor _color;
     private readonly string[] _helpLines;
-
-    public string Name => "help";
-
+    
+    public override string Name => "help";
+    
+    /// <summary>Help layer has no input prompt — user just reads and presses Enter/ESC.</summary>
+    public override string GetInputPrompt() => "";
+    
     public HelpLayer(EColor color, string[] helpLines)
     {
         _color = color;
         _helpLines = helpLines;
     }
-
-    public void OnActivate(EGuiConsole console)
+    
+    /// <summary>
+    /// Build the help content and populate the output buffer.
+    /// Called by the controller when creating/activating this layer.
+    /// </summary>
+    public void BuildContent()
     {
-        console.PaintLayerScreen(BuildHelpContent());
-    }
-
-    public void OnResize(EGuiConsole console)
-    {
-        console.PaintLayerScreen(BuildHelpContent());
-    }
-
-    public bool OnKey(EGuiConsole console, ConsoleKeyInfo key)
-    {
-        // Only pop on Enter — user must consciously press Enter to return
-        if (key.Key == ConsoleKey.Enter)
-            return false; // pop the layer
-
-        // All other keys: handled (stay in help layer)
-        return true;
-    }
-
-    private string[] BuildHelpContent()
-    {
-        var lines = new List<string>
-        {
-            $"{_color.Cyan}{_color.Bold}  ECAssistant — Help{_color.Reset}",
-            $"{_color.Dim}  Press Enter to return{_color.Reset}",
-            ""
-        };
-
+        _outputLines.Clear();
+        _outputLines.Add($"{_color.Cyan}{_color.Bold}  ECAssistant — Help{_color.Reset}");
+        _outputLines.Add($"{_color.Dim}  Press Enter or ESC to return{_color.Reset}");
+        _outputLines.Add("");
         foreach (var line in _helpLines)
-            lines.Add(line);
-
-        return lines.ToArray();
+            _outputLines.Add(line);
+        _scrollOffset = 0;
+        _isDirty = true;
     }
 }

@@ -34,8 +34,9 @@
   <ItemGroup>
     <Compile Remove="**/*.cs" />
     <Compile Include="Program.cs" />
+    <Compile Include="Controller/AppController.cs" />
     <Compile Include="UI/EGuiConsole.cs" />
-    <Compile Include="UI/IGuiLayer.cs" />
+    <Compile Include="UI/BaseLayer.cs" />
     <Compile Include="UI/HelpLayer.cs" />
     <Compile Include="UI/SessionLayer.cs" />
     <Compile Include="UI/LoadingIndicator.cs" />

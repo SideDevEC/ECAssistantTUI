@@ -1,30 +1,33 @@
 namespace ECAssistant.UI;
 
 /// <summary>
-/// Session layer — the base layer of the view stack.
-/// Renders the normal session output + input prompt.
-/// This is layer 1 — always at the bottom of the stack.
+/// One instance per Core session. Owns the output buffer for that session.
+/// 
+/// The buffer fills continuously — even when this layer is not the active one.
+/// ConsoleUiRenderer writes to this layer's buffer, not to EGuiConsole.
+/// When the user switches back to this layer, all output is already there.
 /// </summary>
-public sealed class SessionLayer : IGuiLayer
+public sealed class SessionLayer : BaseLayer
 {
-    public string Name => "session";
-
-    public void OnActivate(EGuiConsole console)
+    /// <summary>The Core session key (e.g., "main", "session-1").</summary>
+    public string SessionKey { get; }
+    
+    /// <summary>The label shown in status info (optional, user-provided).</summary>
+    public string Label { get; set; }
+    
+    public override string Name => $"session:{SessionKey}";
+    
+    public override string GetInputPrompt() => "> ";
+    
+    public SessionLayer(string sessionKey, string label = "")
     {
-        // Session view is painted by the normal Repaint() path.
-        // Just trigger a full repaint.
-        console.TriggerFullRepaint();
+        SessionKey = sessionKey;
+        Label = label;
     }
-
-    public void OnResize(EGuiConsole console)
-    {
-        console.TriggerFullRepaint();
-    }
-
-    public bool OnKey(EGuiConsole console, ConsoleKeyInfo key)
-    {
-        // SessionLayer is the base layer — it never intercepts keys.
-        // ReadInputLine skips layer routing when this layer is on top.
-        return true;
-    }
+    
+    /// <summary>Read output history entries (for testing or controller queries).</summary>
+    public IReadOnlyList<string> OutputLines => _outputLines;
+    
+    /// <summary>Current scroll offset (for testing).</summary>
+    public int ScrollOffset => _scrollOffset;
 }

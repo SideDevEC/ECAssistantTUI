@@ -42,11 +42,12 @@ public sealed class ConfigLayer : BaseLayer
         TryAddProperty(config.Llm, "TopP");
         TryAddProperty(config.Llm, "RepeatPenalty");
         
-        // Secondary model
-        string secondaryPath = config.SecondaryModel?.ModelPath ?? "";
-        bool secondaryEnabled = config.SecondaryModel?.Enabled ?? false;
+        // Background tasks (replaces secondary model in v11.2+)
+        bool decomposeLlm = config.BackgroundTasks?.Decompose?.UseLlm ?? false;
+        bool summarizeLlm = config.BackgroundTasks?.Summarize?.UseLlm ?? false;
+        string bgStatus = (decomposeLlm || summarizeLlm) ? $"decompose:{(decomposeLlm ? "LLM" : "keyword")} summarize:{(summarizeLlm ? "LLM" : "extractive")}" : "disabled";
         
-        _outputLines.Add($"{_color.Cyan}  Secondary:    {_color.Reset}{(secondaryEnabled ? $"{secondaryPath} ✓" : $"{_color.Dim}disabled{_color.Reset}")}");
+        _outputLines.Add($"{_color.Cyan}  Bg Tasks:     {_color.Reset}{(decomposeLlm || summarizeLlm ? bgStatus : $"{_color.Dim}disabled{_color.Reset}")}");
         _outputLines.Add("");
         
         // ── Agent Settings ──

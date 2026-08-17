@@ -445,11 +445,12 @@ public sealed class AppController
         string activeKey = _sessionManager?.ActiveSession?.Key ?? "none";
         string configPath = Path.Combine(_userConfigDir, "appsettings.json");
         
-        // Secondary model info from config
-        string secondaryPath = _config.SecondaryModel?.ModelPath ?? "";
-        bool secondaryEnabled = _config.SecondaryModel?.Enabled ?? false;
+        // Background tasks info from config (replaces secondary model in v11.2+)
+        bool decomposeLlm = _config.BackgroundTasks?.Decompose?.UseLlm ?? false;
+        bool summarizeLlm = _config.BackgroundTasks?.Summarize?.UseLlm ?? false;
+        string bgStatus = (decomposeLlm || summarizeLlm) ? "enabled" : "disabled";
         
-        _startupLayer.UpdateStatus(VersionString, _modelPath, secondaryPath, secondaryEnabled, _workingDir, configPath, sessionCount, activeKey);
+        _startupLayer.UpdateStatus(VersionString, _modelPath, bgStatus, decomposeLlm || summarizeLlm, _workingDir, configPath, sessionCount, activeKey);
     }
     
     private void ShowHelp()

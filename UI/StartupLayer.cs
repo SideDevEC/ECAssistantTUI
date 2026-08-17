@@ -17,8 +17,8 @@ public sealed class StartupLayer : BaseLayer
     // ── Status info (updated by controller) ──
     private string _version = "";
     private string _modelPath = "";
-    private string _secondaryModelPath = "";
-    private bool _secondaryEnabled;
+    private string _secondaryModelPath = "";  // repurposed: background tasks status string
+    private bool _secondaryEnabled;  // repurposed: background tasks enabled
     private string _workingDir = "";
     private string _configPath = "";
     private int _sessionCount;
@@ -61,9 +61,9 @@ public sealed class StartupLayer : BaseLayer
         _outputLines.Add($"{_color.Cyan}  Version:    {_color.Reset}{_version}");
         _outputLines.Add($"{_color.Cyan}  Model:      {_color.Reset}{Path.GetFileName(_modelPath)}");
         if (_secondaryEnabled && !string.IsNullOrEmpty(_secondaryModelPath))
-            _outputLines.Add($"{_color.Cyan}  Secondary:  {_color.Reset}{Path.GetFileName(_secondaryModelPath)} ✓");
+            _outputLines.Add($"{_color.Cyan}  Bg Tasks:   {_color.Reset}{_secondaryModelPath} ✓");
         else
-            _outputLines.Add($"{_color.Cyan}  Secondary:  {_color.Dim}disabled{_color.Reset}");
+            _outputLines.Add($"{_color.Cyan}  Bg Tasks:   {_color.Dim}disabled{_color.Reset}");
         _outputLines.Add($"{_color.Cyan}  Config:     {_color.Reset}{_configPath}");
         _outputLines.Add($"{_color.Cyan}  WorkingDir: {_color.Reset}{_workingDir}");
         _outputLines.Add("");

@@ -25,7 +25,7 @@
     <!-- LLamaSharp managed assembly + native runtime file providers -->
     <PackageReference Include="LLamaSharp" Version="0.27.0" />
     <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.27.0" />
-    <PackageReference Include="LLamaSharp.Backend.Cuda12" Version="0.27.0" Condition="'$(OS)' == 'WINDOWS'" />
+    <PackageReference Include="LLamaSharp.Backend.Cuda12" Version="0.27.0" Condition="'$(OS)' == 'Windows_NT'" />
 
     <!-- System.Text.Json 10.x required by LLamaSharp (transitive) — net8.0 ships 8.x -->
     <PackageReference Include="System.Text.Json" Version="10.0.4" />

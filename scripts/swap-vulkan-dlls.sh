@@ -165,6 +165,65 @@ for dir in $(find "$HOME/Agent/ECSQL" -path "*/runtimes/win-x64/native/vulkan" -
     swap_dir "${dir}" "ECSQL/${label}"
 done
 
+# ── Copy Core/TUI output DLLs to Console + ECSQL lib folders ──
+# Console and ECSQL reference pre-built Core/TUI DLLs from lib/ folders.
+# After building Core + TUI, copy the fresh output so they pick up
+# ModelLoadException and other new classes.
+echo "📦 Copying Core/TUI output DLLs to lib/ folders..."
+
+CORE_DLL=""
+TUI_DLL=""
+
+# Find Release builds first, fall back to Debug
+for candidate in \
+    "$HOME/Agent/ECAssistant/ECAssistantCore/bin/Release/net8.0/ECAssistant.Core.dll" \
+    "$HOME/Agent/ECAssistant/ECAssistantCore/bin/Debug/net8.0/ECAssistant.Core.dll"; do
+    if [ -f "${candidate}" ]; then
+        CORE_DLL="${candidate}"
+        break
+    fi
+done
+
+for candidate in \
+    "$HOME/Agent/ECAssistant/ECAssistantTUI/bin/Release/net8.0/ECAssistant.TUI.dll" \
+    "$HOME/Agent/ECAssistant/ECAssistantTUI/bin/Debug/net8.0/ECAssistant.TUI.dll" do
+    if [ -f "${candidate}" ]; then
+        TUI_DLL="${candidate}"
+        break
+    fi
+done
+
+if [ -z "${CORE_DLL}" ]; then
+    echo "   ⚠️ ECAssistant.Core.dll not found — build Core first: dotnet build ECAssistantCore/ECAssistant.Core.csproj -c Release"
+fi
+if [ -z "${TUI_DLL}" ]; then
+    echo "   ⚠️ ECAssistant.TUI.dll not found — build TUI first: dotnet build ECAssistantTUI/ECAssistant.TUI.csproj -c Release"
+fi
+
+# Console lib/
+CONSOLE_LIB="$HOME/Agent/ECAssistant/ECAssistantConsole/lib"
+if [ -d "${CONSOLE_LIB}" ] && [ -n "${CORE_DLL}" ]; then
+    cp "${CORE_DLL}" "${CONSOLE_LIB}/ECAssistant.Core.dll"
+    echo "   ✅ Console/lib/ECAssistant.Core.dll"
+fi
+if [ -d "${CONSOLE_LIB}" ] && [ -n "${TUI_DLL}" ]; then
+    cp "${TUI_DLL}" "${CONSOLE_LIB}/ECAssistant.TUI.dll"
+    echo "   ✅ Console/lib/ECAssistant.TUI.dll"
+fi
+
+# ECSQL lib/
+ECSQL_LIB="$HOME/Agent/ECSQL/src/EcsSql.UI/lib"
+if [ -d "${ECSQL_LIB}" ] && [ -n "${CORE_DLL}" ]; then
+    cp "${CORE_DLL}" "${ECSQL_LIB}/ECAssistant.Core.dll"
+    echo "   ✅ ECSQL/lib/ECAssistant.Core.dll"
+fi
+if [ -d "${ECSQL_LIB}" ] && [ -n "${TUI_DLL}" ]; then
+    cp "${TUI_DLL}" "${ECSQL_LIB}/ECAssistant.TUI.dll"
+    echo "   ✅ ECSQL/lib/ECAssistant.TUI.dll"
+fi
+
+echo ""
+
 # ── Cleanup ──
 echo "🧹 Cleaning up..."
 rm -rf "${TEMP_DIR}"
@@ -181,14 +240,16 @@ echo "║  • ECAssistantTUI (Debug + Release)                      ║"
 echo "║  • ECAssistantConsole                                   ║"
 echo "║  • ECAssistantCore + Tests                              ║"
 echo "║  • ECSQL UI + Tests                                      ║"
+echo "║  • Core/TUI output → Console + ECSQL lib/ folders         ║"
 echo "║                                                          ║"
 echo "║  Next steps:                                             ║"
-echo "║  1. Rebuild all projects (dotnet build)                  ║"
+echo "║  1. Rebuild Core + TUI (dotnet build -c Release)          ║"
 echo "║     — DLLs from NuGet cache propagate to bin/             ║"
-echo "║  2. Copy bin/Release to Windows                          ║"
-echo "║  3. Set gpu_layers > 0 in appsettings.json               ║"
-echo "║  4. Test: short prompt first, then longer one            ║"
-echo "║  5. If crash → 'dotnet restore' resets to originals      ║"
+echo "║  2. Re-run this script to copy Core/TUI → lib/ folders   ║"
+echo "║  3. Copy bin/Release to Windows                          ║"
+echo "║  4. Set gpu_layers > 0 in appsettings.json               ║"
+echo "║  5. Test: short prompt first, then longer one            ║"
+echo "║  6. If crash → 'dotnet restore' resets to originals      ║"
 echo "║                                                          ║"
 echo "║  Restore originals:                                      ║"
 echo "║  dotnet restore (overwrites NuGet cache + bin output)    ║"

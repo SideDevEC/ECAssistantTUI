@@ -148,25 +148,45 @@ public sealed class AppController
         var loading = new LoadingIndicator(_console, _color);
         loading.Start("Loading model weights");
         
-        string activeKey = await _sessionManager.LoadSessionsFromDiskAsync(async (session) =>
+        string activeKey;
+        try
         {
-            loading.UpdateLabel($"Initializing session '{session.Key}'");
-            var builder = new SessionBuilder(_config, _workingDir, _userConfigDir, _logger, _bgMgr);
-            
-            // Create a SessionLayer for this session
-            var layer = new SessionLayer(session.Key);
-            layer.CoreSession = session;
-            layer.Color = _color;
-            layer.WorkingDir = _workingDir;
-            _layers[layer.Name] = layer;
-            _sessionLayers[session.Key] = layer;
-            
-            // Create ConsoleUiRenderer that writes to the layer's buffer
-            var renderer = new ConsoleUiRenderer(layer, _color, session.GetStreamBuffer);
-            session.AddListener(renderer);
-            
-            await builder.BuildAsync(session, _externalTools);
-        });
+            activeKey = await _sessionManager.LoadSessionsFromDiskAsync(async (session) =>
+            {
+                loading.UpdateLabel($"Initializing session '{session.Key}'");
+                var builder = new SessionBuilder(_config, _workingDir, _userConfigDir, _logger, _bgMgr);
+                
+                // Create a SessionLayer for this session
+                var layer = new SessionLayer(session.Key);
+                layer.CoreSession = session;
+                layer.Color = _color;
+                layer.WorkingDir = _workingDir;
+                _layers[layer.Name] = layer;
+                _sessionLayers[session.Key] = layer;
+                
+                // Create ConsoleUiRenderer that writes to the layer's buffer
+                var renderer = new ConsoleUiRenderer(layer, _color, session.GetStreamBuffer);
+                session.AddListener(renderer);
+                
+                await builder.BuildAsync(session, _externalTools);
+            });
+        }
+        catch (ModelLoadException mle)
+        {
+            loading.Stop();
+            _console.WriteLineColored(_color.Red + _color.Bold + mle.ToDiagnosticString() + _color.Reset);
+            _logger.Error("Startup", $"Model load failed: {mle.Phase}: {mle.Message}");
+            _console.WriteLineColored(_color.Yellow + "\nFix the configuration in appsettings.json and restart." + _color.Reset);
+            return 1;
+        }
+        catch (Exception ex)
+        {
+            loading.Stop();
+            _console.WriteLineColored(_color.Red + _color.Bold + $"Failed to initialize: {ex.GetType().Name}: {ex.Message}" + _color.Reset);
+            _logger.Error("Startup", $"Init failed: {ex}");
+            _console.WriteLineColored(_color.Yellow + "\nFix the configuration and restart." + _color.Reset);
+            return 1;
+        }
         
         loading.Stop();
         

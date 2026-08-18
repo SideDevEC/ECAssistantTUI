@@ -29,6 +29,20 @@ public sealed class AppController
     // ── Dependencies (injected from Program.cs) ──
     private readonly EAgentConfig _config;
     private readonly string _modelPath;
+
+    /// <summary>
+    /// Access the active session's vector memory store.
+    /// Null until sessions are initialized. Exposed for library consumers
+    /// (e.g. ECSQL PatternExtractor) that need to access vector memory.
+    /// </summary>
+    public ECAssistant.Core.Memory.VectorMemoryStore? VectorMemory =>
+        _sessionManager?.ActiveSession?.VectorMemory;
+
+    /// <summary>
+    /// Access the active session for library consumers.
+    /// </summary>
+    public ECAssistant.Core.Session.AgentSession? ActiveSession =>
+        _sessionManager?.ActiveSession;
     private readonly string _workingDir;
     private readonly string _userConfigDir;
     private readonly ILogger _logger;

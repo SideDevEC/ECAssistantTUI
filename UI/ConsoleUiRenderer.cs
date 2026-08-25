@@ -21,12 +21,14 @@ public class ConsoleUiRenderer : IOutputListener, IDisposable
     private readonly Func<string>? _streamBufferGetter;
     private Timer? _streamPollTimer;
     private string _lastStreamSnapshot = "";
+    private readonly Func<string, bool>? _approvalPrompt;
 
-    public ConsoleUiRenderer(SessionLayer layer, EColor color, Func<string>? streamBufferGetter = null)
+    public ConsoleUiRenderer(SessionLayer layer, EColor color, Func<string>? streamBufferGetter = null, Func<string, bool>? approvalPrompt = null)
     {
         _layer = layer;
         _color = color;
         _streamBufferGetter = streamBufferGetter;
+        _approvalPrompt = approvalPrompt;
     }
 
     /// <summary>Map output states to ANSI color codes.</summary>
@@ -103,10 +105,10 @@ public class ConsoleUiRenderer : IOutputListener, IDisposable
 
     public bool OnRequestApproval(string message)
     {
-        // TODO: In v11.0, approval should go through the controller.
-        // For now, we keep the old behavior via EGuiBase prompt.
-        // This will be addressed when the controller gets an approval interface.
-        throw new NotImplementedException("Approval routing through controller — not yet implemented");
+        if (_approvalPrompt != null)
+            return _approvalPrompt(message);
+        // No approval callback — auto-deny
+        return false;
     }
 
     /// <summary>Render output history when switching to a session.</summary>

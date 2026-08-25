@@ -131,36 +131,55 @@ public sealed class AppController
     /// </summary>
     public async Task<int> RunAsync()
     {
-        // ── Bind startup layer as active BEFORE any output ──
-        // This ensures all startup messages go into the startup layer's buffer
+        // ── Initialize ──
+        var initResult = await InitializeAppAsync();
+        if (initResult != 0)
+            return initResult;
+
+        // ── Input loop ──
+        while (!_console.IsQuitRequested)
+        {
+            _sessionManager.MarkUserActivity();
+            var s = _sessionManager.ActiveSession;
+            _console.SetSilentInputInitial(s != null && s.RunState == SessionRunState.Running);
+            _console.PromptRaw("");
+        }
+
+        // ── Shutdown ──
+        await ShutdownAppAsync();
+        return 0;
+    }
+
+    /// <summary>
+    /// One-time initialization: services, session manager, layers, watchdog.
+    /// Returns 0 on success, 1 on failure.
+    /// </summary>
+    private async Task<int> InitializeAppAsync()
+    {
+        // Bind startup layer
         _startupLayer!.BindToConsole(_console);
         _console.SetActiveLayer(_startupLayer);
         _activeLayer = _startupLayer;
-        
-        // ── Startup output (goes to startup layer's buffer) ──
         _console.WriteLineColored(_color.Cyan + _color.Bold + $"[ECAssistant] {VersionString}" + _color.Reset);
-        
-        // ── Background process manager (injected or created) ──
+
+        // Background process manager
         if (_bgMgr == null!) _bgMgr = new BackgroundProcessManager();
         _console.WriteLineColored(_color.Cyan + _color.Bold + "[Background] Process manager ready." + _color.Reset);
-        
-        // ── File watcher (injected or created) ──
+
+        // File watcher
         _fileWatcher ??= new FileWatcherService(_workingDir, logger: _logger);
         _fileWatcher.Start();
-        
-        // ── Session manager (loads model weights ONCE) ──
+
+        // Session manager + LLM server connection
         _console.WriteLineColored(_color.Cyan + _color.Bold + "[Sessions] Discovering sessions..." + _color.Reset);
-        
         var discovered = new SessionDiscovery().DiscoverSessions(_workingDir);
         if (discovered.Count > 0)
             _console.WriteLineColored(_color.Cyan + "[Sessions] " + $"Found {discovered.Count} session(s): {string.Join(", ", discovered)}" + _color.Reset);
         else
             _console.WriteLineColored(_color.Cyan + "[Sessions] No existing sessions found — creating new 'main' session." + _color.Reset);
-        
+
         _sessionManager = new SessionManager(_config, _modelPath, _workingDir, _logger);
 
-        // Initialize provider connection (local mode: register with LLM server, get clientId)
-        // Must happen BEFORE LoadSessionsFromDiskAsync so _httpClient has the X-Client-Id header
         try
         {
             await _sessionManager.InitializeAsync();
@@ -172,9 +191,10 @@ public sealed class AppController
             return 1;
         }
 
+        // Load sessions from disk
         var loading = new LoadingIndicator(_console, _color);
         loading.Start("Loading model weights");
-        
+
         string activeKey;
         try
         {
@@ -182,19 +202,17 @@ public sealed class AppController
             {
                 loading.UpdateLabel($"Initializing session '{session.Key}'");
                 var builder = new SessionBuilder(_config, _workingDir, _userConfigDir, _logger, _bgMgr);
-                
-                // Create a SessionLayer for this session
+
                 var layer = new SessionLayer(session.Key);
                 layer.CoreSession = session;
                 layer.Color = _color;
                 layer.WorkingDir = _workingDir;
                 _layers[layer.Name] = layer;
                 _sessionLayers[session.Key] = layer;
-                
-                // Create ConsoleUiRenderer that writes to the layer's buffer
-                var renderer = new ConsoleUiRenderer(layer, _color, session.GetStreamBuffer);
+
+                var renderer = new ConsoleUiRenderer(layer, _color, session.GetStreamBuffer, (msg) => PromptApproval(msg));
                 session.AddListener(renderer);
-                
+
                 await builder.BuildAsync(session, _externalTools);
             });
         }
@@ -214,69 +232,50 @@ public sealed class AppController
             _console.WriteLineColored(_color.Yellow + "\nFix the configuration and restart." + _color.Reset);
             return 1;
         }
-        
+
         loading.Stop();
-        
-        var mainSession = _sessionManager.Main;
-        var activeSession = _sessionManager.ActiveSession ?? mainSession;
+
+        var activeSession = _sessionManager.ActiveSession ?? _sessionManager.Main;
         _console.WriteLineColored(_color.Green + _color.Bold + "[Ready] " + $"Active session: {activeKey} ({_sessionManager.List().Count} total)" + _color.Reset);
         _console.BlankLine();
-        
-        // ── Enter alternate buffer + flush startup output into startup layer ──
+
+        // Enter alternate buffer
         _console.InitConsole();
-        
-        // Update startup layer with current status info
         UpdateStartupLayerStatus();
-        
-        // ── Decide which layer to show first ──
-        if (_sessionManager != null && _sessionManager.List().Count > 0)
+
+        // Switch to active session layer
+        if (_sessionManager.List().Count > 0)
         {
-            // Sessions exist — switch to the active session's layer
             var activeLayerKey = $"session:{activeKey}";
             if (_layers.TryGetValue(activeLayerKey, out var layerToBind))
             {
                 SwitchToLayer(activeLayerKey);
-                
-                // Show initial prompt on the session layer
                 _console.WriteLineColored(_color.Cyan + _color.Bold + $"[{activeSession.Key}] Type your request (/help for commands)" + _color.Reset);
                 _console.WriteLine("===========================================");
                 _console.WriteLineColored(_color.Cyan + _color.Bold + "[Mode] The agent decides tools automatically." + _color.Reset);
                 _console.BlankLine();
             }
         }
-        else
-        {
-            // No sessions — stay on the startup layer as the default
-            // User can create a session with /session-new
-        }
-        
-        // ── Set up silent input check ──
+
+        // Silent input check
         _console.SetSilentInputCheck(() =>
         {
             var s = _sessionManager?.ActiveSession;
             return s != null && s.RunState == SessionRunState.Running;
         });
-        
-        // ── Start idle watchdog (disconnect after 15 min inactivity) ──
+
+        // Idle watchdog
         if (_sessionManager.IsLocalMode)
-        {
             _sessionManager.StartIdleWatchdog(idleTimeoutMin: 15);
-        }
 
-        // ── Input loop — blocks here until quit ──
-        while (!_console.IsQuitRequested)
-        {
-            // Mark user activity for idle watchdog
-            _sessionManager.MarkUserActivity();
+        return 0;
+    }
 
-            // Set silent input state based on current session
-            var s = _sessionManager.ActiveSession;
-            _console.SetSilentInputInitial(s != null && s.RunState == SessionRunState.Running);
-            
-            _console.PromptRaw("");
-        }
-        
-        // ── Shutdown ──
+    /// <summary>
+    /// Shutdown: stop sessions, disconnect from LLM server, restore console.
+    /// </summary>
+    private async Task ShutdownAppAsync()
+    {
         if (_sessionManager != null)
         {
             _sessionManager.StopAll();
@@ -286,9 +285,30 @@ public sealed class AppController
                 _console.WriteLineColored(_color.Red + $"[Shutdown] Error disposing session manager: {ex.Message}" + _color.Reset);
             }
         }
-        
         _console.ShutdownConsole();
-        return 0;
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  APPROVAL PROMPT
+    // ═══════════════════════════════════════════════════
+
+    /// <summary>
+    /// Prompt the user for tool approval. Blocks until user responds.
+    /// Called by ConsoleUiRenderer when a tool requires approval.
+    /// </summary>
+    private bool PromptApproval(string message)
+    {
+        _console.WriteLineColored(_color.Yellow + _color.Bold + $"\n⚠ APPROVAL REQUIRED" + _color.Reset);
+        _console.WriteLineColored(_color.Yellow + message + _color.Reset);
+
+        var input = _console.PromptColored("Approve? (y/n): ")?.Trim().ToLowerInvariant();
+        var approved = input == "y" || input == "yes";
+
+        _console.WriteLineColored(approved
+            ? _color.Green + "✓ Approved" + _color.Reset
+            : _color.Red + "✗ Denied" + _color.Reset);
+
+        return approved;
     }
     
     // ═══════════════════════════════════════════════════
@@ -680,7 +700,7 @@ public sealed class AppController
             _sessionLayers[newSession.Key] = layer;
             
             // Create ConsoleUiRenderer that writes to the layer's buffer
-            var renderer = new ConsoleUiRenderer(layer, _color, newSession.GetStreamBuffer);
+            var renderer = new ConsoleUiRenderer(layer, _color, newSession.GetStreamBuffer, (msg) => PromptApproval(msg));
             newSession.AddListener(renderer);
             
             await builder.BuildAsync(newSession, _externalTools);

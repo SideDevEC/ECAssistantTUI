@@ -1,6 +1,6 @@
 # ECAssistant TUI — Architecture
 
-**Updated:** 2026-08-25 (v11.6 — idle watchdog, shutdown wiring, InitializeAsync call)
+**Updated:** 2026-08-25 (v11.7 — RunAsync refactor, tool approval prompting)
 **Build:** 0 errors, 0 warnings
 **Tests:** 66/66 passing
 **Namespace:** `ECAssistant.TUI.*`
@@ -146,6 +146,12 @@ User types input → Enter → Controller.OnPrompt(input)
 2. Copy DLL to ECAssistantTUI/lib/
 3. Build ECAssistant.TUI.csproj → produces ECAssistant.TUI.dll
 ```
+
+## v11.7 — RunAsync Refactor + Tool Approval
+
+- **RunAsync simplified** — extracted into 3 clean steps: `InitializeAppAsync()` → input loop → `ShutdownAppAsync()`. Was 150 lines inline, now each method has a single responsibility.
+- **Tool approval prompting** — `ConsoleUiRenderer.OnRequestApproval` implemented via `Func<string, bool>` callback (was `NotImplementedException`). `AppController.PromptApproval()` shows `⚠ APPROVAL REQUIRED` + tool name + args, prompts y/n via `PromptColored`.
+- **Approval callback** wired into all `ConsoleUiRenderer` instances (both disk-loaded and runtime-created sessions).
 
 ## v11.6 — Idle Watchdog + Shutdown Wiring
 

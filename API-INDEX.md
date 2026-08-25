@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantTUI
 
-Generated: 2026-08-25T16:48:26.098466+00:00
+Generated: 2026-08-25T20:17:45.853807+00:00
 Packages: 2  |  Types: 20
 
 ---
 
-## ECAssistantTUI (16 types, ~2692 LOC)
+## ECAssistantTUI (16 types, ~2712 LOC)
 
 - 🔵 IGuiConsole  (ECAssistantTUI)
 - 🔵 ITerminalOutput  (ECAssistantTUI)
@@ -15,7 +15,7 @@ Packages: 2  |  Types: 20
 - 🟡 BaseLayerBufferTests  (ECAssistantTUI)
 - 🟡 ConfigLayer : BaseLayer  (ECAssistantTUI)  deps: [EColor]
 - 🟡 ConsoleTerminalOutput : ITerminalOutput  (ECAssistantTUI)
-- 🟡 ConsoleUiRenderer : IOutputListener, IDisposable  (ECAssistantTUI)  deps: [SessionLayer, EColor, Func]
+- 🟡 ConsoleUiRenderer : IOutputListener, IDisposable  (ECAssistantTUI)  deps: [SessionLayer, EColor, Func, Func]
 - 🟡 ConsoleUiRendererTests  (ECAssistantTUI)
 - 🟡 EGuiConsole : EGuiBase, IGuiConsole  (ECAssistantTUI)  deps: [ITerminalOutput]
 - 🟡 HelpLayer : BaseLayer  (ECAssistantTUI)  deps: [EColor, string]

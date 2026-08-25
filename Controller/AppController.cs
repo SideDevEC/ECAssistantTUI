@@ -256,7 +256,7 @@ public sealed class AppController
         
         // ── Shutdown ──
         if (_sessionManager != null)
-            await _sessionManager.StopAllAsync();
+            _sessionManager.StopAll();
         
         _console.ShutdownConsole();
         return 0;
@@ -582,7 +582,15 @@ public sealed class AppController
     {
         if (_sessionManager == null) return;
         _console.BlankLine();
-        _console.WriteLineColored(_sessionManager.GetStatusReport());
+        var sessions = _sessionManager.List();
+        int idx = 1;
+        foreach (var s in sessions)
+        {
+            string marker = (s == _sessionManager.ActiveSession) ? " →" : "  ";
+            string state = s.RunState.ToString().ToLower();
+            _console.WriteLineColored($"{marker} {idx} [{s.Key}] {s.Label} ({state})");
+            idx++;
+        }
         _console.BlankLine();
     }
     
@@ -660,9 +668,10 @@ public sealed class AppController
     private void StopSession(string arg)
     {
         if (_sessionManager == null || !int.TryParse(arg, out var idx)) return;
-        var s = _sessionManager.GetByIndex(idx);
-        if (s != null)
+        var sessions = _sessionManager.List();
+        if (idx >= 1 && idx <= sessions.Count)
         {
+            var s = sessions[idx - 1];
             s.Stop();
             _console.WriteLineColored(_color.Yellow + _color.Bold + "[Session] " + $"Stopped [{s.Key}]." + _color.Reset);
         }
@@ -677,8 +686,14 @@ public sealed class AppController
         if (_sessionManager == null || !int.TryParse(arg, out var idx)) return;
         try
         {
-            var key = _sessionManager.GetByIndex(idx)?.Key ?? "";
-            await _sessionManager.CloseSessionAsync(key);
+            var sessions = _sessionManager.List();
+            if (idx < 1 || idx > sessions.Count)
+            {
+                _console.WriteLineColored(_color.Red + _color.Bold + "[Session] " + $"No session at index {idx}" + _color.Reset);
+                return;
+            }
+            var key = sessions[idx - 1].Key;
+            _sessionManager.DeleteSession(key);
             
             // Remove the layer for this session
             var layerKey = $"session:{key}";
@@ -700,7 +715,9 @@ public sealed class AppController
     private void PeekSession(string arg)
     {
         if (_sessionManager == null || !int.TryParse(arg, out var idx)) return;
-        var s = _sessionManager.GetByIndex(idx);
+        var sessions = _sessionManager.List();
+        if (idx < 1 || idx > sessions.Count) return;
+        var s = sessions[idx - 1];
         if (s != null)
         {
             _console.BlankLine();
@@ -718,10 +735,16 @@ public sealed class AppController
         var renameParts = arg.Split(' ', 2);
         if (renameParts.Length == 2 && int.TryParse(renameParts[0], out var idx))
         {
-            if (_sessionManager.RenameSession(idx, renameParts[1]))
+            var sessions = _sessionManager.List();
+            if (idx >= 1 && idx <= sessions.Count)
+            {
+                sessions[idx - 1].Rename(renameParts[1]);
                 _console.WriteLineColored(_color.Green + _color.Bold + "[Session] " + $"Renamed session {idx} to '{renameParts[1]}'" + _color.Reset);
+            }
             else
+            {
                 _console.WriteLineColored(_color.Red + _color.Bold + "[Session] " + $"No session at index {idx}" + _color.Reset);
+            }
         }
         else
         {
@@ -734,7 +757,10 @@ public sealed class AppController
         if (_sessionManager == null) return;
         AgentSession? infoSession;
         if (int.TryParse(arg, out var idx))
-            infoSession = _sessionManager.GetByIndex(idx);
+        {
+            var sessions = _sessionManager.List();
+            infoSession = (idx >= 1 && idx <= sessions.Count) ? sessions[idx - 1] : null;
+        }
         else
             infoSession = _sessionManager.ActiveSession;
         if (infoSession != null)

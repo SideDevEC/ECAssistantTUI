@@ -1,6 +1,6 @@
 # ECAssistant TUI — Architecture
 
-**Updated:** 2026-08-16 (v11.1)
+**Updated:** 2026-08-25 (v11.2 — Core/LLM split: session API migration, LLM Provider display, LLamaSharp removal)
 **Build:** 0 errors, 0 warnings
 **Tests:** 66/66 passing
 **Namespace:** `ECAssistant.TUI.*`
@@ -25,7 +25,7 @@ ECAssistantTUI/
 │     OutputType=Library, AssemblyName=ECAssistant.TUI
 │     RootNamespace=ECAssistant.TUI
 │     References: ECAssistant.Core.dll (HintPath: lib/)
-│     No LLamaSharp packages in source — runtime deps only
+│     No LLamaSharp packages — replaced with Microsoft.Extensions.Logging.Abstractions
 │     InternalsVisibleTo: ECAssistant.TUI.Tests
 │
 └── Tests/ECAssistant.TUI.Tests.csproj
@@ -38,15 +38,15 @@ ECAssistantTUI/
 
 ```
 Controller/
-└── AppController.cs                ← Application logic, layer-switching, session management
+└── AppController.cs                ← Application logic, layer-switching, session management (v11.2: StopAll/DeleteSession/List/Rename migration)
 UI/
 ├── IGuiConsole.cs                  ← Interface for terminal injection (hosts implement this)
 ├── EGuiConsole.cs                  ← Terminal engine (implements IGuiConsole)
 ├── BaseLayer.cs                    ← Abstract layer: output buffer, scroll, status, ANSI helpers
-├── SessionLayer.cs                 ← One per session, owns output buffer, handles session commands
+├── SessionLayer.cs                 ← One per session, owns output buffer, handles session commands (v11.2: inline context status)
 ├── StartupLayer.cs                 ← Always-present home screen, boot log, app status
 ├── HelpLayer.cs                    ← Help overlay
-├── ConfigLayer.cs                  ← Config inspection overlay
+├── ConfigLayer.cs                  ← Config inspection overlay (v11.2: LLM Provider section)
 ├── LoadingIndicator.cs             ← Animated loading dots
 └── ConsoleUiRenderer.cs            ← Bridges Core IOutputListener → SessionLayer buffer
 ```
@@ -132,7 +132,7 @@ User types input → Enter → Controller.OnPrompt(input)
 
 - `Console.Write/WriteLine` ONLY in `EGuiConsole`
 - `EColor` used ONLY by layers and renderers (not in Core)
-- TUI has zero LLamaSharp dependencies in source code (runtime deps only)
+- TUI has zero LLamaSharp dependencies — removed entirely from `ECAssistant.TUI.csproj` (replaced with `Microsoft.Extensions.Logging.Abstractions`)
 - TUI has zero external file dependencies (system prompts + config in Core DLL)
 - `AppController` only interacts via `IGuiConsole` — no direct `Console.*` calls
 - `EGuiConsole` has no application logic — renders and forwards input
@@ -146,6 +146,21 @@ User types input → Enter → Controller.OnPrompt(input)
 2. Copy DLL to ECAssistantTUI/lib/
 3. Build ECAssistant.TUI.csproj → produces ECAssistant.TUI.dll
 ```
+
+## v11.2 — Core/LLM Split Migration (v10.31)
+
+The TUI was updated to match the new Core HTTP-based engine surface:
+
+- **`AppController`** (6 call sites migrated to the new `SessionManager` API):
+   - `StopAllAsync()` → `StopAll()` (sync shutdown)
+   - `GetStatusReport()` → inline session list with a `→` active marker
+   - `GetByIndex(idx)` → `List()[idx - 1]` (Stop/Close/Peek/Rename/Info paths)
+   - `CloseSessionAsync(key)` → `DeleteSession(key)`
+   - `RenameSession(idx, label)` → `session.Rename(label)`
+- **`ConfigLayer`** — removed `GPU Layers` + `Threads` (moved to LLM server's `llm-server.json`). Added an **LLM Provider** section: `Mode`, `Endpoint`, `Model ID`, `Embedding Model` (local), `Auto-Start`/`Heartbeat` (local), `API Key` (remote, masked).
+- **`SessionLayer`** — replaced the removed `Engine.ContextStatusSummary` with an inline format: `tokens used/max (pct%) | KV: MB | prefilled/cold`.
+- **`ECAssistant.TUI.csproj`** — removed all LLamaSharp packages + `System.Text.Json`; added `Microsoft.Extensions.Logging.Abstractions`.
+- **Build** — fresh Core + TUI DLLs are copied into `lib/` after building Core.
 
 ## Test Summary (66 tests)
 

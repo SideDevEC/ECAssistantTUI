@@ -87,7 +87,8 @@ public sealed class SessionLayer : BaseLayer
                 if (CoreSession != null)
                 {
                     AddOutputLine("");
-                    AddOutputLine($"{color.Cyan}{color.Bold}[Context] {CoreSession.Engine.ContextStatusSummary}{color.Reset}");
+                    var e = CoreSession.Engine;
+                    AddOutputLine($"{color.Cyan}{color.Bold}[Context] {e.UsedTokens}/{e.MaxContextTokens} tokens ({e.ContextUsagePercent:F1}%) | KV: {e.KVCacheEstimatedMB:F1}MB | {(e.IsKVCachePrefilled ? "prefilled" : "cold")}{color.Reset}");
                     AddOutputLine("");
                 }
                 return true;

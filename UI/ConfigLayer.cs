@@ -34,13 +34,22 @@ public sealed class ConfigLayer : BaseLayer
         AddConfigProperty("Model", config.Llm.ModelPath);
         AddConfigProperty("Resolved", modelPath);
         AddConfigProperty("Context Size", config.Llm.ContextSize);
-        AddConfigProperty("GPU Layers", config.Llm.GpuLayers);
-        AddConfigProperty("Threads", config.Llm.Threads);
         
-        // Try to get Temperature and other optional LLM properties via reflection
-        TryAddProperty(config.Llm, "Temperature");
-        TryAddProperty(config.Llm, "TopP");
-        TryAddProperty(config.Llm, "RepeatPenalty");
+        // ── LLM Provider (v10.30: HTTP-based inference) ──
+        _outputLines.Add("");
+        _outputLines.Add($"{_color.Yellow}{_color.Bold}  LLM Provider{_color.Reset}");
+        AddConfigProperty("Mode", config.LlmProvider.Mode);
+        AddConfigProperty("Endpoint", config.LlmProvider.Endpoint);
+        AddConfigProperty("Model ID", config.LlmProvider.ModelId);
+        if (!string.IsNullOrEmpty(config.LlmProvider.EmbeddingModelId))
+            AddConfigProperty("Embedding Model", config.LlmProvider.EmbeddingModelId);
+        if (config.LlmProvider.IsLocal)
+        {
+            AddConfigProperty("Auto-Start", config.LlmProvider.AutoStart);
+            AddConfigProperty("Heartbeat", $"{config.LlmProvider.HeartbeatIntervalSec}s");
+        }
+        if (config.LlmProvider.IsRemote && !string.IsNullOrEmpty(config.LlmProvider.ApiKey))
+            AddConfigProperty("API Key", "***configured***");
         
         // Background tasks (replaces secondary model in v11.2+)
         bool decomposeLlm = config.BackgroundTasks?.Decompose?.UseLlm ?? false;

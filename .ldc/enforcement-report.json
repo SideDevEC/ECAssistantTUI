@@ -1,6 +1,6 @@
 {
   "project": "ECAssistantTUI",
-  "timestamp": "2026-08-25T01:53:00.714406+00:00",
+  "timestamp": "2026-08-25T16:48:26.099234+00:00",
   "total_violations": 1,
   "errors": 0,
   "warnings": 1,
@@ -8,7 +8,7 @@
     {
       "rule": "interface-first",
       "severity": "warning",
-      "file": "<project-root>/ECAssistantTUI/Controller/AppController.cs",
+      "file": "/Users/localdev/agent/ECAssistant/ECAssistantTUI/Controller/AppController.cs",
       "message": "Public class AppController in ECAssistantTUI implements no interface \u2014 may be a boundary leak"
     }
   ],

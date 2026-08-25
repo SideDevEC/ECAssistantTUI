@@ -1,6 +1,6 @@
 # ECAssistant TUI — Architecture
 
-**Updated:** 2026-08-25 (v11.2 — Core/LLM split: session API migration, LLM Provider display, LLamaSharp removal)
+**Updated:** 2026-08-25 (v11.6 — idle watchdog, shutdown wiring, InitializeAsync call)
 **Build:** 0 errors, 0 warnings
 **Tests:** 66/66 passing
 **Namespace:** `ECAssistant.TUI.*`
@@ -146,6 +146,13 @@ User types input → Enter → Controller.OnPrompt(input)
 2. Copy DLL to ECAssistantTUI/lib/
 3. Build ECAssistant.TUI.csproj → produces ECAssistant.TUI.dll
 ```
+
+## v11.6 — Idle Watchdog + Shutdown Wiring
+
+- **`InitializeAsync`** — `AppController.RunAsync` now calls `_sessionManager.InitializeAsync()` before `LoadSessionsFromDiskAsync()` (registers with LLM server, gets clientId, starts heartbeat). Without this, all `/eca/*` requests had no `X-Client-Id` header.
+- **Shutdown wiring** — `AppController` now calls `await _sessionManager.DisposeAsync()` on quit (was missing). This triggers `DisconnectAsync()` + `ServerLauncher.StopServerAsync()` → POST `/eca/shutdown` → server winds down if last client.
+- **Idle watchdog** — `StartIdleWatchdog(15)` starts a 60s timer; after 15 min user inactivity → disconnects from server (frees VRAM). `MarkUserActivity()` called on every input in the input loop; if idle-disconnected, triggers `ReconnectAfterIdleAsync()`.
+- **Error handling** — `InitializeAsync` wrapped in try/catch with helpful error message ("Start the LLM server first...").
 
 ## v11.2 — Core/LLM Split Migration (v10.31)
 

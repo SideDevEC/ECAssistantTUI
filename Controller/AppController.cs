@@ -158,7 +158,20 @@ public sealed class AppController
             _console.WriteLineColored(_color.Cyan + "[Sessions] No existing sessions found — creating new 'main' session." + _color.Reset);
         
         _sessionManager = new SessionManager(_config, _modelPath, _workingDir, _logger);
-        
+
+        // Initialize provider connection (local mode: register with LLM server, get clientId)
+        // Must happen BEFORE LoadSessionsFromDiskAsync so _httpClient has the X-Client-Id header
+        try
+        {
+            await _sessionManager.InitializeAsync();
+        }
+        catch (Exception ex)
+        {
+            _console.WriteLineColored(_color.Red + _color.Bold + $"[LLM Server] {ex.Message}" + _color.Reset);
+            _console.WriteLineColored(_color.Yellow + "Start the LLM server first: cd ~/agent/ECAssistant/ECAssistantLLM/bin/Debug/net8.0 && dotnet ECAssistant.LLM.dll" + _color.Reset);
+            return 1;
+        }
+
         var loading = new LoadingIndicator(_console, _color);
         loading.Start("Loading model weights");
         
@@ -244,9 +257,18 @@ public sealed class AppController
             return s != null && s.RunState == SessionRunState.Running;
         });
         
+        // ── Start idle watchdog (disconnect after 15 min inactivity) ──
+        if (_sessionManager.IsLocalMode)
+        {
+            _sessionManager.StartIdleWatchdog(idleTimeoutMin: 15);
+        }
+
         // ── Input loop — blocks here until quit ──
         while (!_console.IsQuitRequested)
         {
+            // Mark user activity for idle watchdog
+            _sessionManager.MarkUserActivity();
+
             // Set silent input state based on current session
             var s = _sessionManager.ActiveSession;
             _console.SetSilentInputInitial(s != null && s.RunState == SessionRunState.Running);
@@ -256,7 +278,14 @@ public sealed class AppController
         
         // ── Shutdown ──
         if (_sessionManager != null)
+        {
             _sessionManager.StopAll();
+            try { await _sessionManager.DisposeAsync(); }
+            catch (Exception ex)
+            {
+                _console.WriteLineColored(_color.Red + $"[Shutdown] Error disposing session manager: {ex.Message}" + _color.Reset);
+            }
+        }
         
         _console.ShutdownConsole();
         return 0;

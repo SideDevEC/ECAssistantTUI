@@ -1,6 +1,6 @@
 # ECAssistantTUI.API.md
 
-Types: 17  |  LOC: 2721  |  ~1383 tokens
+Types: 17  |  LOC: 2789  |  ~1382 tokens
 
 ---
 
@@ -120,7 +120,7 @@ Cross-package deps: ECAssistant.Core
 Cross-package deps: ECAssistant.Core, ECAssistant.TUI.UI
 
 ### Class: LoadingIndicator
-> Animated loading indicator — writes status messages during startup.
+> Simple loading indicator — writes the label once, no animation.
 Implements: IDisposable
 Constructor:
   - LoadingIndicator(IGuiConsole gui, EColor color)

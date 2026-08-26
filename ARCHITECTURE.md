@@ -1,6 +1,6 @@
 # ECAssistant TUI — Architecture
 
-**Updated:** 2026-08-25 (v11.7 — RunAsync refactor, tool approval prompting)
+**Updated:** 2026-08-26 (v11.8 — LDC compliance: IAppController interface extracted, 0 enforcement warnings)
 **Build:** 0 errors, 0 warnings
 **Tests:** 66/66 passing
 **Namespace:** `ECAssistant.TUI.*`

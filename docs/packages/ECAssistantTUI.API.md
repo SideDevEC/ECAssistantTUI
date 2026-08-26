@@ -1,8 +1,17 @@
 # ECAssistantTUI.API.md
 
-Types: 16  |  LOC: 2712  |  ~1286 tokens
+Types: 17  |  LOC: 2721  |  ~1383 tokens
 
 ---
+
+### Interface: IAppController
+> Interface for the application controller that binds the TUI to Core.
+Properties:
+  - ECAssistant.Core.Memory.VectorMemoryStore? VectorMemory { get; set; }
+  - ECAssistant.Core.Session.AgentSession? ActiveSession { get; set; }
+Methods:
+  - Task<int> RunAsync()
+Cross-package deps: ECAssistant.Core.Memory, ECAssistant.Core.Session
 
 ### Interface: IGuiConsole
 > Interface for the console terminal that AppController and layers depend on.
@@ -53,6 +62,7 @@ Methods:
 
 ### Class: AppController
 > Application controller — the binder between EGuiConsole, layers, and Core.
+Implements: IAppController
 Constructor:
   - AppController(IGuiConsole console, EAgentConfig config, string modelPath, string workingDir, string userConfigDir, ILogger logger, IGuiConsole console, EAgentConfig config, string modelPath, string workingDir, string userConfigDir, ILogger logger, List<EToolBase>? externalTools, IGuiConsole console, EAgentConfig config, string modelPath, string workingDir, string userConfigDir, ILogger logger, List<EToolBase>? externalTools, BackgroundProcessManager? backgroundProcesses, FileWatcherService? fileWatcher)
 Cross-package deps: ECAssistant.Core, ECAssistant.Core.Config, ECAssistant.Core.Engine, ECAssistant.Core.Orchestration, ECAssistant.Core.Tools, ECAssistant.Core.Tools.Shell, ECAssistant.Core.Tools.Background, ECAssistant.TUI.UI, ECAssistant.Core.Session, ECAssistant.TUI.Session, ECAssistant.Core.Services, ECAssistant.Core.Analysis, ECAssistant.Core.Interfaces

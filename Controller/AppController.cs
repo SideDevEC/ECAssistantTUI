@@ -24,7 +24,7 @@ namespace ECAssistant.TUI.Controller;
 /// Program.cs only interacts with this class. Nothing above the controller
 /// knows about EGuiConsole, layers, or Core sessions.
 /// </summary>
-public sealed class AppController
+public sealed class AppController : IAppController
 {
     // ── Dependencies (injected from Program.cs) ──
     private readonly EAgentConfig _config;

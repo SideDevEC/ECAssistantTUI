@@ -33,7 +33,14 @@ public class LoadingIndicator : IDisposable
         _timer = new Timer(OnTick, null, 500, 500);
     }
 
-    public void UpdateLabel(string label) => _label = label;
+    public void UpdateLabel(string label)
+    {
+        // Clear the current line before changing the label
+        _gui.WriteRaw("\r\x1b[2K");
+        _label = label;
+        _dotCount = 0;
+        RenderFrame();
+    }
 
     public void Stop()
     {
@@ -52,10 +59,11 @@ public class LoadingIndicator : IDisposable
     {
         _dotCount = (_dotCount + 1) % 4;
         var dots = new string('.', _dotCount);
-        var line = $"{_color.Cyan}{_label}{_color.Reset} {_color.Dim}{dots}  {_color.Reset}";
-        // Write as output — during startup this is buffered, after init it goes
-        // to the active layer. This replaces the old status bar approach.
-        _gui.WriteLineColored(line);
+        var line = $"\r{_color.Cyan}{_label}{_color.Reset} {_color.Dim}{dots}  {_color.Reset}";
+        // Write to the terminal with carriage return to overwrite the same line.
+        // During startup (before InitConsole), this goes to the raw terminal.
+        // After InitConsole, the indicator is stopped so this won't interfere.
+        _gui.WriteRaw(line);
     }
 
     public void Dispose() => Stop();

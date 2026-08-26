@@ -48,6 +48,13 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     private volatile bool _silentInput;
     private Func<bool>? _silentInputCheck;
     
+    // ── Pending approval: set by inference thread, consumed by input loop ──
+    private volatile bool _approvalPending;
+    private string? _approvalMessage;
+    private bool? _approvalResult;
+    private readonly System.Threading.ManualResetEventSlim _approvalAnswered = new();
+    private System.Threading.Thread? _inputLoopThread;
+    
     // ── Startup buffering ──
     // Before InitConsole(), output is queued here instead of written to terminal.
     private readonly List<string> _startupBuffer = new();
@@ -498,7 +505,28 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     //  INPUT LOOP
     // ═══════════════════════════════════════════════════
     
-    public override string? PromptColored(string labelAndText) => ReadInputLine();
+    public override string? PromptColored(string labelAndText)
+    {
+        // If this is called from the inference thread (not the main input loop),
+        // use the pending approval mechanism to avoid console input conflict.
+        if (!object.ReferenceEquals(System.Threading.Thread.CurrentThread, _inputLoopThread))
+        {
+            // Queue approval for the main input loop
+            _approvalAnswered.Reset();
+            _approvalMessage = labelAndText;
+            _approvalPending = true;
+            _approvalResult = null;
+            
+            // Turn off silent input so the prompt is visible
+            _silentInput = false;
+            
+            // Wait for the main input loop to deliver the answer
+            _approvalAnswered.Wait();
+            
+            return _approvalResult == true ? "y" : "n";
+        }
+        return ReadInputLine();
+    }
     public override string? PromptRaw(string label) => ReadInputLine();
     
     /// <summary>
@@ -508,6 +536,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     /// </summary>
     private string? ReadInputLine()
     {
+        _inputLoopThread = System.Threading.Thread.CurrentThread;
         _inputBuffer.Clear();
         
         if (_ansiSupported)
@@ -527,6 +556,74 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
             ConsoleKeyInfo key;
             try
             {
+                // Check for pending approval from inference thread
+                if (_approvalPending)
+                {
+                    lock (_writeLock)
+                    {
+                        var msg = _approvalMessage ?? "Approve?";
+                        _activeLayer?.AddOutputLine($"\x1b[33m\x1b[1m⚠ APPROVAL REQUIRED\x1b[0m");
+                        _activeLayer?.AddOutputLine($"\x1b[33m{msg}\x1b[0m");
+                        _outputDirty = true;
+                        Repaint();
+                        // Show prompt at input line
+                        _term.Write($"\x1b[{_inputRow + 1};1H\x1b[2K\x1b[33mApprove? (y/n): \x1b[0m");
+                        _term.Flush();
+                    }
+                    
+                    // Read y/n directly (we're on the input loop thread)
+                    _inputBuffer.Clear();
+                    while (_approvalPending)
+                    {
+                        if (!Console.KeyAvailable)
+                        {
+                            System.Threading.Thread.Sleep(10);
+                            continue;
+                        }
+                        var approvalKey = Console.ReadKey(true);
+                        if (approvalKey.Key == ConsoleKey.Y)
+                        {
+                            _approvalResult = true;
+                            _approvalPending = false;
+                        }
+                        else if (approvalKey.Key == ConsoleKey.N || approvalKey.Key == ConsoleKey.Escape)
+                        {
+                            _approvalResult = false;
+                            _approvalPending = false;
+                        }
+                        else if (approvalKey.Key == ConsoleKey.Enter)
+                        {
+                            _approvalResult = _inputBuffer.ToString().Trim().ToLowerInvariant() == "y" || _inputBuffer.ToString().Trim().ToLowerInvariant() == "yes";
+                            _approvalPending = false;
+                            _inputBuffer.Clear();
+                        }
+                        else if (approvalKey.KeyChar == 'y' || approvalKey.KeyChar == 'Y' || approvalKey.KeyChar == 'n' || approvalKey.KeyChar == 'N')
+                        {
+                            _inputBuffer.Append(approvalKey.KeyChar);
+                            lock (_writeLock)
+                            {
+                                _term.Write($"\x1b[{_inputRow + 1};1H\x1b[2K\x1b[33mApprove? (y/n): {approvalKey.KeyChar}\x1b[0m");
+                                _term.Flush();
+                            }
+                        }
+                    }
+                    
+                    lock (_writeLock)
+                    {
+                        var approved = _approvalResult == true;
+                        _activeLayer?.AddOutputLine(approved
+                            ? "\x1b[32m✓ Approved\x1b[0m"
+                            : "\x1b[31m✗ Denied\x1b[0m");
+                        _outputDirty = true;
+                        _inputDirty = true;
+                        Repaint();
+                        PositionCursorAtInput();
+                        _term.Flush();
+                    }
+                    _approvalAnswered.Set();
+                    continue;
+                }
+                
                 // Poll: check if silent mode should turn off
                 if (_silentInput && _silentInputCheck != null && !_silentInputCheck())
                 {

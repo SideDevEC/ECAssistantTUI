@@ -643,6 +643,11 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                 if (!Console.KeyAvailable)
                 {
                     Thread.Sleep(10);
+                    // Re-check for pending approval while waiting for key input
+                    // This prevents deadlock when inference thread requests approval
+                    // while the main loop is sleeping here waiting for a key.
+                    if (_approvalPending)
+                        continue;
                     continue;
                 }
                 key = Console.ReadKey(true); // intercept: don't auto-echo

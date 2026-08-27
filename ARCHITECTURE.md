@@ -190,3 +190,8 @@ The TUI was updated to match the new Core HTTP-based engine surface:
 - Downloads via Core `ModelInstallerService` with per-percent progress bars; results merged into `llm-server.json` automatically
 - Catalog source: `model-catalog.json` in app root (auto-created with defaults, user-editable)
 - All failures are non-fatal — setup is wrapped in try/catch and never blocks startup
+
+## Changelog — 2026-08-27 (Installer Wizard + /menu)
+
+- **FirstRunWizard**: local/remote AI choice; remote = endpoint/key/model/embedding-model + live connection test, key encrypted via SecureKeyStore.SetKey (keyfile: ref); local = catalog + internet/disk pre-flight, retry ×3, GPU preference → gpu_layers, memory estimates, embeddings ensure, post-install test, model removal
+- **AppController**: `/reinstall` (warn → stop server, delete keys/config, models kept → wizard), `/menu [topic]` layered help (sessions/context/background/ai) with `/help` alias, `RunSetupFlowAsync(onlyIfNeeded)` shared flow

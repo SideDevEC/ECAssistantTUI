@@ -476,6 +476,9 @@ public sealed class FirstRunWizard
         var embeddingModelId = _console.PromptRaw("  Embedding model ID [Enter = text-embedding-3-small]: ")?.Trim() ?? "";
         if (embeddingModelId.Length == 0) embeddingModelId = "text-embedding-3-small";
 
+        var visionAnswer = _console.PromptRaw("  Does this model support vision (image input)? [y/N]: ")?.Trim().ToLowerInvariant() ?? "";
+        var visionEnabled = visionAnswer == "y" || visionAnswer == "yes";
+
         // Verify the endpoint actually works before saving anything
         _console.WriteLineColored(_color.Dim + "  Testing connection..." + _color.Reset);
         var reachable = await TestRemoteConnectionAsync(endpoint, apiKey);
@@ -498,7 +501,8 @@ public sealed class FirstRunWizard
                 Endpoint = endpoint,
                 ApiKey = apiKey.Length > 0 ? apiKey : null,
                 ModelId = modelId,
-                EmbeddingModelId = embeddingModelId
+                EmbeddingModelId = embeddingModelId,
+                VisionEnabled = visionEnabled
             });
         }
         catch (Exception ex)

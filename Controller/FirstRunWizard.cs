@@ -21,6 +21,7 @@ public sealed class FirstRunWizard
     private readonly RemoteProviderSetupWriter? _remoteWriter;
     private readonly VectorMemorySetupWriter? _vectorMemoryWriter;
     private bool _vectorMemoryEnabled = true;
+    private bool _visionEnabled = true;
     private bool _useGpu = true;
     private bool _remoteConfigured;
     private string _remoteEndpoint = "";
@@ -73,6 +74,12 @@ public sealed class FirstRunWizard
             return null; // Vector memory disabled — no embeddings model needed.
         }
 
+        // Vision capability: decides which model groups are offered and whether
+        // mmproj projectors are downloaded/wired alongside the models.
+        var visionAnswer = _console.PromptRaw("Enable vision (image understanding)? [Y/n]: ")?.Trim().ToLowerInvariant() ?? "";
+        _visionEnabled = visionAnswer != "n" && visionAnswer != "no";
+        _console.BlankLine();
+
         // Hardware preference once — drives gpu_layers suggestions for everything below
         var gpuAnswer = _console.PromptRaw("Use GPU acceleration (Metal/CUDA)? [Y/n]: ")?.Trim().ToLowerInvariant() ?? "";
         _useGpu = gpuAnswer != "n" && gpuAnswer != "no";
@@ -105,9 +112,14 @@ public sealed class FirstRunWizard
             return null;
         }
 
-        // Grouped listing: chat, then vision, then embedding
+        // Grouped listing — driven by the vision choice:
+        //   vision ON  → vision models + embeddings
+        //   vision OFF → chat models + embeddings
         var flat = new List<ModelCatalogEntry>();
-        foreach (var group in new[] { CatalogModelCategory.Chat, CatalogModelCategory.Vision, CatalogModelCategory.Embedding })
+        var groups = _visionEnabled
+            ? new[] { CatalogModelCategory.Vision, CatalogModelCategory.Embedding }
+            : new[] { CatalogModelCategory.Chat, CatalogModelCategory.Embedding };
+        foreach (var group in groups)
         {
             var entries = selectable.Where(m => m.Category == group).ToList();
             var installedEntries = _catalog.Models.Where(m => m.Category == group && installedIds.Contains(m.Id, StringComparer.OrdinalIgnoreCase)).ToList();
@@ -130,6 +142,9 @@ public sealed class FirstRunWizard
 
         // Orphan GGUFs: files in the models folder that no catalog entry references —
         // shown as existing local models, selectable without download.
+        // Vision pairing: a model file only counts as vision-capable when its matching
+        // mmproj projector sits next to it; vision-capable orphans are only offered
+        // when the user enabled vision (config must wire mmproj_path to be usable).
         var catalogFilenames = _catalog.Models
             .SelectMany(m => m.Files)
             .Select(f => f.Filename)
@@ -137,6 +152,7 @@ public sealed class FirstRunWizard
         var orphans = _status.InstalledFiles
             .Where(f => !catalogFilenames.Contains(f))
             .Where(f => !ECAssistant.Core.Setup.ModelInstallerService.LooksLikeEmbeddingModel(f))
+            .Where(f => _installer.DetectSiblingMmproj(f) != null == _visionEnabled)
             .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
             .ToList();
 

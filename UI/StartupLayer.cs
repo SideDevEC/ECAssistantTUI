@@ -76,7 +76,7 @@ public sealed class StartupLayer : BaseLayer
         _outputLines.Add($"{_color.Dim}  • /session \u003cn\u003e       Switch to session n{_color.Reset}");
         _outputLines.Add($"{_color.Dim}  • /session-new \u003cname\u003e  Create a new session{_color.Reset}");
         _outputLines.Add($"{_color.Dim}  • /sessions         List all sessions{_color.Reset}");
-        _outputLines.Add($"{_color.Dim}  • /help             Show all commands{_color.Reset}");
+        _outputLines.Add($"{_color.Dim}  • /menu             Show command menu{_color.Reset}");
         _outputLines.Add($"{_color.Dim}  • /home             Return to this screen{_color.Reset}");
         _outputLines.Add($"{_color.Dim}  • /quit             Exit ECAssistant{_color.Reset}");
         _outputLines.Add("");

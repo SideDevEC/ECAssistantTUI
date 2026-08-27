@@ -157,12 +157,22 @@ public sealed class AppController : IAppController
     /// </summary>
     private async Task RunFirstRunSetupIfNeededAsync()
     {
+        await RunSetupFlowAsync(onlyIfNeeded: true);
+    }
+
+    /// <summary>
+    /// Full installation flow: local/remote choice, model catalog + downloads, config wiring.
+    /// With onlyIfNeeded=false it runs even when models are already configured (/reinstall).
+    /// </summary>
+    private async Task RunSetupFlowAsync(bool onlyIfNeeded)
+    {
         try
         {
             var llmRoot = Path.Combine(_userConfigDir, "llm");
             var modelsDir = Path.Combine(llmRoot, "models");
             var catalogPath = Path.Combine(_workingDir, "model-catalog.json");
             var serverConfigPath = Path.Combine(llmRoot, "llm-server.json");
+            var appsettingsPath = Path.Combine(_userConfigDir, "appsettings.json");
 
             var catalog = ModelCatalogDocument.Load(catalogPath);
             var validationError = catalog.Validate();
@@ -174,12 +184,24 @@ public sealed class AppController : IAppController
 
             var detector = new FirstRunDetector(modelsDir, serverConfigPath);
             var status = detector.Evaluate(catalog.Models);
-            if (!status.NeedsSetup) return;
+            if (onlyIfNeeded && !status.NeedsSetup) return;
+
+            // Heads-up when first-run fires but a previous setup exists (remote config, etc.)
+            if (File.Exists(appsettingsPath))
+            {
+                var existing = File.ReadAllText(appsettingsPath);
+                if (existing.Contains("\"llm_providers\"", StringComparison.OrdinalIgnoreCase))
+                    _console.WriteLineColored(_color.Yellow +
+                        "[Setup] Detected a previous AI configuration — the wizard below will replace it. " +
+                        "(Use /reinstall for a full reset.)" + _color.Reset);
+            }
 
             using var http = new HttpClient();
             http.DefaultRequestHeaders.UserAgent.ParseAdd("ECAssistant-Installer/1.0");
             var installer = new ModelInstallerService(http, modelsDir, serverConfigPath);
-            var wizard = new FirstRunWizard(_console, _color, catalog, installer, status);
+            var wizard = new FirstRunWizard(_console, _color, catalog, installer, status,
+                new RemoteProviderSetupWriter(appsettingsPath),
+                new VectorMemorySetupWriter(appsettingsPath));
             await wizard.RunAsync();
         }
         catch (Exception ex)
@@ -292,7 +314,7 @@ public sealed class AppController : IAppController
             if (_layers.TryGetValue(activeLayerKey, out var layerToBind))
             {
                 SwitchToLayer(activeLayerKey);
-                _console.WriteLineColored(_color.Cyan + _color.Bold + $"[{activeSession.Key}] Type your request (/help for commands)" + _color.Reset);
+                _console.WriteLineColored(_color.Cyan + _color.Bold + $"[{activeSession.Key}] Type your request (/menu for commands)" + _color.Reset);
                 _console.WriteLine("===========================================");
                 _console.WriteLineColored(_color.Cyan + _color.Bold + "[Mode] The agent decides tools automatically." + _color.Reset);
                 _console.BlankLine();
@@ -427,18 +449,23 @@ public sealed class AppController : IAppController
                     GoHome();
                     return;
                 
+                case "menu":
                 case "help":
-                    ShowHelp();
+                    ShowHelp(arg);
+                    return;
+                
+                case "reinstall":
+                    Reinstall();
                     return;
                 
                 case "config":
                     ShowConfig();
                     return;
-                
+
                 case "session":
                     SwitchSession(arg);
                     return;
-                
+
                 case "session-new":
                     CreateNewSession(arg);
                     return;
@@ -578,9 +605,9 @@ public sealed class AppController : IAppController
         _startupLayer.UpdateStatus(VersionString, _modelPath, bgStatus, decomposeLlm || summarizeLlm, _workingDir, configPath, sessionCount, activeKey);
     }
     
-    private void ShowHelp()
+    private void ShowHelp(string topic = "")
     {
-        var helpLines = BuildHelpLines();
+        var helpLines = BuildHelpLines(topic);
         var helpLayer = new HelpLayer(_color, helpLines);
         helpLayer.BuildContent();
         _layers["help"] = helpLayer;
@@ -595,60 +622,88 @@ public sealed class AppController : IAppController
         PushOverlayLayer("config");
     }
     
-    private string[] BuildHelpLines()
+    private string[] BuildHelpLines(string topic = "")
     {
+        var t = topic.Trim().ToLowerInvariant();
+        var header = $"{_color.Cyan}{_color.Bold}  Commands (use / prefix){_color.Reset}";
+        var footer = $"{_color.Dim}  Tip: /menu <topic> for details — topics: sessions, context, background, ai{_color.Reset}";
+
+        switch (t)
+        {
+            case "sessions":
+                return new[]
+                {
+                    $"{_color.Cyan}{_color.Bold}  Sessions{_color.Reset}",
+                    "",
+                    $"{_color.Yellow}{_color.Bold}  /sessions             List all sessions with status{_color.Reset}",
+                    $"{_color.Yellow}{_color.Bold}  /session <n>          Switch to session n{_color.Reset}",
+                    $"{_color.Yellow}{_color.Bold}  /session-new <name>   Create a new session{_color.Reset}",
+                    $"{_color.Yellow}{_color.Bold}  /session-stop <n>     Stop session n's execution{_color.Reset}",
+                    $"{_color.Yellow}{_color.Bold}  /session-close <n>    Close and delete session n{_color.Reset}",
+                    $"{_color.Yellow}{_color.Bold}  /session-peek <n>     Quick glance at session n's output{_color.Reset}",
+                    $"{_color.Yellow}{_color.Bold}  /session-rename <n> <label>  Rename session n{_color.Reset}",
+                    $"{_color.Yellow}{_color.Bold}  /session-info [n]     Detailed session info{_color.Reset}",
+                    "",
+                    footer,
+                };
+
+            case "context":
+                return new[]
+                {
+                    $"{_color.Cyan}{_color.Bold}  Context & Memory{_color.Reset}",
+                    "",
+                    $"{_color.Yellow}{_color.Bold}  /clear-history        Clear conversation history{_color.Reset}",
+                    $"{_color.Yellow}{_color.Bold}  /save-context         Save transcript to disk{_color.Reset}",
+                    $"{_color.Yellow}{_color.Bold}  /context-status       Show context window usage{_color.Reset}",
+                    "",
+                    footer,
+                };
+
+            case "background":
+                return new[]
+                {
+                    $"{_color.Cyan}{_color.Bold}  Background processes{_color.Reset}",
+                    "",
+                    $"{_color.Yellow}{_color.Bold}  /bg-run <cmd>         Start a background process{_color.Reset}",
+                    $"{_color.Yellow}{_color.Bold}  /bg-status            List background processes{_color.Reset}",
+                    $"{_color.Yellow}{_color.Bold}  /bg-output <id>       Get output from a process{_color.Reset}",
+                    $"{_color.Yellow}{_color.Bold}  /bg-kill <id>         Kill a background process{_color.Reset}",
+                    $"{_color.Yellow}{_color.Bold}  /bg-cleanup           Remove finished processes{_color.Reset}",
+                    "",
+                    footer,
+                };
+
+            case "ai":
+                return new[]
+                {
+                    $"{_color.Cyan}{_color.Bold}  AI / Installation{_color.Reset}",
+                    "",
+                    $"{_color.Yellow}{_color.Bold}  /reinstall            Reset AI setup (stops server, deletes keys) + reinstall{_color.Reset}",
+                    $"{_color.Yellow}{_color.Bold}  /config               Show configuration values{_color.Reset}",
+                    "",
+                    footer,
+                };
+        }
+
         return new[]
         {
-            $"{_color.Cyan}{_color.Bold}  Commands (use / prefix){_color.Reset}",
+            $"{_color.Cyan}{_color.Bold}  Essentials{_color.Reset}",
             "",
-            $"{_color.Yellow}{_color.Bold}  <type request>       Multi-step agent execution (no / prefix){_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /stop                 Stop the running session{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  ESC                   Stop generation mid-stream{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  <type request>        Multi-step agent execution (no / prefix){_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /stop / ESC           Stop the running session / generation{_color.Reset}",
             $"{_color.Yellow}{_color.Bold}  /clear                Clear console output{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /quit or /exit        Stop all sessions and exit{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /help                 Show this help{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /config               Show configuration values{_color.Reset}",
             $"{_color.Yellow}{_color.Bold}  /home                 Go to home/startup screen{_color.Reset}",
             $"{_color.Yellow}{_color.Bold}  /tools                List registered tools{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /quit or /exit        Stop all sessions and exit{_color.Reset}",
             "",
-            $"{_color.Dim}  Context:{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /clear-history        Clear conversation history{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /save-context         Save transcript to disk{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /context-status       Show context window usage{_color.Reset}",
+            $"{_color.Cyan}{_color.Bold}  Categories — /menu <topic>{_color.Reset}",
             "",
-            $"{_color.Dim}  Sessions:{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /sessions             List all sessions with status{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /session <n>          Switch to session n{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /session-new <name>   Create a new session{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /session-stop <n>     Stop session n's execution{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /session-close <n>    Close and delete session n{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /session-peek <n>     Quick glance at session n's output{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /session-rename <n> <label>  Rename session n{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /session-info [n]     Detailed session info{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /session-queue         Show prompt queue{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /session-queue-remove <i>  Remove prompt i from queue{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /session-queue-clear  Clear active session's queue{_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /menu sessions        Session management (11 commands){_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /menu context         History & context window (3 commands){_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /menu background      Background processes (5 commands){_color.Reset}",
+            $"{_color.Yellow}{_color.Bold}  /menu ai              AI provider & installation (2 commands){_color.Reset}",
             "",
-            $"{_color.Dim}  Background:{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /bg-run <cmd>         Start a background process{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /bg-status            List background processes{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /bg-output <id>       Get output from a process{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /bg-kill <id>         Kill a background process{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /bg-cleanup           Remove finished processes{_color.Reset}",
-            "",
-            $"{_color.Dim}  Files & Watch:{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /watch                Show recent file changes{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /watch-start          Start watching for changes{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /watch-stop           Stop watching{_color.Reset}",
-            "",
-            $"{_color.Dim}  System:{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /reload-config        Reload appsettings.json{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /swap-model           Switch GGUF model at runtime{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /clipboard-read       Read from clipboard{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /clipboard-write      Write to clipboard{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /log                  Show recent log entries{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /log-level            Set log level{_color.Reset}",
-        };
+            footer,};
     }
     
     private void ListTools()
@@ -756,6 +811,86 @@ public sealed class AppController : IAppController
         }
     }
     
+    /// <summary>
+    /// /reinstall — reset AI configuration to first-run state: stop LLM server, delete API keys,
+    /// reset provider config, delete generated server config (models are kept),
+    /// then re-run the installation wizard. Requires explicit yes/no confirmation.
+    /// </summary>
+    private async void Reinstall()
+    {
+        _console.WriteLineColored(_color.Red + _color.Bold + "⚠ REINSTALL — reset your AI configuration:" + _color.Reset);
+        _console.WriteLineColored(_color.Yellow + "  • Stop the local LLM server (if running)" + _color.Reset);
+        _console.WriteLineColored(_color.Yellow + "  • Delete ALL stored API keys (keys/ folder)" + _color.Reset);
+        _console.WriteLineColored(_color.Yellow + "  • Reset provider settings (remote/local) to first-run state" + _color.Reset);
+        _console.WriteLineColored(_color.Yellow + "  • Delete the generated llm-server.json" + _color.Reset);
+        _console.WriteLineColored(_color.Yellow + "  • Downloaded models are KEPT — the wizard detects them" + _color.Reset);
+        _console.WriteLineColored(_color.Yellow + "  • Active conversations are stopped and will not carry over" + _color.Reset);
+        _console.BlankLine();
+
+        var answer = _console.PromptColored("Proceed with reinstall? (yes/no): ")?.Trim().ToLowerInvariant();
+        if (answer != "y" && answer != "yes")
+        {
+            _console.WriteLineColored(_color.Green + "[Reinstall] Cancelled — nothing was changed." + _color.Reset);
+            return;
+        }
+
+        try
+        {
+            // 1. Stop all sessions + the local LLM server
+            if (_sessionManager != null)
+            {
+                _sessionManager.StopAll();
+                await _sessionManager.StopLocalServerAsync();
+            }
+            _console.WriteLineColored(_color.Green + "[Reinstall] LLM server stopped." + _color.Reset);
+
+            // 2. Reset provider config + delete keys + generated server config (models are kept)
+            ResetAiSetup();
+            _console.WriteLineColored(_color.Green + "[Reinstall] Setup fully reset — keys, config and models deleted." + _color.Reset);
+        }
+        catch (Exception ex)
+        {
+            _console.WriteLineColored(_color.Red + $"[Reinstall] Reset error: {ex.Message} — continuing to setup." + _color.Reset);
+        }
+
+        // 3. Back to the installation wizard
+        await RunSetupFlowAsync(onlyIfNeeded: false);
+    }
+
+    /// <summary>
+    /// Reset all AI setup to first-run defaults: clear llm_providers, restore default local
+    /// llm_provider, delete the keys/ folder and the generated llm-server.json.
+    /// Downloaded GGUF model files are deliberately kept.
+    /// </summary>
+    private void ResetAiSetup()
+    {
+        var appsettingsPath = Path.Combine(_userConfigDir, "appsettings.json");
+        if (File.Exists(appsettingsPath))
+        {
+            var jsonOptions = new System.Text.Json.JsonSerializerOptions
+            {
+                WriteIndented = true,
+                PropertyNameCaseInsensitive = true,
+                DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+            };
+            var config = System.Text.Json.JsonSerializer.Deserialize<EAgentConfig>(File.ReadAllText(appsettingsPath), jsonOptions);
+            if (config != null)
+            {
+                config.LlmProviders = null;
+                config.LlmProvider = new LlmProviderConfig(); // defaults = local, port 58777
+                File.WriteAllText(appsettingsPath, System.Text.Json.JsonSerializer.Serialize(config, jsonOptions));
+            }
+        }
+
+        var keysDir = Path.Combine(_userConfigDir, "keys");
+        if (Directory.Exists(keysDir))
+            Directory.Delete(keysDir, recursive: true);
+
+        var serverConfigPath = Path.Combine(_userConfigDir, "llm", "llm-server.json");
+        if (File.Exists(serverConfigPath))
+            File.Delete(serverConfigPath);
+    }
+
     private void StopSession(string arg)
     {
         if (_sessionManager == null || !int.TryParse(arg, out var idx)) return;

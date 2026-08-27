@@ -20,8 +20,10 @@ public sealed class FirstRunWizard
     private readonly FirstRunStatus _status;
     private readonly RemoteProviderSetupWriter? _remoteWriter;
     private readonly VectorMemorySetupWriter? _vectorMemoryWriter;
+    private readonly EmbeddingSetupWriter? _embeddingWriter;
     private bool _vectorMemoryEnabled = true;
     private bool _visionEnabled = true;
+    private bool _embeddingsLocal = false;
     private bool _useGpu = true;
     private bool _remoteConfigured;
     private string _remoteEndpoint = "";
@@ -35,7 +37,8 @@ public sealed class FirstRunWizard
         ModelInstallerService installer,
         FirstRunStatus status,
         RemoteProviderSetupWriter? remoteWriter = null,
-        VectorMemorySetupWriter? vectorMemoryWriter = null)
+        VectorMemorySetupWriter? vectorMemoryWriter = null,
+        EmbeddingSetupWriter? embeddingWriter = null)
     {
         _console = console;
         _color = color;
@@ -44,6 +47,7 @@ public sealed class FirstRunWizard
         _status = status;
         _remoteWriter = remoteWriter;
         _vectorMemoryWriter = vectorMemoryWriter;
+        _embeddingWriter = embeddingWriter;
     }
 
     /// <summary>
@@ -73,6 +77,11 @@ public sealed class FirstRunWizard
             _console.BlankLine();
             return null; // Vector memory disabled — no embeddings model needed.
         }
+
+        // Embeddings are independent of the main AI mode:
+        //   local  → local ECAssistantLLM server serves embeddings (spawned even with remote main)
+        //   remote → the main provider's embedding model
+        TryPromptEmbeddingSource();
 
         // Vision capability: decides which model groups are offered and whether
         // mmproj projectors are downloaded/wired alongside the models.
@@ -263,8 +272,9 @@ public sealed class FirstRunWizard
             }
         }
 
-        // Local mode needs an embeddings model for vector memory — make sure one exists
-        if (chosenChat != null && _vectorMemoryEnabled)
+        // Vector memory with LOCAL embeddings: make sure an embedding model exists and
+        // is wired into the local server — even when the main AI is remote.
+        if (_vectorMemoryEnabled && _embeddingsLocal)
             await EnsureEmbeddingsModelAsync(ct);
 
         // Prove the installation works: one tiny completion (remote live, local when server is up)
@@ -416,6 +426,34 @@ public sealed class FirstRunWizard
                 : $"{p.BytesReceived / 1048576.0:0} MB";
             _console.WriteLineColored($"\r  [{new string('█', pct / 4)}{new string('░', 25 - pct / 4)}] {pct,3}%  {sizeInfo}  {p.MbPerSecond:0.#} MB/s");
         }, ct);
+    }
+
+    /// <summary>
+    /// Ask where embeddings run — independent of the local/remote main AI choice.
+    /// Persists embedding.mode; local embeddings get downloaded/wired later.
+    /// </summary>
+    private void TryPromptEmbeddingSource()
+    {
+        if (!_vectorMemoryEnabled)
+        {
+            try { _embeddingWriter?.SetMode("remote"); } catch { }
+            return;
+        }
+
+        _console.WriteLineColored("Where should embeddings run (vector memory)?");
+        _console.WriteLineColored(_color.Cyan + "  [1] Local  (small embedding model runs in the local server — even if the main AI is remote)" + _color.Reset);
+        _console.WriteLineColored(_color.Cyan + "  [2] Remote (uses the AI provider's embedding model)" + _color.Reset);
+        var answer = _console.PromptRaw("Choose [1/2, Enter = 1]: ")?.Trim() ?? "";
+        var localEmbeddings = answer != "2";
+
+        try { _embeddingWriter?.SetMode(localEmbeddings ? "local" : "remote"); }
+        catch (Exception ex)
+        {
+            _console.WriteLineColored(_color.Yellow + $"Could not persist embedding setting: {ex.Message}" + _color.Reset);
+        }
+
+        _embeddingsLocal = localEmbeddings;
+        _console.BlankLine();
     }
 
     /// <summary>

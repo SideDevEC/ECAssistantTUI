@@ -203,7 +203,8 @@ public sealed class AppController : IAppController
             var installer = new ModelInstallerService(http, modelsDir, serverConfigPath, appsettingsPath);
             var wizard = new FirstRunWizard(_console, _color, catalog, installer, status,
                 new RemoteProviderSetupWriter(appsettingsPath),
-                new VectorMemorySetupWriter(appsettingsPath));
+                new VectorMemorySetupWriter(appsettingsPath),
+                new EmbeddingSetupWriter(appsettingsPath));
             await wizard.RunAsync();
         }
         catch (Exception ex)

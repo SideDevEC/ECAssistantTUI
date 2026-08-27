@@ -52,6 +52,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     private volatile bool _approvalPending;
     private string? _approvalMessage;
     private bool? _approvalResult;
+    private string? _approvalAnswer;
     private readonly System.Threading.ManualResetEventSlim _approvalAnswered = new();
     private System.Threading.Thread? _inputLoopThread;
     
@@ -507,27 +508,45 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     
     public override string? PromptColored(string labelAndText)
     {
-        // If this is called from the inference thread (not the main input loop),
-        // use the pending approval mechanism to avoid console input conflict.
-        if (!object.ReferenceEquals(System.Threading.Thread.CurrentThread, _inputLoopThread))
+        // If this is called from another thread while the input loop is running,
+        // use the pending prompt mechanism to avoid console input conflict.
+        if (_inputLoopThread != null && !object.ReferenceEquals(System.Threading.Thread.CurrentThread, _inputLoopThread))
         {
-            // Queue approval for the main input loop
-            _approvalAnswered.Reset();
-            _approvalMessage = labelAndText;
-            _approvalPending = true;
-            _approvalResult = null;
-            
-            // Turn off silent input so the prompt is visible
-            _silentInput = false;
-            
-            // Wait for the main input loop to deliver the answer
-            _approvalAnswered.Wait();
-            
-            return _approvalResult == true ? "y" : "n";
+            return PromptViaInputLoop(labelAndText);
         }
         return ReadInputLine();
     }
-    public override string? PromptRaw(string label) => ReadInputLine();
+
+    public override string? PromptRaw(string label)
+    {
+        // Cross-thread prompt (e.g. installer continuation after await) → route through the input loop
+        if (_inputLoopThread != null && !object.ReferenceEquals(System.Threading.Thread.CurrentThread, _inputLoopThread))
+        {
+            return PromptViaInputLoop(label);
+        }
+        return ReadInputLine();
+    }
+
+    /// <summary>
+    /// Queue a prompt for the main input loop and block until the user answers.
+    /// Generic: any text input, not just y/n. ESC returns null.
+    /// </summary>
+    private string? PromptViaInputLoop(string label)
+    {
+        _approvalAnswered.Reset();
+        _approvalMessage = label;
+        _approvalPending = true;
+        _approvalResult = null;
+        _approvalAnswer = null;
+
+        // Turn off silent input so the prompt is visible
+        _silentInput = false;
+
+        // Wait for the main input loop to deliver the answer
+        _approvalAnswered.Wait();
+
+        return _approvalAnswer;
+    }
     
     /// <summary>
     /// Main input loop. Reads keys, handles input buffer locally, forwards
@@ -561,17 +580,16 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                 {
                     lock (_writeLock)
                     {
-                        var msg = _approvalMessage ?? "Approve?";
-                        _activeLayer?.AddOutputLine($"\x1b[33m\x1b[1m⚠ APPROVAL REQUIRED\x1b[0m");
-                        _activeLayer?.AddOutputLine($"\x1b[33m{msg}\x1b[0m");
+                        var msg = _approvalMessage ?? "? ";
                         _outputDirty = true;
                         Repaint();
-                        // Show prompt at input line
-                        _term.Write($"\x1b[{_inputRow + 1};1H\x1b[2K\x1b[33mApprove? (y/n): \x1b[0m");
+                        // Show prompt at input line — the message IS the prompt label
+                        _term.Write($"\x1b[{_inputRow + 1};1H\x1b[2K\x1b[33m{msg}\x1b[0m");
                         _term.Flush();
                     }
-                    
-                    // Read y/n directly (we're on the input loop thread)
+
+                    // Generic line read (we're on the input loop thread):
+                    // printable chars append, Enter submits, ESC cancels (null).
                     _inputBuffer.Clear();
                     while (_approvalPending)
                     {
@@ -580,40 +598,44 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                             System.Threading.Thread.Sleep(10);
                             continue;
                         }
-                        var approvalKey = Console.ReadKey(true);
-                        if (approvalKey.Key == ConsoleKey.Y)
+                        var keyInfo = Console.ReadKey(true);
+                        if (keyInfo.Key == ConsoleKey.Enter)
                         {
-                            _approvalResult = true;
-                            _approvalPending = false;
-                        }
-                        else if (approvalKey.Key == ConsoleKey.N || approvalKey.Key == ConsoleKey.Escape)
-                        {
-                            _approvalResult = false;
-                            _approvalPending = false;
-                        }
-                        else if (approvalKey.Key == ConsoleKey.Enter)
-                        {
-                            _approvalResult = _inputBuffer.ToString().Trim().ToLowerInvariant() == "y" || _inputBuffer.ToString().Trim().ToLowerInvariant() == "yes";
+                            _approvalAnswer = _inputBuffer.ToString().Trim();
                             _approvalPending = false;
                             _inputBuffer.Clear();
                         }
-                        else if (approvalKey.KeyChar == 'y' || approvalKey.KeyChar == 'Y' || approvalKey.KeyChar == 'n' || approvalKey.KeyChar == 'N')
+                        else if (keyInfo.Key == ConsoleKey.Escape)
                         {
-                            _inputBuffer.Append(approvalKey.KeyChar);
+                            _approvalAnswer = null;
+                            _approvalPending = false;
+                            _inputBuffer.Clear();
+                        }
+                        else if (keyInfo.Key == ConsoleKey.Backspace)
+                        {
+                            if (_inputBuffer.Length > 0)
+                            {
+                                _inputBuffer.Remove(_inputBuffer.Length - 1, 1);
+                                lock (_writeLock)
+                                {
+                                    _term.Write($"\x1b[{_inputRow + 1};1H\x1b[2K\x1b[33m{_approvalMessage}\x1b[0m{_inputBuffer}\x1b[0m");
+                                    _term.Flush();
+                                }
+                            }
+                        }
+                        else if (!char.IsControl(keyInfo.KeyChar))
+                        {
+                            _inputBuffer.Append(keyInfo.KeyChar);
                             lock (_writeLock)
                             {
-                                _term.Write($"\x1b[{_inputRow + 1};1H\x1b[2K\x1b[33mApprove? (y/n): {approvalKey.KeyChar}\x1b[0m");
+                                _term.Write($"\x1b[{_inputRow + 1};1H\x1b[2K\x1b[33m{_approvalMessage}\x1b[0m{_inputBuffer}\x1b[0m");
                                 _term.Flush();
                             }
                         }
                     }
-                    
+
                     lock (_writeLock)
                     {
-                        var approved = _approvalResult == true;
-                        _activeLayer?.AddOutputLine(approved
-                            ? "\x1b[32m✓ Approved\x1b[0m"
-                            : "\x1b[31m✗ Denied\x1b[0m");
                         _outputDirty = true;
                         _inputDirty = true;
                         Repaint();

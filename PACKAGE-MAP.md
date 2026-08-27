@@ -1,12 +1,12 @@
 # PACKAGE-MAP.md — ECAssistantTUI
 
-Generated: 2026-08-27T11:33:13.653848+00:00
+Generated: 2026-08-27T14:17:42.450120+00:00
 
 ---
 
 | Package | Types | LOC | ~Tokens | Dependencies |
 |---|---|---|---|---|
-| ECAssistantTUI | 17 | 2789 | ~1382 | — |
+| ECAssistantTUI | 18 | 2936 | ~1465 | — |
 | Tests | 4 | 574 | ~167 | — |
 
 ---

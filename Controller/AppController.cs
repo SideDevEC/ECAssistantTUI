@@ -2,6 +2,7 @@ using ECAssistant.Core;
 using ECAssistant.Core.Config;
 using ECAssistant.Core.Engine;
 using ECAssistant.Core.Orchestration;
+using ECAssistant.Core.Setup;
 using ECAssistant.Core.Tools;
 using ECAssistant.Core.Tools.Shell;
 using ECAssistant.Core.Tools.Background;
@@ -151,6 +152,43 @@ public sealed class AppController : IAppController
     }
 
     /// <summary>
+    /// When no usable models are detected, run the first-run installer wizard
+    /// (model-catalog.json → HuggingFace download → llm-server.json config).
+    /// </summary>
+    private async Task RunFirstRunSetupIfNeededAsync()
+    {
+        try
+        {
+            var llmRoot = Path.Combine(_userConfigDir, "llm");
+            var modelsDir = Path.Combine(llmRoot, "models");
+            var catalogPath = Path.Combine(_workingDir, "model-catalog.json");
+            var serverConfigPath = Path.Combine(llmRoot, "llm-server.json");
+
+            var catalog = ModelCatalogDocument.Load(catalogPath);
+            var validationError = catalog.Validate();
+            if (validationError != null)
+            {
+                _console.WriteLineColored(_color.Yellow + $"[Setup] model-catalog.json is invalid: {validationError} — skipping first-run setup." + _color.Reset);
+                return;
+            }
+
+            var detector = new FirstRunDetector(modelsDir, serverConfigPath);
+            var status = detector.Evaluate(catalog.Models);
+            if (!status.NeedsSetup) return;
+
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("ECAssistant-Installer/1.0");
+            var installer = new ModelInstallerService(http, modelsDir, serverConfigPath);
+            var wizard = new FirstRunWizard(_console, _color, catalog, installer, status);
+            await wizard.RunAsync();
+        }
+        catch (Exception ex)
+        {
+            _console.WriteLineColored(_color.Yellow + $"[Setup] First-run setup skipped: {ex.Message}" + _color.Reset);
+        }
+    }
+
+    /// <summary>
     /// One-time initialization: services, session manager, layers, watchdog.
     /// Returns 0 on success, 1 on failure.
     /// </summary>
@@ -172,6 +210,10 @@ public sealed class AppController : IAppController
 
         // Session manager + LLM server connection
         _console.WriteLineColored(_color.Cyan + _color.Bold + "[Sessions] Discovering sessions..." + _color.Reset);
+
+        // ── First-run setup: offer model downloads from the editable catalog ──
+        await RunFirstRunSetupIfNeededAsync();
+
         var discovered = new SessionDiscovery().DiscoverSessions(_workingDir);
         if (discovered.Count > 0)
             _console.WriteLineColored(_color.Cyan + "[Sessions] " + $"Found {discovered.Count} session(s): {string.Join(", ", discovered)}" + _color.Reset);

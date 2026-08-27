@@ -1,9 +1,16 @@
 {
   "project": "ECAssistantTUI",
-  "timestamp": "2026-08-27T11:33:13.653938+00:00",
-  "total_violations": 0,
+  "timestamp": "2026-08-27T14:17:42.450216+00:00",
+  "total_violations": 1,
   "errors": 0,
-  "warnings": 0,
-  "violations": [],
+  "warnings": 1,
+  "violations": [
+    {
+      "rule": "interface-first",
+      "severity": "warning",
+      "file": "<project-root>/ECAssistantTUI/Controller/FirstRunWizard.cs",
+      "message": "Public class FirstRunWizard in ECAssistantTUI implements no interface \u2014 may be a boundary leak"
+    }
+  ],
   "passed": true
 }

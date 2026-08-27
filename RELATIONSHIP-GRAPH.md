@@ -1,7 +1,7 @@
 # RELATIONSHIP-GRAPH.md — ECAssistantTUI
 
-Generated: 2026-08-27T11:33:13.653551+00:00
-Edges: 12  |  Packages: 2
+Generated: 2026-08-27T14:17:42.449810+00:00
+Edges: 13  |  Packages: 2
 
 ---
 
@@ -15,6 +15,7 @@ Edges: 12  |  Packages: 2
 - ConsoleTerminalOutput ──implements──► ITerminalOutput (ECAssistantTUI)
 - EGuiConsole ──implements──► IGuiConsole (ECAssistantTUI)
 - EGuiConsole ──uses──► ITerminalOutput (ECAssistantTUI)
+- FirstRunWizard ──uses──► IGuiConsole (ECAssistantTUI)
 - HelpLayer ──implements──► BaseLayer (ECAssistantTUI)
 - LoadingIndicator ──uses──► IGuiConsole (ECAssistantTUI)
 - SessionLayer ──implements──► BaseLayer (ECAssistantTUI)

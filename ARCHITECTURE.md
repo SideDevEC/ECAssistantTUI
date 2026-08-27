@@ -183,3 +183,10 @@ The TUI was updated to match the new Core HTTP-based engine surface:
 | `BaseLayerBufferTests.cs` | 10 | AddOutputLine, multi-line, scroll reset, clear |
 | `LayerTests.cs` | 21 | SessionLayer, HelpLayer, StartupLayer, ConfigLayer, scroll, live stream |
 | `ConsoleUiRendererTests.cs` | 16 | OnOutput tags, stream, RenderHistory, writes to SessionLayer |
+## First-Run Setup Wizard (2026-08-27)
+
+- `Controller/FirstRunWizard.cs` — shown by `AppController.InitializeAppAsync` before session init when `FirstRunDetector` reports no usable models
+- Grouped numbered list (chat / vision / embedding, ★ = recommended), picks `1,3` / `a` (all recommended) / Enter to skip
+- Downloads via Core `ModelInstallerService` with per-percent progress bars; results merged into `llm-server.json` automatically
+- Catalog source: `model-catalog.json` in app root (auto-created with defaults, user-editable)
+- All failures are non-fatal — setup is wrapped in try/catch and never blocks startup

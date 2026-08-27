@@ -195,3 +195,11 @@ The TUI was updated to match the new Core HTTP-based engine surface:
 
 - **FirstRunWizard**: local/remote AI choice; remote = endpoint/key/model/embedding-model + live connection test, key encrypted via SecureKeyStore.SetKey (keyfile: ref); local = catalog + internet/disk pre-flight, retry ×3, GPU preference → gpu_layers, memory estimates, embeddings ensure, post-install test, model removal
 - **AppController**: `/reinstall` (warn → stop server, delete keys/config, models kept → wizard), `/menu [topic]` layered help (sessions/context/background/ai) with `/help` alias, `RunSetupFlowAsync(onlyIfNeeded)` shared flow
+
+## Changelog — 2026-08-27 (evening: vision/embeddings wizard)
+
+- Wizard question order: local/remote → vector memory → **embeddings source (local/remote, independent)** → vision → GPU → filtered catalog. Vision ON lists vision models only (mmproj wired automatically); OFF lists chat+embeddings. Orphans filtered by mmproj presence + vision choice.
+- Remote setup asks embedding model id + vision capability; `/config` shows `Vision: enabled/disabled`.
+- `/menu <topic>` layered help with topic back-stack (ESC walks back); `/help` alias.
+- `/reinstall`: y/n warning → stop server, delete keys/config (models kept) → wizard.
+- `EGuiConsole`: generic cross-thread prompt queue (`PromptViaInputLoop`) — installer prompts after `await` no longer fight the input loop.

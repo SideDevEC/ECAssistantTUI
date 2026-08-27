@@ -163,7 +163,6 @@ public sealed class AppController : IAppController
             var modelsDir = Path.Combine(llmRoot, "models");
             var catalogPath = Path.Combine(_workingDir, "model-catalog.json");
             var serverConfigPath = Path.Combine(llmRoot, "llm-server.json");
-            var appsettingsPath = Path.Combine(_userConfigDir, "appsettings.json");
 
             var catalog = ModelCatalogDocument.Load(catalogPath);
             var validationError = catalog.Validate();
@@ -180,8 +179,7 @@ public sealed class AppController : IAppController
             using var http = new HttpClient();
             http.DefaultRequestHeaders.UserAgent.ParseAdd("ECAssistant-Installer/1.0");
             var installer = new ModelInstallerService(http, modelsDir, serverConfigPath);
-            var wizard = new FirstRunWizard(_console, _color, catalog, installer, status,
-                new RemoteProviderSetupWriter(appsettingsPath));
+            var wizard = new FirstRunWizard(_console, _color, catalog, installer, status);
             await wizard.RunAsync();
         }
         catch (Exception ex)

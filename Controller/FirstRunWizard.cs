@@ -1,4 +1,5 @@
 using ECAssistant.Core;
+using ECAssistant.Core.Config;
 using ECAssistant.Core.Setup;
 using ECAssistant.TUI.UI;
 
@@ -17,19 +18,22 @@ public sealed class FirstRunWizard
     private readonly ModelCatalogDocument _catalog;
     private readonly ModelInstallerService _installer;
     private readonly FirstRunStatus _status;
+    private readonly RemoteProviderSetupWriter? _remoteWriter;
 
     public FirstRunWizard(
         IGuiConsole console,
         EColor color,
         ModelCatalogDocument catalog,
         ModelInstallerService installer,
-        FirstRunStatus status)
+        FirstRunStatus status,
+        RemoteProviderSetupWriter? remoteWriter = null)
     {
         _console = console;
         _color = color;
         _catalog = catalog;
         _installer = installer;
         _status = status;
+        _remoteWriter = remoteWriter;
     }
 
     /// <summary>
@@ -40,6 +44,18 @@ public sealed class FirstRunWizard
     {
         _console.WriteLineColored(_color.Yellow + _color.Bold +
             "════════ First-Run Setup — no models detected ════════" + _color.Reset);
+        _console.BlankLine();
+
+        // Mode choice: local GGUF models (catalog + downloads) or remote OpenAI-compatible API.
+        if (!TryRunRemoteSetup())
+        {
+            _console.WriteLineColored(_color.Yellow + "Remote setup skipped — falling back to local model setup." + _color.Reset);
+            _console.BlankLine();
+        }
+        else
+        {
+            return null; // Remote configured — no downloads needed.
+        }
 
         var catalogPath = "model-catalog.json";
         _console.WriteLineColored(
@@ -133,6 +149,62 @@ public sealed class FirstRunWizard
 
         _console.BlankLine();
         return chosenChat;
+    }
+
+    /// <summary>
+    /// Prompt for remote (OpenAI-compatible) API settings and persist them.
+    /// Returns true when remote mode was configured; false when the user skipped
+    /// or the writer is unavailable (then local catalog flow should run).
+    /// </summary>
+    private bool TryRunRemoteSetup()
+    {
+        if (_remoteWriter == null)
+        {
+            _console.WriteLineColored("How should ECAssistant run its AI?");
+            _console.WriteLineColored(_color.Cyan + "  [1] Local models  (GGUF on this machine — downloads below)" + _color.Reset);
+            _console.WriteLineColored(_color.Cyan + "  [2] Remote AI     (OpenAI-compatible API — needs remote setup support)" + _color.Reset);
+            return false; // No writer wired → only local flow available.
+        }
+
+        _console.WriteLineColored("How should ECAssistant run its AI?");
+        _console.WriteLineColored(_color.Cyan + "  [1] Local models  (GGUF on this machine — free, private, downloaded below)" + _color.Reset);
+        _console.WriteLineColored(_color.Cyan + "  [2] Remote AI     (OpenAI-compatible API: OpenAI, OpenRouter, Ollama cloud, …)" + _color.Reset);
+        var choice = _console.PromptRaw("Choose [1/2, Enter = 1]: ")?.Trim() ?? "";
+
+        if (choice != "2") return false;
+        if (_console.IsQuitRequested) return false;
+
+        _console.BlankLine();
+        _console.WriteLineColored(_color.Cyan + _color.Bold + "▼ Remote AI setup" + _color.Reset);
+
+        var endpoint = _console.PromptRaw("  Endpoint (e.g. https://api.openai.com/v1): ")?.Trim() ?? "";
+        if (endpoint.Length == 0) return false;
+
+        var apiKey = _console.PromptRaw("  API key: ")?.Trim() ?? "";
+
+        var modelId = _console.PromptRaw("  Model ID (e.g. gpt-4o-mini): ")?.Trim() ?? "";
+        if (modelId.Length == 0) return false;
+
+        var name = new UriBuilder(endpoint).Host; // e.g. api.openai.com
+        try
+        {
+            _remoteWriter.Write(new RemoteProviderConfig
+            {
+                Name = name,
+                Endpoint = endpoint,
+                ApiKey = apiKey.Length > 0 ? apiKey : null,
+                ModelId = modelId
+            });
+        }
+        catch (Exception ex)
+        {
+            _console.WriteLineColored(_color.Red + $"✘ Could not save remote settings: {ex.Message}" + _color.Reset);
+            return false;
+        }
+
+        _console.WriteLineColored(_color.Green + _color.Bold +
+            $"✔ Remote AI configured: {modelId} @ {endpoint} (saved to appsettings.json)" + _color.Reset);
+        return true;
     }
 
     private static string GroupTitle(CatalogModelCategory category) => category switch

@@ -66,10 +66,19 @@ public abstract class BaseLayer
     /// <summary>Update screen dimensions (called by EGuiConsole on resize or bind).</summary>
     public void UpdateDimensions(int width, int height)
     {
+        UpdateDimensions(width, height, height - 3);
+    }
+
+    /// <summary>
+    /// Update screen dimensions with an explicit output region end row.
+    /// Used when a variable-height composer reserves rows above the status bar.
+    /// </summary>
+    public void UpdateDimensions(int width, int height, int outputRegionEnd)
+    {
         _screenWidth = width;
         _screenHeight = height;
         _outputRegionStart = 0;
-        _outputRegionEnd = height - 3;
+        _outputRegionEnd = outputRegionEnd;
         _isDirty = true;
     }
     

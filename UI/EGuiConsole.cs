@@ -70,6 +70,12 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     private int _outputRegionEnd;
     private int _statusRow;
     private int _inputRow;
+
+    // ── Composer (chat-style input box) ──
+    private const int MaxComposerContentLines = 5;
+    private int _composerTopRow;                 // top border row of the input box
+    private int _composerContentRows = 1;        // current content height (1..Max)
+    private List<string> _composerWrapped = new() { "" };  // wrapped input lines (plain text)
     
     // ── Delta rendering cache ──
     private string?[] _screenRows = Array.Empty<string?>();
@@ -255,11 +261,76 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         _outputRegionEnd = ScreenHeight - 3;
         _statusRow = ScreenHeight - 2;
         _inputRow = ScreenHeight - 1;
-        
+        UpdateComposerLayout(_inputBuffer.ToString());
+
         _screenRows = new string?[ScreenHeight];
         _fullRepaint = true;
-        
-        _activeLayer?.UpdateDimensions(ScreenWidth, ScreenHeight);
+
+        // Layer must know the (composer-aware) output region end
+        _activeLayer?.UpdateDimensions(ScreenWidth, ScreenHeight, _outputRegionEnd);
+    }
+
+    /// <summary>
+    /// Wrap the input text to the composer inner width and derive box geometry.
+    /// Pure layout computation — no terminal writes.
+    /// </summary>
+    private void UpdateComposerLayout(string text)
+    {
+        int innerWidth = Math.Max(1, ScreenWidth - 4); // borders + "› " prompt on first line
+        _composerWrapped = WrapPlainText(text, innerWidth);
+
+        int maxRows = Math.Max(1, Math.Min(MaxComposerContentLines, (ScreenHeight - 2) / 3));
+        _composerContentRows = Math.Max(1, Math.Min(_composerWrapped.Count, maxRows));
+
+        // Box: top border, content rows, bottom border (bottom border sits on _inputRow)
+        _composerTopRow = _inputRow - _composerContentRows - 1;
+        _statusRow = _composerTopRow - 1;
+        _outputRegionEnd = _composerTopRow - 2;
+    }
+
+    /// <summary>Word-wrap plain text to the given width (long words hard-broken). Stateless utility.</summary>
+    private static List<string> WrapPlainText(string text, int width)
+    {
+        var lines = new List<string>();
+        if (string.IsNullOrEmpty(text)) { lines.Add(""); return lines; }
+
+        foreach (var para in text.Split('\n'))
+        {
+            var current = new StringBuilder();
+            foreach (var word in para.Split(' '))
+            {
+                // Hard-break any word (or word remainder) longer than the width
+                var piece = word;
+                while (piece.Length > width)
+                {
+                    FlushCurrent(current, lines);
+                    lines.Add(piece.Substring(0, width));
+                    piece = piece.Substring(width);
+                }
+                if (piece.Length == 0) continue;
+
+                if (current.Length == 0)
+                    current.Append(piece);
+                else if (current.Length + 1 + piece.Length <= width)
+                    current.Append(' ').Append(piece);
+                else
+                {
+                    lines.Add(current.ToString());
+                    current.Clear().Append(piece);
+                }
+            }
+            lines.Add(current.ToString());
+        }
+        return lines;
+
+        static void FlushCurrent(StringBuilder current, List<string> lines)
+        {
+            if (current.Length > 0)
+            {
+                lines.Add(current.ToString());
+                current.Clear();
+            }
+        }
     }
     
     private bool CheckResize()
@@ -420,23 +491,55 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     
     private void PaintInputLine()
     {
+        var text = _inputBuffer.ToString();
+        UpdateComposerLayout(text);
+
+        int innerWidth = Math.Max(1, ScreenWidth - 2);
+        int maxRows = Math.Max(1, Math.Min(MaxComposerContentLines, (ScreenHeight - 2) / 3));
+        var contentLines = _composerWrapped.Skip(Math.Max(0, _composerWrapped.Count - maxRows)).ToList();
+
+        // When the box grows, output/status shift up — repaint them too
+        _outputDirty = true;
+        _statusDirty = true;
+        PaintOutputRegion();
+        _outputDirty = false;
+        PaintStatusBar();
+        _statusDirty = false;
+
+        const string dim = "\x1b[2m";
+        const string reset = "\x1b[0m";
+
+        // Top border
+        _term.Write($"\x1b[{_composerTopRow + 1};1H\x1b[2K");
+        _term.Write(dim + "╭" + new string('─', ScreenWidth - 2) + "╮" + reset);
+
+        // Content rows
+        for (int i = 0; i < _composerContentRows; i++)
+        {
+            _term.Write($"\x1b[{_composerTopRow + 2 + i};1H\x1b[2K");
+            string line = i < contentLines.Count ? contentLines[i] : "";
+            if (line.Length > innerWidth) line = line.Substring(0, innerWidth);
+            string prefix = i == 0 ? $"{dim}› {reset}" : "  ";
+            int pad = Math.Max(0, ScreenWidth - 2 - BaseLayer.StripAnsi(prefix).Length - BaseLayer.StripAnsi(line).Length);
+            _term.Write(dim + "│" + reset + prefix + line + new string(' ', pad) + dim + "│" + reset);
+        }
+
+        // Bottom border
         _term.Write($"\x1b[{_inputRow + 1};1H\x1b[2K");
-        
-        // Use the active layer's prompt prefix (or default "> ")
-        string prompt = _activeLayer?.GetInputPrompt() ?? PromptStr;
-        _term.Write(prompt);
-        _term.Write(_inputBuffer.ToString());
-        
-        // Position cursor right after the last typed character
+        _term.Write(dim + "╰" + new string('─', ScreenWidth - 2) + "╯" + reset);
+
         PositionCursorAtInput();
     }
     
     private void PositionCursorAtInput()
     {
-        string prompt = _activeLayer?.GetInputPrompt() ?? PromptStr;
-        int col = prompt.Length + _inputBuffer.Length;
-        // Position cursor at end of input, show it
-        _term.Write($"\x1b[{_inputRow + 1};{col + 1}H\x1b[?25h");
+        // Cursor always sits after the last character → on the last visible wrapped line
+        int visibleLineIdx = _composerContentRows - 1;
+        int firstVisible = Math.Max(0, _composerWrapped.Count - _composerContentRows);
+        string lastLine = _composerWrapped[Math.Min(firstVisible + visibleLineIdx, _composerWrapped.Count - 1)];
+        int col = 1 /*left border*/ + 2 /*"› " or indent*/ + lastLine.Length + 1; // 1-based
+        if (col > ScreenWidth) col = ScreenWidth;
+        _term.Write($"\x1b[{_composerTopRow + 2 + visibleLineIdx};{col}H\x1b[?25h");
     }
     
     // ═══════════════════════════════════════════════════
@@ -567,7 +670,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                         _outputDirty = true;
                         Repaint();
                         // Show prompt at input line
-                        _term.Write($"\x1b[{_inputRow + 1};1H\x1b[2K\x1b[33mApprove? (y/n): \x1b[0m");
+                        _term.Write($"\x1b[{_composerTopRow + 2};1H\x1b[2K\x1b[33mApprove? (y/n): \x1b[0m");
                         _term.Flush();
                     }
                     
@@ -602,7 +705,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                             _inputBuffer.Append(approvalKey.KeyChar);
                             lock (_writeLock)
                             {
-                                _term.Write($"\x1b[{_inputRow + 1};1H\x1b[2K\x1b[33mApprove? (y/n): {approvalKey.KeyChar}\x1b[0m");
+                                _term.Write($"\x1b[{_composerTopRow + 2};1H\x1b[2K\x1b[33mApprove? (y/n): {approvalKey.KeyChar}\x1b[0m");
                                 _term.Flush();
                             }
                         }

@@ -76,6 +76,9 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     private int _composerTopRow;                 // top border row of the input box
     private int _composerContentRows = 1;        // current content height (1..Max)
     private List<string> _composerWrapped = new() { "" };  // wrapped input lines (plain text)
+
+    // ── Pending attachments (picked via Ctrl+O, injected into prompt on send) ──
+    private readonly List<string> _pendingAttachments = new();
     
     // ── Delta rendering cache ──
     private string?[] _screenRows = Array.Empty<string?>();
@@ -286,6 +289,34 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         _composerTopRow = _inputRow - _composerContentRows - 1;
         _statusRow = _composerTopRow - 1;
         _outputRegionEnd = _composerTopRow - 2;
+    }
+
+    /// <summary>
+    /// Open the native macOS file picker (images only) and queue the chosen path.
+    /// Silent no-op if the picker is unavailable (non-macOS / headless).
+    /// </summary>
+    private void PickAttachment()
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "osascript",
+                Arguments = "-e \"POSIX path of (choose file of type {\\\"public.image\\\"} with prompt \\\"Attach an image\\\")\"",
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+            };
+            using var proc = System.Diagnostics.Process.Start(psi);
+            if (proc == null) return;
+            var path = proc.StandardOutput.ReadToEnd().Trim();
+            proc.WaitForExit();
+            if (proc.ExitCode == 0 && path.Length > 0 && !_pendingAttachments.Contains(path))
+                _pendingAttachments.Add(path);
+        }
+        catch
+        {
+            // Picker unavailable — ignore, user can still type [image:path] manually
+        }
     }
 
     /// <summary>Word-wrap plain text to the given width (long words hard-broken). Stateless utility.</summary>
@@ -509,9 +540,16 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         const string dim = "\x1b[2m";
         const string reset = "\x1b[0m";
 
-        // Top border
+        // Top border (with attachment chip when files are pending)
         _term.Write($"\x1b[{_composerTopRow + 1};1H\x1b[2K");
-        _term.Write(dim + "╭" + new string('─', ScreenWidth - 2) + "╮" + reset);
+        string topBorder = "╭" + new string('─', ScreenWidth - 2) + "╮";
+        if (_pendingAttachments.Count > 0)
+        {
+            string chip = $" 📎 {_pendingAttachments.Count} ";
+            int pos = ScreenWidth - 2 - chip.Length - 1; // right-aligned inside the border
+            if (pos > 1) topBorder = "╭" + new string('─', pos - 1) + chip + new string('─', ScreenWidth - 2 - pos - chip.Length + 1) + "╮";
+        }
+        _term.Write(dim + topBorder + reset);
 
         // Content rows
         for (int i = 0; i < _composerContentRows; i++)
@@ -815,17 +853,32 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
             {
                 if (CheckResize()) _fullRepaint = true;
                 
-                if (key.Key == ConsoleKey.Enter)
+                if (key.Key == ConsoleKey.O && (key.Modifiers & ConsoleModifiers.Control) != 0)
                 {
-                    var result = _inputBuffer.ToString();
+                    // Attach: open native file picker, hold path for injection on send
+                    PickAttachment();
+                    _inputDirty = true;
+                    Repaint();
+                    PositionCursorAtInput();
+                    _term.Flush();
+                    continue;
+                }
+                else if (key.Key == ConsoleKey.Enter)
+                {
+                    // Visible text + invisible [image:path] tokens for queued attachments
+                    var visibleText = _inputBuffer.ToString();
+                    var result = visibleText;
+                    foreach (var att in _pendingAttachments)
+                        result = result.Length == 0 ? $"[image:{att}]" : $"{result} [image:{att}]";
                     _inputBuffer.Clear();
+                    _pendingAttachments.Clear();
                     _silentInput = false;
                     
                     // Add submitted input to active layer's buffer (skip commands)
                     if (!result.StartsWith("/") && _activeLayer != null)
                     {
                         string prompt = _activeLayer.GetInputPrompt();
-                        _activeLayer.AddOutputLine(prompt + result);
+                        _activeLayer.AddOutputLine(prompt + visibleText + (_pendingAttachments.Count > 0 || result != visibleText ? " \x1b[2m📎\x1b[0m" : ""));
                     }
                     
                     _inputDirty = true;
@@ -839,10 +892,11 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                 }
                 else if (key.Key == ConsoleKey.Escape)
                 {
-                    if (_inputBuffer.Length > 0)
+                    if (_inputBuffer.Length > 0 || _pendingAttachments.Count > 0)
                     {
-                        // ESC with text in buffer: clear the buffer
+                        // ESC with content: clear the buffer + pending attachments
                         _inputBuffer.Clear();
+                        _pendingAttachments.Clear();
                         _inputDirty = true;
                         Repaint();
                         PositionCursorAtInput();

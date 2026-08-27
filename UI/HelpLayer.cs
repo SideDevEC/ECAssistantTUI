@@ -26,8 +26,8 @@ public sealed class HelpLayer : BaseLayer
     public void BuildContent()
     {
         _outputLines.Clear();
-        _outputLines.Add($"{_color.Cyan}{_color.Bold}  ECAssistant — Help{_color.Reset}");
-        _outputLines.Add($"{_color.Dim}  Press Enter or ESC to return{_color.Reset}");
+        _outputLines.Add($"{_color.Cyan}{_color.Bold}  ECAssistant — Menu{_color.Reset}");
+        _outputLines.Add($"{_color.Dim}  ESC = back{_color.Reset}");
         _outputLines.Add("");
         foreach (var line in _helpLines)
             _outputLines.Add(line);

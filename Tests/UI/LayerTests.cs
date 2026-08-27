@@ -84,7 +84,7 @@ public class LayerTests
     {
         var layer = new HelpLayer(new EColor(), Array.Empty<string>());
         layer.BuildContent();
-        Assert.Contains("Enter", layer._outputLines[1]);
+        Assert.Contains("ESC", layer._outputLines[1]);
     }
 
     // ── StartupLayer ──

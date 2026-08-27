@@ -55,6 +55,8 @@ public sealed class AppController : IAppController
     private readonly Dictionary<string, BaseLayer> _layers = new();
     private BaseLayer? _activeLayer;
     private string? _previousLayerKey; // for help → return to prior layer
+    private readonly List<string> _helpTopicStack = new(); // /menu submenu navigation (topic back-stack)
+    private string _currentHelpTopic = "";
     
     // ── Core objects ──
     private SessionManager? _sessionManager;
@@ -486,9 +488,14 @@ public sealed class AppController : IAppController
     /// <summary>Called when user hits ESC (with empty input buffer).</summary>
     private void OnEscapePressed()
     {
-        if (_activeLayer is HelpLayer or ConfigLayer)
+        if (_activeLayer is HelpLayer)
         {
-            // ESC on help/config → return to prior layer
+            // ESC in /menu → back to previous topic, or out of the menu
+            HelpGoBack();
+        }
+        else if (_activeLayer is ConfigLayer)
+        {
+            // ESC on config → return to prior layer
             PopOverlayLayer();
         }
         else if (_activeLayer is StartupLayer)
@@ -607,11 +614,44 @@ public sealed class AppController : IAppController
     
     private void ShowHelp(string topic = "")
     {
-        var helpLines = BuildHelpLines(topic);
-        var helpLayer = new HelpLayer(_color, helpLines);
+        // Navigation: entering a submenu from within help pushes the current topic
+        // so ESC walks back topic-by-topic before leaving the menu entirely.
+        if (_activeLayer is HelpLayer)
+            _helpTopicStack.Add(_currentHelpTopic);
+        else
+            _helpTopicStack.Clear();
+
+        _currentHelpTopic = topic;
+        RenderHelp(topic);
+    }
+
+    /// <summary>ESC inside /menu: back to previous topic, or out of the menu entirely.</summary>
+    private void HelpGoBack()
+    {
+        if (_helpTopicStack.Count > 0)
+        {
+            var previous = _helpTopicStack[^1];
+            _helpTopicStack.RemoveAt(_helpTopicStack.Count - 1);
+            _currentHelpTopic = previous;
+            RenderHelp(previous);
+        }
+        else
+        {
+            _currentHelpTopic = "";
+            PopOverlayLayer();
+        }
+    }
+
+    private void RenderHelp(string topic)
+    {
+        var helpLayer = new HelpLayer(_color, BuildHelpLines(topic));
         helpLayer.BuildContent();
         _layers["help"] = helpLayer;
-        PushOverlayLayer("help");
+
+        if (_activeLayer is HelpLayer)
+            SwitchToLayer("help"); // already in menu — rebind to trigger repaint
+        else
+            PushOverlayLayer("help");
     }
     
     private void ShowConfig()

@@ -157,15 +157,6 @@ public sealed class AppController : IAppController
     /// </summary>
     private async Task RunFirstRunSetupIfNeededAsync()
     {
-        await RunSetupFlowAsync(onlyIfNeeded: true);
-    }
-
-    /// <summary>
-    /// Full installation flow: local/remote choice, model catalog + downloads, config wiring.
-    /// With onlyIfNeeded=false it runs even when models are already configured (/install command).
-    /// </summary>
-    private async Task RunSetupFlowAsync(bool onlyIfNeeded)
-    {
         try
         {
             var llmRoot = Path.Combine(_userConfigDir, "llm");
@@ -184,16 +175,7 @@ public sealed class AppController : IAppController
 
             var detector = new FirstRunDetector(modelsDir, serverConfigPath);
             var status = detector.Evaluate(catalog.Models);
-            if (onlyIfNeeded && !status.NeedsSetup) return;
-
-            if (!onlyIfNeeded)
-            {
-                _console.WriteLineColored(_color.Cyan + _color.Bold +
-                    "[Install] Re-run setup — switch between local and remote AI, add models." + _color.Reset);
-                _console.WriteLineColored(_color.Dim +
-                    "Active sessions keep their current provider — restart ECAssistant to apply changes." + _color.Reset);
-                _console.BlankLine();
-            }
+            if (!status.NeedsSetup) return;
 
             using var http = new HttpClient();
             http.DefaultRequestHeaders.UserAgent.ParseAdd("ECAssistant-Installer/1.0");
@@ -454,11 +436,6 @@ public sealed class AppController : IAppController
                 case "config":
                     ShowConfig();
                     return;
-
-                case "reinstall":
-                case "install":
-                    Reinstall();
-                    return;
                 
                 case "session":
                     SwitchSession(arg);
@@ -633,7 +610,6 @@ public sealed class AppController : IAppController
             $"{_color.Yellow}{_color.Bold}  /quit or /exit        Stop all sessions and exit{_color.Reset}",
             $"{_color.Yellow}{_color.Bold}  /help                 Show this help{_color.Reset}",
             $"{_color.Yellow}{_color.Bold}  /config               Show configuration values{_color.Reset}",
-            $"{_color.Yellow}{_color.Bold}  /reinstall            Reset AI setup (stops server, deletes keys) + reinstall{_color.Reset}",
             $"{_color.Yellow}{_color.Bold}  /home                 Go to home/startup screen{_color.Reset}",
             $"{_color.Yellow}{_color.Bold}  /tools                List registered tools{_color.Reset}",
             "",
@@ -782,85 +758,6 @@ public sealed class AppController : IAppController
         }
     }
     
-    /// <summary>
-    /// /reinstall — tear down the current AI setup (stop LLM server, delete API keys,
-    /// reset provider config) and go back to the first-run wizard.
-    /// </summary>
-    private async void Reinstall()
-    {
-        _console.WriteLineColored(_color.Red + _color.Bold + "⚠ REINSTALL — this will reset your AI setup:" + _color.Reset);
-        _console.WriteLineColored(_color.Yellow + "  • Stop the local LLM server (if running)" + _color.Reset);
-        _console.WriteLineColored(_color.Yellow + "  • Delete ALL stored API keys (keys/ folder)" + _color.Reset);
-        _console.WriteLineColored(_color.Yellow + "  • Reset provider settings (remote/local) to first-run state" + _color.Reset);
-        _console.WriteLineColored(_color.Yellow + "  • Delete the generated llm-server.json (downloaded models are KEPT)" + _color.Reset);
-        _console.WriteLineColored(_color.Yellow + "  • Then re-run the installation wizard" + _color.Reset);
-        _console.WriteLineColored(_color.Yellow + "  • Active conversations are stopped and will not carry over" + _color.Reset);
-        _console.BlankLine();
-
-        var answer = _console.PromptColored("Proceed with reinstall? (yes/no): ")?.Trim().ToLowerInvariant();
-        if (answer != "y" && answer != "yes")
-        {
-            _console.WriteLineColored(_color.Green + "[Reinstall] Cancelled — nothing was changed." + _color.Reset);
-            return;
-        }
-
-        try
-        {
-            // 1. Stop all sessions + the local LLM server
-            if (_sessionManager != null)
-            {
-                _sessionManager.StopAll();
-                await _sessionManager.StopLocalServerAsync();
-            }
-            _console.WriteLineColored(_color.Green + "[Reinstall] LLM server stopped." + _color.Reset);
-
-            // 2. Reset provider config + delete keys + generated server config
-            ResetAiSetup();
-            _console.WriteLineColored(_color.Green + "[Reinstall] Provider config reset, API keys deleted." + _color.Reset);
-        }
-        catch (Exception ex)
-        {
-            _console.WriteLineColored(_color.Red + $"[Reinstall] Reset error: {ex.Message} — continuing to setup." + _color.Reset);
-        }
-
-        // 3. Back to the installation wizard
-        await RunSetupFlowAsync(onlyIfNeeded: false);
-    }
-
-    /// <summary>
-    /// Reset all AI provider settings to first-run defaults: clear llm_providers,
-    /// restore default local llm_provider, delete the keys/ folder and the
-    /// generated llm-server.json. Downloaded model files are kept.
-    /// </summary>
-    private void ResetAiSetup()
-    {
-        var appsettingsPath = Path.Combine(_userConfigDir, "appsettings.json");
-        if (File.Exists(appsettingsPath))
-        {
-            var jsonOptions = new System.Text.Json.JsonSerializerOptions
-            {
-                WriteIndented = true,
-                PropertyNameCaseInsensitive = true,
-                DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-            };
-            var config = System.Text.Json.JsonSerializer.Deserialize<EAgentConfig>(File.ReadAllText(appsettingsPath), jsonOptions);
-            if (config != null)
-            {
-                config.LlmProviders = null;
-                config.LlmProvider = new LlmProviderConfig(); // defaults = local, port 58777
-                File.WriteAllText(appsettingsPath, System.Text.Json.JsonSerializer.Serialize(config, jsonOptions));
-            }
-        }
-
-        var keysDir = Path.Combine(_userConfigDir, "keys");
-        if (Directory.Exists(keysDir))
-            Directory.Delete(keysDir, recursive: true);
-
-        var serverConfigPath = Path.Combine(_userConfigDir, "llm", "llm-server.json");
-        if (File.Exists(serverConfigPath))
-            File.Delete(serverConfigPath);
-    }
-
     private void StopSession(string arg)
     {
         if (_sessionManager == null || !int.TryParse(arg, out var idx)) return;

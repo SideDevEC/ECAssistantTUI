@@ -200,7 +200,7 @@ public sealed class AppController : IAppController
 
             using var http = new HttpClient();
             http.DefaultRequestHeaders.UserAgent.ParseAdd("ECAssistant-Installer/1.0");
-            var installer = new ModelInstallerService(http, modelsDir, serverConfigPath);
+            var installer = new ModelInstallerService(http, modelsDir, serverConfigPath, appsettingsPath);
             var wizard = new FirstRunWizard(_console, _color, catalog, installer, status,
                 new RemoteProviderSetupWriter(appsettingsPath),
                 new VectorMemorySetupWriter(appsettingsPath));

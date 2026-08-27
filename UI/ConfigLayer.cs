@@ -39,6 +39,7 @@ public sealed class ConfigLayer : BaseLayer
         _outputLines.Add("");
         _outputLines.Add($"{_color.Yellow}{_color.Bold}  LLM Provider{_color.Reset}");
         AddConfigProperty("Mode", config.LlmProvider.Mode);
+        AddConfigProperty("Vision", config.SupportsVision ? "enabled" : "disabled");
         AddConfigProperty("Endpoint", config.LlmProvider.Endpoint);
         AddConfigProperty("Model ID", config.LlmProvider.ModelId);
         if (!string.IsNullOrEmpty(config.LlmProvider.EmbeddingModelId))

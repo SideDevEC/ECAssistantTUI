@@ -28,7 +28,7 @@
   <ItemGroup>
     <Compile Remove="**/*.cs" />
     <Compile Include="Controller/AppController.cs" />
-    <Compile Include="Controller/FirstRunWizard.cs" />
+    <Compile Include="Controller/TuiSetupUi.cs" />
     <Compile Include="Controller/IAppController.cs" />
     <Compile Include="UI/IGuiConsole.cs" />
     <Compile Include="UI/EGuiConsole.cs" />

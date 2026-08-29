@@ -1,6 +1,6 @@
 # ECAssistantTUI.API.md
 
-Types: 18  |  LOC: 3459  |  ~1517 tokens
+Types: 18  |  LOC: 3039  |  ~1456 tokens
 
 ---
 
@@ -108,12 +108,6 @@ Constructor:
   - EGuiConsole(ITerminalOutput terminal)
 Cross-package deps: ECAssistant.Core, ECAssistant.Core.UI
 
-### Class: FirstRunWizard
-> First-run model installer wizard for the TUI.
-Constructor:
-  - FirstRunWizard(IGuiConsole console, EColor color, ModelCatalogDocument catalog, ModelInstallerService installer, FirstRunStatus status, RemoteProviderSetupWriter? remoteWriter = null, VectorMemorySetupWriter? vectorMemoryWriter = null, EmbeddingSetupWriter? embeddingWriter = null)
-Cross-package deps: ECAssistant.Core, ECAssistant.Core.Config, ECAssistant.Core.Setup, ECAssistant.TUI.UI
-
 ### Class: HelpLayer
 > Static help content layer. Shows the help screen with all available commands.
 Implements: BaseLayer
@@ -145,3 +139,10 @@ Implements: BaseLayer
 Constructor:
   - StartupLayer(EColor color)
 Cross-package deps: ECAssistant.Core
+
+### Class: TuiSetupUi
+> Adapts the TUI console to the staged installer wizard's ISetupUi abstraction,
+Implements: ISetupUi
+Constructor:
+  - TuiSetupUi(IGuiConsole console)
+Cross-package deps: ECAssistant.Core.Setup, ECAssistant.TUI.UI

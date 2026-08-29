@@ -208,11 +208,18 @@ public sealed class AppController : IAppController
             using var http = new HttpClient();
             http.DefaultRequestHeaders.UserAgent.ParseAdd("ECAssistant-Installer/1.0");
             var installer = new ModelInstallerService(http, modelsDir, serverConfigPath, appsettingsPath);
-            var wizard = new FirstRunWizard(_console, _color, catalog, installer, status,
-                new RemoteProviderSetupWriter(appsettingsPath),
-                new VectorMemorySetupWriter(appsettingsPath),
-                new EmbeddingSetupWriter(appsettingsPath));
-            await wizard.RunAsync();
+            // v12.7: TUI and Console share the SAME staged installer wizard (initial install == /reinstall).
+            var wizard = new SetupWizard(new TuiSetupUi(_console));
+            await wizard.RunAsync(new WizardContext
+            {
+                AppsettingsPath = appsettingsPath,
+                UserConfigDir = _userConfigDir,
+                Catalog = catalog,
+                InstalledEntryIds = status.InstalledEntryIds,
+                Installer = installer,
+                Probe = new RemoteModelProbe(),
+                GpuLayers = 0
+            });
         }
         catch (Exception ex)
         {
@@ -935,6 +942,16 @@ public sealed class AppController : IAppController
                 _sessionManager.StopAll();
                 await _sessionManager.StopLocalServerAsync();
             }
+
+            // v12.7: verify the server actually went down before touching config files.
+            if (!await WaitForServerShutdownAsync(10))
+            {
+                _console.WriteLineColored(_color.Red + _color.Bold +
+                    "[Reinstall] The LLM server did not shut down. " +
+                    "Close any other running ECAssistant application (other terminals/windows) and run /reinstall again." +
+                    _color.Reset);
+                return;
+            }
             _console.WriteLineColored(_color.Green + "[Reinstall] LLM server stopped." + _color.Reset);
 
             // 2. Reset provider config + delete keys + generated server config (models are kept)
@@ -948,6 +965,27 @@ public sealed class AppController : IAppController
 
         // 3. Back to the installation wizard
         await RunSetupFlowAsync(onlyIfNeeded: false);
+    }
+
+    /// <summary>Polls the LLM server health endpoint until it stops responding (server down) or the timeout expires.</summary>
+    private async Task<bool> WaitForServerShutdownAsync(int timeoutSec)
+    {
+        var endpoint = _config.LlmProvider.ResolvedEndpoint.TrimEnd('/');
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+        var deadline = DateTime.UtcNow.AddSeconds(timeoutSec);
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                await http.GetAsync($"{endpoint}/eca/health");
+                await Task.Delay(500); // still up — keep waiting
+            }
+            catch
+            {
+                return true; // no response = server down
+            }
+        }
+        return false;
     }
 
     /// <summary>

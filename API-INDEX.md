@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantTUI
 
-Generated: 2026-08-29T18:15:22.073017+00:00
+Generated: 2026-08-29T18:32:09.085837+00:00
 Packages: 2  |  Types: 22
 
 ---
 
-## ECAssistantTUI (18 types, ~3459 LOC)
+## ECAssistantTUI (18 types, ~3039 LOC)
 
 - 🔵 IAppController  (ECAssistantTUI)
 - 🔵 IGuiConsole  (ECAssistantTUI)
@@ -19,12 +19,12 @@ Packages: 2  |  Types: 22
 - 🟡 ConsoleUiRenderer : IOutputListener, IDisposable  (ECAssistantTUI)  deps: [SessionLayer, EColor, Func, Func]
 - 🟡 ConsoleUiRendererTests  (ECAssistantTUI)
 - 🟡 EGuiConsole : EGuiBase, IGuiConsole  (ECAssistantTUI)  deps: [ITerminalOutput]
-- 🟡 FirstRunWizard  (ECAssistantTUI)  deps: [IGuiConsole, EColor, ModelCatalogDocument, ModelInstallerService, FirstRunStatus, RemoteProviderSetupWriter? remoteWriter =, VectorMemorySetupWriter? vectorMemoryWriter =, EmbeddingSetupWriter? embeddingWriter =]
 - 🟡 HelpLayer : BaseLayer  (ECAssistantTUI)  deps: [EColor, string]
 - 🟡 LayerTests  (ECAssistantTUI)
 - 🟡 LoadingIndicator : IDisposable  (ECAssistantTUI)  deps: [IGuiConsole, EColor]
 - 🟡 SessionLayer : BaseLayer  (ECAssistantTUI)  deps: [string, string label =]
 - 🟡 StartupLayer : BaseLayer  (ECAssistantTUI)  deps: [EColor]
+- 🟡 TuiSetupUi : ISetupUi  (ECAssistantTUI)  deps: [IGuiConsole]
 
 ## Tests (4 types, ~574 LOC)
 

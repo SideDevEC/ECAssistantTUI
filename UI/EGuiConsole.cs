@@ -675,44 +675,13 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                 }
                 key = Console.ReadKey(true); // intercept: don't auto-echo
                 
-                // ── Mouse wheel events (X10 mode: \x1b[M + 3 bytes) ──
-                if (key.KeyChar == '\x1b' && Console.KeyAvailable)
+                // ── Escape sequences: mouse wheel (X10 + SGR), arrow keys, lone ESC ──
+                if (key.KeyChar == '\x1b')
                 {
-                    var next = Console.ReadKey(true);
-                    if (next.KeyChar == '[' && Console.KeyAvailable)
-                    {
-                        var m = Console.ReadKey(true);
-                        if (m.KeyChar == 'M' && Console.KeyAvailable)
-                        {
-                            var b = Console.ReadKey(true);
-                            var cx = Console.ReadKey(true);
-                            var cy = Console.ReadKey(true);
-                            int button = b.KeyChar - 32;
-                            
-                            if (button == 64) // scroll up
-                            {
-                                lock (_writeLock)
-                                {
-                                    _activeLayer?.HandleScroll(1, 3);
-                                    FlushRepaint(outputDirty: true);
-                                }
-                                continue;
-                            }
-                            else if (button == 65) // scroll down
-                            {
-                                lock (_writeLock)
-                                {
-                                    _activeLayer?.HandleScroll(-1, 3);
-                                    FlushRepaint(outputDirty: true);
-                                }
-                                continue;
-                            }
-                            continue;
-                        }
-                        continue;
-                    }
-                    // Lone ESC
-                    key = new ConsoleKeyInfo('\x1b', ConsoleKey.Escape, false, false, false);
+                    var mapped = TryMapEscapeSequence();
+                    if (mapped == null)
+                        continue; // sequence fully consumed (mouse event / unknown CSI)
+                    key = mapped.Value;
                 }
             }
             catch (InvalidOperationException)
@@ -821,6 +790,108 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         return null;
     }
     
+    /// <summary>
+    /// Reads a full escape sequence after the ESC byte and maps it to a ConsoleKeyInfo.
+    /// Returns null when the sequence was fully consumed (mouse event, unknown CSI) —
+    /// the caller must not treat any of its bytes as user input.
+    /// Waits briefly for sequence bytes so fast event bursts are never split mid-sequence.
+    /// </summary>
+    private ConsoleKeyInfo? TryMapEscapeSequence()
+    {
+        var next = WaitForNextKey(50);
+        if (next == null || next.Value.KeyChar != '[')
+            return EscapeKeyInfo(); // lone ESC / ESC O — treat as Escape
+
+        var csi = WaitForNextKey(50);
+        if (csi == null)
+            return EscapeKeyInfo();
+
+        switch (csi.Value.KeyChar)
+        {
+            case 'M':
+                ReadX10Mouse();
+                return null;
+            case '<':
+                ReadSgrMouse();
+                return null;
+            case 'A':
+                return new ConsoleKeyInfo('\0', ConsoleKey.UpArrow, false, false, false);
+            case 'B':
+                return new ConsoleKeyInfo('\0', ConsoleKey.DownArrow, false, false, false);
+            default:
+                DrainCsi();
+                return null;
+        }
+    }
+
+    /// <summary>X10 mouse event: ESC [ M + 3 raw bytes (button, x, y). Wheel = buttons 64/65.</summary>
+    private void ReadX10Mouse()
+    {
+        var b = WaitForNextKey(50);
+        var cx = WaitForNextKey(50);
+        var cy = WaitForNextKey(50);
+        if (b == null || cx == null || cy == null) return; // truncated — dropped
+
+        int button = b.Value.KeyChar - 32;
+        if (button == 64) ScrollByWheel(1);
+        else if (button == 65) ScrollByWheel(-1);
+    }
+
+    /// <summary>SGR mouse event: ESC [ &lt; button ; x ; y (M|m). Wheel = buttons 64/65.</summary>
+    private void ReadSgrMouse()
+    {
+        var sb = new System.Text.StringBuilder();
+        while (true)
+        {
+            var ch = WaitForNextKey(50);
+            if (ch == null) return; // truncated — dropped
+            if (ch.Value.KeyChar == 'M' || ch.Value.KeyChar == 'm') break;
+            sb.Append(ch.Value.KeyChar);
+        }
+
+        var parts = sb.ToString().Split(';');
+        if (parts.Length < 1 || !int.TryParse(parts[0], out var button)) return;
+        if (button == 64) ScrollByWheel(1);
+        else if (button == 65) ScrollByWheel(-1);
+    }
+
+    /// <summary>Drains the remainder of an unrecognized CSI sequence up to its final byte (@-~).</summary>
+    private void DrainCsi()
+    {
+        while (true)
+        {
+            var ch = WaitForNextKey(50);
+            if (ch == null) return;
+            var c = ch.Value.KeyChar;
+            if (c >= '@' && c <= '~') return; // CSI final byte
+        }
+    }
+
+    private void ScrollByWheel(int direction)
+    {
+        lock (_writeLock)
+        {
+            _activeLayer?.HandleScroll(direction, 3);
+            FlushRepaint(outputDirty: true);
+        }
+    }
+
+    /// <summary>Waits up to timeoutMs for the next key; null when none arrives (sequence ended early).</summary>
+    private ConsoleKeyInfo? WaitForNextKey(int timeoutMs)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (!Console.KeyAvailable)
+        {
+            if (DateTime.UtcNow >= deadline) return null;
+            Thread.Sleep(5);
+        }
+        return Console.ReadKey(true);
+    }
+
+    // Stateless utility — no mutable state.
+    private static ConsoleKeyInfo EscapeKeyInfo() =>
+        new('\x1b', ConsoleKey.Escape, false, false, false);
+
     /// <summary>Fallback input for non-ANSI terminals.</summary>
     private string? ReadInputLineFallback(ConsoleKeyInfo firstKey)
     {

@@ -442,7 +442,10 @@ public sealed class AppController : IAppController
     {
         try
         {
-            HandlePrompt(input);
+            // v12.6: block the input thread until an in-progress idle-reconnect has fully
+            // restored client + KV sessions. Messages raced the reconnect before and were lost.
+            _sessionManager?.MarkUserActivityAsync().GetAwaiter().GetResult();
+            HandlePrompt(input).GetAwaiter().GetResult();
         }
         catch (Exception ex)
         {
@@ -451,7 +454,7 @@ public sealed class AppController : IAppController
         }
     }
 
-    private void HandlePrompt(string input)
+    private async Task HandlePrompt(string input)
     {
         input = input.Trim();
         if (string.IsNullOrEmpty(input)) return;

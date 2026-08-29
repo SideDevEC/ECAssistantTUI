@@ -98,8 +98,10 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
             return;
         }
         
-        // Enter alternate screen buffer + hide cursor + enable mouse wheel tracking
-        _term.Write("\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1006h");
+        // Enter alternate screen buffer + hide cursor. Mouse tracking is deliberately NOT
+        // enabled — the terminal handles the mouse natively (native scrollback), so no
+        // mouse escape sequences ever arrive in the input stream.
+        _term.Write("\x1b[?1049h\x1b[?25l");
         _term.Flush();
         
         UpdateDimensions();

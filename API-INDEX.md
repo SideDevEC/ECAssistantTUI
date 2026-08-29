@@ -1,16 +1,16 @@
 # API-INDEX.md — ECAssistantTUI
 
-Generated: 2026-08-29T08:19:28.915120+00:00
+Generated: 2026-08-29T09:32:28.636747+00:00
 Packages: 2  |  Types: 22
 
 ---
 
-## ECAssistantTUI (18 types, ~3392 LOC)
+## ECAssistantTUI (18 types, ~3370 LOC)
 
 - 🔵 IAppController  (ECAssistantTUI)
 - 🔵 IGuiConsole  (ECAssistantTUI)
 - 🔵 ITerminalOutput  (ECAssistantTUI)
-- 🟡 AppController : IAppController  (ECAssistantTUI)  deps: [IGuiConsole, EAgentConfig, string, string, string, ILogger, IGuiConsole, EAgentConfig, string, string, string, ILogger, List, IGuiConsole, EAgentConfig, string, string, string, ILogger, List, BackgroundProcessManager, FileWatcherService]
+- 🟡 AppController : IAppController  (ECAssistantTUI)  deps: [IGuiConsole, EAgentConfig, string, string, string, ILogger, IGuiConsole, EAgentConfig, string, string, string, ILogger, List, IGuiConsole, EAgentConfig, string, string, string, ILogger, List, BackgroundProcessManager, FileWatcherService, IAiSetupResetter? setupResetter =]
 - 🟡 BaseLayer  (ECAssistantTUI)
 - 🟡 BaseLayerAnsiTests  (ECAssistantTUI)
 - 🟡 BaseLayerBufferTests  (ECAssistantTUI)

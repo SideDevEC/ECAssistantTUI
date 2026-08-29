@@ -61,6 +61,7 @@ public sealed class AppController : IAppController
     // ── Core objects ──
     private SessionManager? _sessionManager;
     private readonly BackgroundProcessManager _bgMgr;
+    private readonly IAiSetupResetter _setupResetter;
     private FileWatcherService? _fileWatcher;
     
     // ── Session → Layer mapping ──
@@ -109,7 +110,8 @@ public sealed class AppController : IAppController
         ILogger logger,
         List<EToolBase>? externalTools,
         BackgroundProcessManager? backgroundProcesses,
-        FileWatcherService? fileWatcher)
+        FileWatcherService? fileWatcher,
+        IAiSetupResetter? setupResetter = null)
     {
         _config = config;
         _modelPath = modelPath;
@@ -119,6 +121,7 @@ public sealed class AppController : IAppController
         _color = new EColor();
         _externalTools = externalTools;
         _bgMgr = backgroundProcesses ?? new BackgroundProcessManager();
+        _setupResetter = setupResetter ?? new AiSetupResetter();
         _fileWatcher = fileWatcher;
         _console = console;
         _console.SetCallbacks(OnPrompt, OnEscapePressed);
@@ -949,34 +952,7 @@ public sealed class AppController : IAppController
     /// llm_provider, delete the keys/ folder and the generated llm-server.json.
     /// Downloaded GGUF model files are deliberately kept.
     /// </summary>
-    private void ResetAiSetup()
-    {
-        var appsettingsPath = Path.Combine(_userConfigDir, "appsettings.json");
-        if (File.Exists(appsettingsPath))
-        {
-            var jsonOptions = new System.Text.Json.JsonSerializerOptions
-            {
-                WriteIndented = true,
-                PropertyNameCaseInsensitive = true,
-                DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-            };
-            var config = System.Text.Json.JsonSerializer.Deserialize<EAgentConfig>(File.ReadAllText(appsettingsPath), jsonOptions);
-            if (config != null)
-            {
-                config.LlmProviders = null;
-                config.LlmProvider = new LlmProviderConfig(); // defaults = local, port 58777
-                File.WriteAllText(appsettingsPath, System.Text.Json.JsonSerializer.Serialize(config, jsonOptions));
-            }
-        }
-
-        var keysDir = Path.Combine(_userConfigDir, "keys");
-        if (Directory.Exists(keysDir))
-            Directory.Delete(keysDir, recursive: true);
-
-        var serverConfigPath = Path.Combine(_userConfigDir, "llm", "llm-server.json");
-        if (File.Exists(serverConfigPath))
-            File.Delete(serverConfigPath);
-    }
+    private void ResetAiSetup() => _setupResetter.Reset(_userConfigDir);
 
     private void StopSession(string arg)
     {

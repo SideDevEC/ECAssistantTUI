@@ -801,115 +801,56 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     /// the caller must not treat any of its bytes as user input.
     /// Waits briefly for sequence bytes so fast event bursts are never split mid-sequence.
     /// </summary>
+    private readonly Input.AnsiInputParser _inputParser = new();
+
+    /// <summary>
+    /// Reads a full escape sequence after the ESC byte and maps it to a ConsoleKeyInfo.
+    /// v12.9: sequence decoding is delegated to the pure AnsiInputParser (unit-tested);
+    /// this method only supplies bytes with a timeout and maps events to actions.
+    /// Timeout semantics: bare ESC / ESC+[ → Escape keypress; truncated mouse/SGR → dropped.
+    /// </summary>
     private ConsoleKeyInfo? TryMapEscapeSequence()
     {
-        var next = WaitForNextKey(50);
-        if (next == null)
-            return EscapeKeyInfo(); // lone ESC
-        if (next.Value.KeyChar != '[')
+        _inputParser.Reset();
+        _ = _inputParser.FeedEsc();
+
+        while (true)
         {
-            if (next.Value.KeyChar != 'O')
-                DebugLogUnmapped($"After ESC: 0x{((int)next.Value.KeyChar):X2} '{next.Value.KeyChar}'");
-            if (next.Value.KeyChar == 'O')
+            var k = WaitForNextKey(50);
+            if (k == null)
             {
-                // SS3 sequences (ESC O P/S etc.): consume the final byte, treat as Escape for now.
-                var ss3Tail = WaitForNextKey(50);
-                if (ss3Tail != null)
-                    DebugLogUnmapped($"SS3 {ss3Tail.Value.KeyChar}");
-                return null;
+                // Stream paused mid-sequence.
+                return _inputParser.EscapeOnTimeout ? EscapeKeyInfo() : null;
             }
-            return EscapeKeyInfo();
+
+            Input.AnsiInputEvent ev;
+            try { ev = _inputParser.Feed(k.Value.KeyChar); }
+            finally { /* parser state is self-contained */ }
+
+            switch (ev)
+            {
+                case Input.AnsiInputEvent.Escape:
+                    _inputParser.Reset();
+                    return EscapeKeyInfo();
+                case Input.AnsiInputEvent.ArrowUp:
+                    _inputParser.Reset();
+                    return new ConsoleKeyInfo('\0', ConsoleKey.UpArrow, false, false, false);
+                case Input.AnsiInputEvent.ArrowDown:
+                    _inputParser.Reset();
+                    return new ConsoleKeyInfo('\0', ConsoleKey.DownArrow, false, false, false);
+                case Input.AnsiInputEvent.WheelUp:
+                    ScrollByWheel(1);
+                    return null;
+                case Input.AnsiInputEvent.WheelDown:
+                    ScrollByWheel(-1);
+                    return null;
+                case Input.AnsiInputEvent.None:
+                default:
+                    if (!_inputParser.IsMidSequence)
+                        return null; // unknown CSI / non-wheel mouse button — fully consumed
+                    continue; // sequence still in progress — keep feeding
+            }
         }
-
-        var csi = WaitForNextKey(50);
-        if (csi == null)
-            return EscapeKeyInfo();
-
-        switch (csi.Value.KeyChar)
-        {
-            case 'O':
-                // ESC O A/B — arrows on terminals using SS3; map like CSI arrows.
-                var ss3 = WaitForNextKey(50);
-                if (ss3 == null) return EscapeKeyInfo();
-                if (ss3.Value.KeyChar == 'A') return new ConsoleKeyInfo('\0', ConsoleKey.UpArrow, false, false, false);
-                if (ss3.Value.KeyChar == 'B') return new ConsoleKeyInfo('\0', ConsoleKey.DownArrow, false, false, false);
-                return null;
-            case 'M':
-                ReadX10Mouse();
-                return null;
-            case '<':
-                ReadSgrMouse();
-                return null;
-            case 'A':
-                return new ConsoleKeyInfo('\0', ConsoleKey.UpArrow, false, false, false);
-            case 'B':
-                return new ConsoleKeyInfo('\0', ConsoleKey.DownArrow, false, false, false);
-            default:
-                DrainCsi();
-                return null;
-        }
-    }
-
-    /// <summary>X10 mouse event: ESC [ M + 3 raw bytes (button, x, y). Wheel = buttons 64/65.</summary>
-    private void ReadX10Mouse()
-    {
-        var b = WaitForNextKey(50);
-        var cx = WaitForNextKey(50);
-        var cy = WaitForNextKey(50);
-        if (b == null || cx == null || cy == null)
-        {
-            DebugLogUnmapped("X10 mouse truncated");
-            return;
-        }
-
-        int button = b.Value.KeyChar - 32;
-        if (button == 64) ScrollByWheel(1);
-        else if (button == 65) ScrollByWheel(-1);
-    }
-
-    /// <summary>SGR mouse event: ESC [ &lt; button ; x ; y (M|m). Wheel = buttons 64/65.</summary>
-    private void ReadSgrMouse()
-    {
-        var sb = new System.Text.StringBuilder();
-        while (true)
-        {
-            var ch = WaitForNextKey(50);
-            if (ch == null) return; // truncated — dropped
-            if (ch.Value.KeyChar == 'M' || ch.Value.KeyChar == 'm') break;
-            sb.Append(ch.Value.KeyChar);
-        }
-
-        var parts = sb.ToString().Split(';');
-        if (parts.Length < 1 || !int.TryParse(parts[0], out var button)) return;
-        if (button == 64) ScrollByWheel(1);
-        else if (button == 65) ScrollByWheel(-1);
-    }
-
-    /// <summary>Drains the remainder of an unrecognized CSI sequence up to its final byte (@-~).</summary>
-    private void DrainCsi()
-    {
-        var drained = new System.Text.StringBuilder();
-        while (true)
-        {
-            var ch = WaitForNextKey(50);
-            if (ch == null) break;
-            var c = ch.Value.KeyChar;
-            drained.Append(c);
-            if (c >= '@' && c <= '~') break; // CSI final byte
-        }
-        DebugLogUnmapped($"CSI drained: {drained}");
-    }
-
-    /// <summary>Appends unmapped input bytes to a debug file — helps diagnose terminal-specific escape sequences.</summary>
-    private static void DebugLogUnmapped(string message)
-    {
-        try
-        {
-            File.AppendAllText("/tmp/ecassistant-input-debug.log",
-                $"{DateTime.Now:HH:mm:ss.fff} {message}\n");
-        }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
     }
 
     private void ScrollByWheel(int direction)

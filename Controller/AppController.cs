@@ -218,7 +218,8 @@ public sealed class AppController : IAppController
                 InstalledEntryIds = status.InstalledEntryIds,
                 Installer = installer,
                 Probe = new RemoteModelProbe(),
-                GpuLayers = 0
+                GpuLayers = 0,
+                ModelsDir = modelsDir
             });
         }
         catch (Exception ex)

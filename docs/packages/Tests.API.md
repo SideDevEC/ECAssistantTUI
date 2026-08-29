@@ -1,8 +1,12 @@
 # Tests.API.md
 
-Types: 4  |  LOC: 574  |  ~167 tokens
+Types: 5  |  LOC: 688  |  ~208 tokens
 
 ---
+
+### Class: AnsiInputParserTests
+> Regression tests for the ANSI input parser — covers the mouse-scroll garbage bug:
+Cross-package deps: ECAssistant.TUI.Input, Xunit
 
 ### Class: BaseLayerAnsiTests
 > Unit tests for BaseLayer static methods (ANSI helpers).

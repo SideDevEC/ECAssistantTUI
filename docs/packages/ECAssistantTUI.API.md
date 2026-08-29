@@ -1,6 +1,6 @@
 # ECAssistantTUI.API.md
 
-Types: 18  |  LOC: 3039  |  ~1456 tokens
+Types: 20  |  LOC: 3205  |  ~1519 tokens
 
 ---
 
@@ -59,6 +59,13 @@ Methods:
   - void DisableAlternateScreen()
   - void EnableMouse()
   - void DisableMouse()
+
+### Class: AnsiInputParser
+> Terminal input events decoded from ANSI escape sequences.
+
+### Class: AnsiInputParserTests
+> Regression tests for the ANSI input parser — covers the mouse-scroll garbage bug:
+Cross-package deps: ECAssistant.TUI.Input, Xunit
 
 ### Class: AppController
 > Application controller — the binder between EGuiConsole, layers, and Core.

@@ -76,7 +76,7 @@ public sealed class AppController : IAppController
     // ── Startup layer (always present, never deleted) ──
     private StartupLayer? _startupLayer;
     
-    private const string VersionString = "v11.0";
+    private const string VersionString = "v12.3";
     
     public AppController(
         IGuiConsole console,

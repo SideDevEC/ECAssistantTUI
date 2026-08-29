@@ -101,6 +101,9 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         // Enter alternate screen buffer + hide cursor. Mouse tracking is deliberately NOT
         // enabled — the terminal handles the mouse natively (native scrollback), so no
         // mouse escape sequences ever arrive in the input stream.
+        // First, force-clear any mouse modes a crashed older instance may have left on:
+        // 1000/1002/1003 (tracking variants) + 1006 (SGR). Nothing arrives afterwards.
+        _term.Write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l");
         _term.Write("\x1b[?1049h\x1b[?25l");
         _term.Flush();
         

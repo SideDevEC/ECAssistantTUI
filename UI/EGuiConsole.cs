@@ -99,7 +99,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         }
         
         // Enter alternate screen buffer + hide cursor + enable mouse wheel tracking
-        _term.Write("\x1b[?1049h\x1b[?25l\x1b[?1000h");
+        _term.Write("\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1006h");
         _term.Flush();
         
         UpdateDimensions();
@@ -799,8 +799,22 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     private ConsoleKeyInfo? TryMapEscapeSequence()
     {
         var next = WaitForNextKey(50);
-        if (next == null || next.Value.KeyChar != '[')
-            return EscapeKeyInfo(); // lone ESC / ESC O — treat as Escape
+        if (next == null)
+            return EscapeKeyInfo(); // lone ESC
+        if (next.Value.KeyChar != '[')
+        {
+            if (next.Value.KeyChar != 'O')
+                DebugLogUnmapped($"After ESC: 0x{((int)next.Value.KeyChar):X2} '{next.Value.KeyChar}'");
+            if (next.Value.KeyChar == 'O')
+            {
+                // SS3 sequences (ESC O P/S etc.): consume the final byte, treat as Escape for now.
+                var ss3Tail = WaitForNextKey(50);
+                if (ss3Tail != null)
+                    DebugLogUnmapped($"SS3 {ss3Tail.Value.KeyChar}");
+                return null;
+            }
+            return EscapeKeyInfo();
+        }
 
         var csi = WaitForNextKey(50);
         if (csi == null)
@@ -808,6 +822,13 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
 
         switch (csi.Value.KeyChar)
         {
+            case 'O':
+                // ESC O A/B — arrows on terminals using SS3; map like CSI arrows.
+                var ss3 = WaitForNextKey(50);
+                if (ss3 == null) return EscapeKeyInfo();
+                if (ss3.Value.KeyChar == 'A') return new ConsoleKeyInfo('\0', ConsoleKey.UpArrow, false, false, false);
+                if (ss3.Value.KeyChar == 'B') return new ConsoleKeyInfo('\0', ConsoleKey.DownArrow, false, false, false);
+                return null;
             case 'M':
                 ReadX10Mouse();
                 return null;
@@ -830,7 +851,11 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         var b = WaitForNextKey(50);
         var cx = WaitForNextKey(50);
         var cy = WaitForNextKey(50);
-        if (b == null || cx == null || cy == null) return; // truncated — dropped
+        if (b == null || cx == null || cy == null)
+        {
+            DebugLogUnmapped("X10 mouse truncated");
+            return;
+        }
 
         int button = b.Value.KeyChar - 32;
         if (button == 64) ScrollByWheel(1);
@@ -858,13 +883,28 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     /// <summary>Drains the remainder of an unrecognized CSI sequence up to its final byte (@-~).</summary>
     private void DrainCsi()
     {
+        var drained = new System.Text.StringBuilder();
         while (true)
         {
             var ch = WaitForNextKey(50);
-            if (ch == null) return;
+            if (ch == null) break;
             var c = ch.Value.KeyChar;
-            if (c >= '@' && c <= '~') return; // CSI final byte
+            drained.Append(c);
+            if (c >= '@' && c <= '~') break; // CSI final byte
         }
+        DebugLogUnmapped($"CSI drained: {drained}");
+    }
+
+    /// <summary>Appends unmapped input bytes to a debug file — helps diagnose terminal-specific escape sequences.</summary>
+    private static void DebugLogUnmapped(string message)
+    {
+        try
+        {
+            File.AppendAllText("/tmp/ecassistant-input-debug.log",
+                $"{DateTime.Now:HH:mm:ss.fff} {message}\n");
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
 
     private void ScrollByWheel(int direction)

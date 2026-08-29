@@ -60,12 +60,17 @@ public sealed class AppController : IAppController
     
     // ── Core objects ──
     private SessionManager? _sessionManager;
-    private BackgroundProcessManager _bgMgr = null!;
+    private readonly BackgroundProcessManager _bgMgr;
     private FileWatcherService? _fileWatcher;
     
     // ── Session → Layer mapping ──
     // Each Core session has a corresponding SessionLayer
     private readonly Dictionary<string, SessionLayer> _sessionLayers = new();
+
+    // ── Session → Renderer mapping ──
+    // Each Core session has a ConsoleUiRenderer bridging listener events to
+    // its layer; kept so it can be disposed/listener-removed on close.
+    private readonly Dictionary<string, ConsoleUiRenderer> _renderers = new();
     
     // ── Startup layer (always present, never deleted) ──
     private StartupLayer? _startupLayer;
@@ -115,7 +120,6 @@ public sealed class AppController : IAppController
         _externalTools = externalTools;
         _bgMgr = backgroundProcesses ?? new BackgroundProcessManager();
         _fileWatcher = fileWatcher;
-        
         _console = console;
         _console.SetCallbacks(OnPrompt, OnEscapePressed);
         
@@ -140,7 +144,7 @@ public sealed class AppController : IAppController
             return initResult;
 
         // ── Input loop ──
-        while (!_console.IsQuitRequested)
+        while (_sessionManager != null && !_console.IsQuitRequested)
         {
             _sessionManager.MarkUserActivity();
             var s = _sessionManager.ActiveSession;
@@ -225,8 +229,7 @@ public sealed class AppController : IAppController
         _activeLayer = _startupLayer;
         _console.WriteLineColored(_color.Cyan + _color.Bold + $"[ECAssistant] {VersionString}" + _color.Reset);
 
-        // Background process manager
-        if (_bgMgr == null!) _bgMgr = new BackgroundProcessManager();
+        // Background process manager (initialized in constructor — never null here)
         _console.WriteLineColored(_color.Cyan + _color.Bold + "[Background] Process manager ready." + _color.Reset);
 
         // File watcher
@@ -279,6 +282,7 @@ public sealed class AppController : IAppController
 
                 var renderer = new ConsoleUiRenderer(layer, _color, session.GetStreamBuffer, (msg) => PromptApproval(msg));
                 session.AddListener(renderer);
+                _renderers[session.Key] = renderer;
 
                 await builder.BuildAsync(session, _externalTools);
             });
@@ -343,6 +347,11 @@ public sealed class AppController : IAppController
     /// </summary>
     private async Task ShutdownAppAsync()
     {
+        // Stop stream pollers and detach renderers before disposing sessions
+        foreach (var renderer in _renderers.Values)
+            renderer.Dispose();
+        _renderers.Clear();
+
         if (_sessionManager != null)
         {
             _sessionManager.StopAll();
@@ -428,6 +437,19 @@ public sealed class AppController : IAppController
     /// </summary>
     private void OnPrompt(string input)
     {
+        try
+        {
+            HandlePrompt(input);
+        }
+        catch (Exception ex)
+        {
+            // Central exception guard for the synchronous prompt path
+            ReportCommandError("prompt", ex);
+        }
+    }
+
+    private void HandlePrompt(string input)
+    {
         input = input.Trim();
         if (string.IsNullOrEmpty(input)) return;
         
@@ -458,7 +480,7 @@ public sealed class AppController : IAppController
                     return;
                 
                 case "reinstall":
-                    Reinstall();
+                    RunCommandTask(() => ReinstallAsync(), "reinstall");
                     return;
                 
                 case "config":
@@ -470,7 +492,7 @@ public sealed class AppController : IAppController
                     return;
 
                 case "session-new":
-                    CreateNewSession(arg);
+                    RunCommandTask(() => CreateNewSessionAsync(arg), "session-new");
                     return;
             }
         }
@@ -552,7 +574,7 @@ public sealed class AppController : IAppController
                 return;
             
             case "session-close":
-                CloseSession(arg);
+                RunCommandTask(() => CloseSessionAsync(arg), "session-close");
                 return;
             
             case "session-rename":
@@ -589,6 +611,36 @@ public sealed class AppController : IAppController
     // ═══════════════════════════════════════════════════
     //  COMMAND IMPLEMENTATIONS
     // ═══════════════════════════════════════════════════
+
+    /// <summary>
+    /// Central exception guard for async command handlers. Runs the work as a
+    /// fire-and-forget task (never async void) and reports any unhandled
+    /// exception to the console + logger instead of crashing the process.
+    /// </summary>
+    private void RunCommandTask(Func<Task> command, string label)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await command().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                ReportCommandError(label, ex);
+            }
+        });
+    }
+
+    private void ReportCommandError(string label, Exception ex)
+    {
+        _logger.Error("Command:" + label, $"Unhandled error in /{label}", ex);
+        try
+        {
+            _console.WriteLineColored(_color.Red + _color.Bold + $"[{label}] " + $"Unhandled error: {ex.GetType().Name}: {ex.Message}" + _color.Reset);
+        }
+        catch { /* console unavailable — logger already has the details */ }
+    }
     
     private void GoHome()
     {
@@ -819,37 +871,31 @@ public sealed class AppController : IAppController
         }
     }
     
-    private async void CreateNewSession(string arg)
+    private async Task CreateNewSessionAsync(string arg)
     {
         if (_sessionManager == null) return;
-        
+
         var name = string.IsNullOrEmpty(arg) ? $"session-{DateTime.UtcNow:HHmmss}" : arg;
-        try
-        {
-            var newSession = _sessionManager.CreateSession(name, label: arg);
-            var builder = new SessionBuilder(_config, _workingDir, _userConfigDir, _logger, _bgMgr);
-            
-            // Create a SessionLayer for the new session
-            var layer = new SessionLayer(newSession.Key);
-            layer.CoreSession = newSession;
-            layer.Color = _color;
-            layer.WorkingDir = _workingDir;
-            _layers[layer.Name] = layer;
-            _sessionLayers[newSession.Key] = layer;
-            
-            // Create ConsoleUiRenderer that writes to the layer's buffer
-            var renderer = new ConsoleUiRenderer(layer, _color, newSession.GetStreamBuffer, (msg) => PromptApproval(msg));
-            newSession.AddListener(renderer);
-            
-            await builder.BuildAsync(newSession, _externalTools);
-            _console.BlankLine();
-            _console.WriteLineColored(_color.Green + _color.Bold + "[Session] " + $"Created [{name}]. Use '/session <index>' to switch." + _color.Reset);
-            _console.BlankLine();
-        }
-        catch (Exception ex)
-        {
-            _console.WriteLineColored(_color.Red + _color.Bold + "[Session] " + $"Failed: {ex.Message}" + _color.Reset);
-        }
+        var newSession = _sessionManager.CreateSession(name, label: arg);
+        var builder = new SessionBuilder(_config, _workingDir, _userConfigDir, _logger, _bgMgr);
+
+        // Create a SessionLayer for the new session
+        var layer = new SessionLayer(newSession.Key);
+        layer.CoreSession = newSession;
+        layer.Color = _color;
+        layer.WorkingDir = _workingDir;
+        _layers[layer.Name] = layer;
+        _sessionLayers[newSession.Key] = layer;
+
+        // Create ConsoleUiRenderer that writes to the layer's buffer
+        var renderer = new ConsoleUiRenderer(layer, _color, newSession.GetStreamBuffer, (msg) => PromptApproval(msg));
+        newSession.AddListener(renderer);
+        _renderers[newSession.Key] = renderer;
+
+        await builder.BuildAsync(newSession, _externalTools);
+        _console.BlankLine();
+        _console.WriteLineColored(_color.Green + _color.Bold + "[Session] " + $"Created [{name}]. Use '/session <index>' to switch." + _color.Reset);
+        _console.BlankLine();
     }
     
     /// <summary>
@@ -857,7 +903,7 @@ public sealed class AppController : IAppController
     /// reset provider config, delete generated server config (models are kept),
     /// then re-run the installation wizard. Requires explicit yes/no confirmation.
     /// </summary>
-    private async void Reinstall()
+    private async Task ReinstallAsync()
     {
         _console.WriteLineColored(_color.Red + _color.Bold + "⚠ REINSTALL — reset your AI configuration:" + _color.Reset);
         _console.WriteLineColored(_color.Yellow + "  • Stop the local LLM server (if running)" + _color.Reset);
@@ -948,35 +994,39 @@ public sealed class AppController : IAppController
         }
     }
     
-    private async void CloseSession(string arg)
+    private async Task CloseSessionAsync(string arg)
     {
         if (_sessionManager == null || !int.TryParse(arg, out var idx)) return;
-        try
+
+        var sessions = _sessionManager.List();
+        if (idx < 1 || idx > sessions.Count)
         {
-            var sessions = _sessionManager.List();
-            if (idx < 1 || idx > sessions.Count)
-            {
-                _console.WriteLineColored(_color.Red + _color.Bold + "[Session] " + $"No session at index {idx}" + _color.Reset);
-                return;
-            }
-            var key = sessions[idx - 1].Key;
-            _sessionManager.DeleteSession(key);
-            
-            // Remove the layer for this session
-            var layerKey = $"session:{key}";
-            if (_layers.TryGetValue(layerKey, out var layer))
-            {
-                layer.UnbindFromConsole();
-                _layers.Remove(layerKey);
-                _sessionLayers.Remove(key);
-            }
-            
-            _console.WriteLineColored(_color.Green + _color.Bold + "[Session] " + $"Closed session {idx}." + _color.Reset);
+            _console.WriteLineColored(_color.Red + _color.Bold + "[Session] " + $"No session at index {idx}" + _color.Reset);
+            return;
         }
-        catch (Exception ex)
+
+        var key = sessions[idx - 1].Key;
+
+        // Detach the renderer (stop stream polling) and remove it as listener
+        if (_renderers.TryGetValue(key, out var renderer))
         {
-            _console.WriteLineColored(_color.Red + _color.Bold + "[Session] " + $"Failed: {ex.Message}" + _color.Reset);
+            sessions[idx - 1].RemoveListener(renderer);
+            renderer.Dispose();
+            _renderers.Remove(key);
         }
+
+        _sessionManager.DeleteSession(key);
+
+        // Remove the layer for this session
+        var layerKey = $"session:{key}";
+        if (_layers.TryGetValue(layerKey, out var layer))
+        {
+            layer.UnbindFromConsole();
+            _layers.Remove(layerKey);
+            _sessionLayers.Remove(key);
+        }
+
+        _console.WriteLineColored(_color.Green + _color.Bold + "[Session] " + $"Closed session {idx}." + _color.Reset);
     }
     
     private void PeekSession(string arg)

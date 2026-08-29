@@ -1,6 +1,6 @@
 # ECAssistantTUI.API.md
 
-Types: 18  |  LOC: 3420  |  ~1508 tokens
+Types: 18  |  LOC: 3392  |  ~1507 tokens
 
 ---
 
@@ -76,7 +76,7 @@ Cross-package deps: ECAssistant.Core
 Cross-package deps: ECAssistant.Core, ECAssistant.TUI.UI
 
 ### Class: BaseLayerBufferTests
-> Tests for BaseLayer output buffer management (AddOutputLine, _outputLines).
+> Tests for BaseLayer output buffer management (AddOutputLine, OutputLines).
 Cross-package deps: ECAssistant.Core, ECAssistant.TUI.UI
 
 ### Class: ConfigLayer

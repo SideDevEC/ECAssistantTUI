@@ -68,7 +68,7 @@ public class LayerTests
         var layer = new HelpLayer(new EColor(), new[] { "Line 1", "Line 2" });
         layer.BuildContent();
         // Should have: title + hint + blank + Line 1 + Line 2
-        Assert.True(layer._outputLines.Count >= 5);
+        Assert.True(layer.OutputLines.Count >= 5);
     }
 
     [Fact]
@@ -76,7 +76,7 @@ public class LayerTests
     {
         var layer = new HelpLayer(new EColor(), Array.Empty<string>());
         layer.BuildContent();
-        Assert.Contains("ECAssistant", layer._outputLines[0]);
+        Assert.Contains("ECAssistant", layer.OutputLines[0]);
     }
 
     [Fact]
@@ -84,7 +84,7 @@ public class LayerTests
     {
         var layer = new HelpLayer(new EColor(), Array.Empty<string>());
         layer.BuildContent();
-        Assert.Contains("ESC", layer._outputLines[1]);
+        Assert.Contains("ESC", layer.OutputLines[1]);
     }
 
     // ── StartupLayer ──
@@ -108,11 +108,11 @@ public class LayerTests
     {
         var layer = new StartupLayer(new EColor());
         layer.UpdateStatus("v11.0", "/path/to/model.gguf", "/path/to/secondary.gguf", true, "/working/dir", "/config/path", 3, "main");
-        Assert.True(layer._outputLines.Count > 0);
-        Assert.Contains(layer._outputLines, l => l.Contains("ECAssistant"));
-        Assert.Contains(layer._outputLines, l => l.Contains("v11.0"));
-        Assert.Contains(layer._outputLines, l => l.Contains("model.gguf"));
-        Assert.Contains(layer._outputLines, l => l.Contains("secondary.gguf"));
+        Assert.True(layer.OutputLines.Count > 0);
+        Assert.Contains(layer.OutputLines, l => l.Contains("ECAssistant"));
+        Assert.Contains(layer.OutputLines, l => l.Contains("v11.0"));
+        Assert.Contains(layer.OutputLines, l => l.Contains("model.gguf"));
+        Assert.Contains(layer.OutputLines, l => l.Contains("secondary.gguf"));
     }
     
     [Fact]
@@ -120,7 +120,7 @@ public class LayerTests
     {
         var layer = new StartupLayer(new EColor());
         layer.UpdateStatus("v11.0", "/path/to/model.gguf", "", false, "/working/dir", "/config/path", 0, "none");
-        Assert.Contains(layer._outputLines, l => l.Contains("disabled"));
+        Assert.Contains(layer.OutputLines, l => l.Contains("disabled"));
     }
     
     [Fact]
@@ -128,7 +128,7 @@ public class LayerTests
     {
         var layer = new StartupLayer(new EColor());
         layer.UpdateStatus("v11.0", "/path/to/model.gguf", "", false, "/working/dir", "/config/path", 2, "main");
-        Assert.Contains(layer._outputLines, l => l.Contains("/session"));
+        Assert.Contains(layer.OutputLines, l => l.Contains("/session"));
     }
     
     // ── ConfigLayer ──
@@ -147,10 +147,10 @@ public class LayerTests
     {
         var layer = new SessionLayer("test");
         layer.AddOutputLine("content");
-        Assert.Single(layer._outputLines);
+        Assert.Single(layer.OutputLines);
         bool handled = layer.ProcessInput("/clear");
         Assert.True(handled);
-        Assert.Empty(layer._outputLines);
+        Assert.Empty(layer.OutputLines);
     }
     
     [Fact]
@@ -235,9 +235,9 @@ public class LayerTests
     {
         var layer = new SessionLayer("test");
         layer.AddOutputLine("existing content");
-        int countBefore = layer._outputLines.Count;
+        int countBefore = layer.OutputLines.Count;
         layer.UpdateLiveStreamLine("streaming text");
-        Assert.Equal(countBefore + 1, layer._outputLines.Count);
+        Assert.Equal(countBefore + 1, layer.OutputLines.Count);
     }
 
     [Fact]
@@ -245,9 +245,9 @@ public class LayerTests
     {
         var layer = new SessionLayer("test");
         layer.UpdateLiveStreamLine("first chunk");
-        int index = layer._outputLines.Count - 1;
+        int index = layer.OutputLines.Count - 1;
         layer.UpdateLiveStreamLine("first chunk second chunk");
-        Assert.Equal("first chunk second chunk", layer._outputLines[index]);
+        Assert.Equal("first chunk second chunk", layer.OutputLines[index]);
     }
 
     [Fact]
@@ -256,8 +256,8 @@ public class LayerTests
         var layer = new SessionLayer("test");
         layer.AddOutputLine("content");
         layer.UpdateLiveStreamLine("streaming");
-        int countWithStream = layer._outputLines.Count;
+        int countWithStream = layer.OutputLines.Count;
         layer.ClearLiveStreamLine();
-        Assert.Equal(countWithStream - 1, layer._outputLines.Count);
+        Assert.Equal(countWithStream - 1, layer.OutputLines.Count);
     }
 }

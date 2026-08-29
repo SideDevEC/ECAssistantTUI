@@ -40,11 +40,7 @@ public sealed class SessionLayer : BaseLayer
         Label = label;
     }
     
-    /// <summary>Read output history entries (for testing or controller queries).</summary>
-    public IReadOnlyList<string> OutputLines => _outputLines;
-    
-    /// <summary>Current scroll offset (for testing).</summary>
-    public int ScrollOffset => _scrollOffset;
+    // OutputLines / ScrollOffset accessors are inherited from BaseLayer.
     
     public override bool ProcessInput(string input)
     {

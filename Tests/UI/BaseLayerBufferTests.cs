@@ -4,7 +4,7 @@ using ECAssistant.TUI.UI;
 namespace ECAssistant.TUI.Tests.UI;
 
 /// <summary>
-/// Tests for BaseLayer output buffer management (AddOutputLine, _outputLines).
+/// Tests for BaseLayer output buffer management (AddOutputLine, OutputLines).
 /// Uses InternalsVisibleTo to access internal members.
 /// </summary>
 public class BaseLayerBufferTests
@@ -23,8 +23,8 @@ public class BaseLayerBufferTests
     {
         var layer = CreateLayer();
         layer.AddOutputLine("hello world");
-        Assert.Single(layer._outputLines);
-        Assert.Equal("hello world", layer._outputLines[0]);
+        Assert.Single(layer.OutputLines);
+        Assert.Equal("hello world", layer.OutputLines[0]);
     }
 
     [Fact]
@@ -32,10 +32,10 @@ public class BaseLayerBufferTests
     {
         var layer = CreateLayer();
         layer.AddOutputLine("line1\nline2\nline3");
-        Assert.Equal(3, layer._outputLines.Count);
-        Assert.Equal("line1", layer._outputLines[0]);
-        Assert.Equal("line2", layer._outputLines[1]);
-        Assert.Equal("line3", layer._outputLines[2]);
+        Assert.Equal(3, layer.OutputLines.Count);
+        Assert.Equal("line1", layer.OutputLines[0]);
+        Assert.Equal("line2", layer.OutputLines[1]);
+        Assert.Equal("line3", layer.OutputLines[2]);
     }
 
     [Fact]
@@ -43,8 +43,8 @@ public class BaseLayerBufferTests
     {
         var layer = CreateLayer();
         layer.AddOutputLine("text\n");
-        Assert.Single(layer._outputLines);
-        Assert.Equal("text", layer._outputLines[0]);
+        Assert.Single(layer.OutputLines);
+        Assert.Equal("text", layer.OutputLines[0]);
     }
 
     [Fact]
@@ -52,10 +52,10 @@ public class BaseLayerBufferTests
     {
         var layer = CreateLayer();
         layer.AddOutputLine("a\nb\nc\n");
-        Assert.Equal(3, layer._outputLines.Count);
-        Assert.Equal("a", layer._outputLines[0]);
-        Assert.Equal("b", layer._outputLines[1]);
-        Assert.Equal("c", layer._outputLines[2]);
+        Assert.Equal(3, layer.OutputLines.Count);
+        Assert.Equal("a", layer.OutputLines[0]);
+        Assert.Equal("b", layer.OutputLines[1]);
+        Assert.Equal("c", layer.OutputLines[2]);
     }
 
     [Fact]
@@ -63,8 +63,8 @@ public class BaseLayerBufferTests
     {
         var layer = CreateLayer();
         layer.AddOutputLine("");
-        Assert.Single(layer._outputLines);
-        Assert.Equal("", layer._outputLines[0]);
+        Assert.Single(layer.OutputLines);
+        Assert.Equal("", layer.OutputLines[0]);
     }
 
     [Fact]
@@ -72,9 +72,9 @@ public class BaseLayerBufferTests
     {
         var layer = CreateLayer();
         layer.AddOutputLine("hello\r\nworld\r\n");
-        Assert.Equal(2, layer._outputLines.Count);
-        Assert.Equal("hello", layer._outputLines[0]);
-        Assert.Equal("world", layer._outputLines[1]);
+        Assert.Equal(2, layer.OutputLines.Count);
+        Assert.Equal("hello", layer.OutputLines[0]);
+        Assert.Equal("world", layer.OutputLines[1]);
     }
 
     [Fact]
@@ -84,10 +84,10 @@ public class BaseLayerBufferTests
         layer.AddOutputLine("first\n");
         layer.AddOutputLine("second\n");
         layer.AddOutputLine("third\n");
-        Assert.Equal(3, layer._outputLines.Count);
-        Assert.Equal("first", layer._outputLines[0]);
-        Assert.Equal("second", layer._outputLines[1]);
-        Assert.Equal("third", layer._outputLines[2]);
+        Assert.Equal(3, layer.OutputLines.Count);
+        Assert.Equal("first", layer.OutputLines[0]);
+        Assert.Equal("second", layer.OutputLines[1]);
+        Assert.Equal("third", layer.OutputLines[2]);
     }
 
     [Fact]
@@ -95,11 +95,11 @@ public class BaseLayerBufferTests
     {
         var layer = CreateLayer();
         layer.AddOutputLine("text1\n\n\ntext2\n");
-        Assert.Equal(4, layer._outputLines.Count);
-        Assert.Equal("text1", layer._outputLines[0]);
-        Assert.Equal("", layer._outputLines[1]);
-        Assert.Equal("", layer._outputLines[2]);
-        Assert.Equal("text2", layer._outputLines[3]);
+        Assert.Equal(4, layer.OutputLines.Count);
+        Assert.Equal("text1", layer.OutputLines[0]);
+        Assert.Equal("", layer.OutputLines[1]);
+        Assert.Equal("", layer.OutputLines[2]);
+        Assert.Equal("text2", layer.OutputLines[3]);
     }
 
     [Fact]
@@ -121,8 +121,8 @@ public class BaseLayerBufferTests
         var layer = CreateLayer();
         layer.AddOutputLine("line1");
         layer.AddOutputLine("line2");
-        Assert.Equal(2, layer._outputLines.Count);
+        Assert.Equal(2, layer.OutputLines.Count);
         layer.Clear();
-        Assert.Empty(layer._outputLines);
+        Assert.Empty(layer.OutputLines);
     }
 }

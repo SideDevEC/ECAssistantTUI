@@ -52,41 +52,37 @@ public sealed class StartupLayer : BaseLayer
     /// </summary>
     private void RebuildHomeScreen()
     {
-        _outputLines.Clear();
-        _scrollOffset = 0;
-        
-        _outputLines.Add($"{_color.Cyan}{_color.Bold}  ECAssistant — Home{_color.Reset}");
-        _outputLines.Add($"{_color.Dim}  ════════════════════════════════════════{_color.Reset}");
-        _outputLines.Add("");
-        _outputLines.Add($"{_color.Cyan}  Version:    {_color.Reset}{_version}");
-        _outputLines.Add($"{_color.Cyan}  Model:      {_color.Reset}{Path.GetFileName(_modelPath)}");
+        Clear();
+        AddOutputLine($"{_color.Cyan}{_color.Bold}  ECAssistant — Home{_color.Reset}");
+        AddOutputLine($"{_color.Dim}  ════════════════════════════════════════{_color.Reset}");
+        AddOutputLine("");
+        AddOutputLine($"{_color.Cyan}  Version:    {_color.Reset}{_version}");
+        AddOutputLine($"{_color.Cyan}  Model:      {_color.Reset}{Path.GetFileName(_modelPath)}");
         if (_secondaryEnabled && !string.IsNullOrEmpty(_secondaryModelPath))
-            _outputLines.Add($"{_color.Cyan}  Bg Tasks:   {_color.Reset}{_secondaryModelPath} ✓");
+            AddOutputLine($"{_color.Cyan}  Bg Tasks:   {_color.Reset}{_secondaryModelPath} ✓");
         else
-            _outputLines.Add($"{_color.Cyan}  Bg Tasks:   {_color.Dim}disabled{_color.Reset}");
-        _outputLines.Add($"{_color.Cyan}  Config:     {_color.Reset}{_configPath}");
-        _outputLines.Add($"{_color.Cyan}  WorkingDir: {_color.Reset}{_workingDir}");
-        _outputLines.Add("");
-        _outputLines.Add($"{_color.Cyan}  Sessions:   {_color.Reset}{_sessionCount} active" + 
+            AddOutputLine($"{_color.Cyan}  Bg Tasks:   {_color.Dim}disabled{_color.Reset}");
+        AddOutputLine($"{_color.Cyan}  Config:     {_color.Reset}{_configPath}");
+        AddOutputLine($"{_color.Cyan}  WorkingDir: {_color.Reset}{_workingDir}");
+        AddOutputLine("");
+        AddOutputLine($"{_color.Cyan}  Sessions:   {_color.Reset}{_sessionCount} active" + 
             (_sessionCount > 0 && !string.IsNullOrEmpty(_activeSessionKey) ? $" (current: {_color.Green}{_activeSessionKey}{_color.Reset})" : ""));
-        _outputLines.Add("");
-        _outputLines.Add($"{_color.Dim}  ────────────────────────────────────────{_color.Reset}");
-        _outputLines.Add("");
-        _outputLines.Add($"{_color.Yellow}{_color.Bold}  Quick Start:{_color.Reset}");
-        _outputLines.Add($"{_color.Dim}  • /session \u003cn\u003e       Switch to session n{_color.Reset}");
-        _outputLines.Add($"{_color.Dim}  • /session-new \u003cname\u003e  Create a new session{_color.Reset}");
-        _outputLines.Add($"{_color.Dim}  • /sessions         List all sessions{_color.Reset}");
-        _outputLines.Add($"{_color.Dim}  • /menu             Show command menu{_color.Reset}");
-        _outputLines.Add($"{_color.Dim}  • /home             Return to this screen{_color.Reset}");
-        _outputLines.Add($"{_color.Dim}  • /quit             Exit ECAssistant{_color.Reset}");
-        _outputLines.Add("");
-        _outputLines.Add($"{_color.Dim}  ────────────────────────────────────────{_color.Reset}");
-        _outputLines.Add("");
-        _outputLines.Add($"{_color.Dim}  Boot log below ↓{_color.Reset}");
-        _outputLines.Add("");
+        AddOutputLine("");
+        AddOutputLine($"{_color.Dim}  ────────────────────────────────────────{_color.Reset}");
+        AddOutputLine("");
+        AddOutputLine($"{_color.Yellow}{_color.Bold}  Quick Start:{_color.Reset}");
+        AddOutputLine($"{_color.Dim}  • /session \u003cn\u003e       Switch to session n{_color.Reset}");
+        AddOutputLine($"{_color.Dim}  • /session-new \u003cname\u003e  Create a new session{_color.Reset}");
+        AddOutputLine($"{_color.Dim}  • /sessions         List all sessions{_color.Reset}");
+        AddOutputLine($"{_color.Dim}  • /menu             Show command menu{_color.Reset}");
+        AddOutputLine($"{_color.Dim}  • /home             Return to this screen{_color.Reset}");
+        AddOutputLine($"{_color.Dim}  • /quit             Exit ECAssistant{_color.Reset}");
+        AddOutputLine("");
+        AddOutputLine($"{_color.Dim}  ────────────────────────────────────────{_color.Reset}");
+        AddOutputLine("");
+        AddOutputLine($"{_color.Dim}  Boot log below ↓{_color.Reset}");
+        AddOutputLine("");
         
-        _isDirty = true;
-        RequestRepaint();
     }
     
     public override bool ProcessInput(string input)

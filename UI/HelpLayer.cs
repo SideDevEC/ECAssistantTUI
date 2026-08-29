@@ -25,14 +25,12 @@ public sealed class HelpLayer : BaseLayer
     /// </summary>
     public void BuildContent()
     {
-        _outputLines.Clear();
-        _outputLines.Add($"{_color.Cyan}{_color.Bold}  ECAssistant — Menu{_color.Reset}");
-        _outputLines.Add($"{_color.Dim}  ESC = back{_color.Reset}");
-        _outputLines.Add("");
+        Clear();
+        AddOutputLine($"{_color.Cyan}{_color.Bold}  ECAssistant — Menu{_color.Reset}");
+        AddOutputLine($"{_color.Dim}  ESC = back{_color.Reset}");
+        AddOutputLine("");
         foreach (var line in _helpLines)
-            _outputLines.Add(line);
-        _scrollOffset = 0;
-        _isDirty = true;
+            AddOutputLine(line);
     }
     
     public override bool ProcessInput(string input)

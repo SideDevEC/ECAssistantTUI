@@ -24,60 +24,60 @@ public class ConsoleUiRendererTests
     public void OnOutput_WithText_AddsToLayerBuffer()
     {
         _renderer.OnOutput("Hello world", OutputState.Info);
-        Assert.Single(_layer._outputLines);
-        Assert.Contains("Hello world", _layer._outputLines[0]);
+        Assert.Single(_layer.OutputLines);
+        Assert.Contains("Hello world", _layer.OutputLines[0]);
     }
 
     [Fact]
     public void OnOutput_EmptyText_AddsBlankLine()
     {
         _renderer.OnOutput("", OutputState.Info);
-        Assert.Single(_layer._outputLines);
-        Assert.Equal("", _layer._outputLines[0]);
+        Assert.Single(_layer.OutputLines);
+        Assert.Equal("", _layer.OutputLines[0]);
     }
 
     [Fact]
     public void OnOutput_Warning_AddsWarnTag()
     {
         _renderer.OnOutput("Be careful", OutputState.Warning);
-        Assert.Single(_layer._outputLines);
-        Assert.Contains("[WARN]", _layer._outputLines[0]);
-        Assert.Contains("Be careful", _layer._outputLines[0]);
+        Assert.Single(_layer.OutputLines);
+        Assert.Contains("[WARN]", _layer.OutputLines[0]);
+        Assert.Contains("Be careful", _layer.OutputLines[0]);
     }
 
     [Fact]
     public void OnOutput_Error_AddsErrTag()
     {
         _renderer.OnOutput("Something broke", OutputState.Error);
-        Assert.Single(_layer._outputLines);
-        Assert.Contains("[ERR]", _layer._outputLines[0]);
-        Assert.Contains("Something broke", _layer._outputLines[0]);
+        Assert.Single(_layer.OutputLines);
+        Assert.Contains("[ERR]", _layer.OutputLines[0]);
+        Assert.Contains("Something broke", _layer.OutputLines[0]);
     }
 
     [Fact]
     public void OnOutput_Success_AddsOkTag()
     {
         _renderer.OnOutput("It worked", OutputState.Success);
-        Assert.Single(_layer._outputLines);
-        Assert.Contains("[OK]", _layer._outputLines[0]);
-        Assert.Contains("It worked", _layer._outputLines[0]);
+        Assert.Single(_layer.OutputLines);
+        Assert.Contains("[OK]", _layer.OutputLines[0]);
+        Assert.Contains("It worked", _layer.OutputLines[0]);
     }
 
     [Fact]
     public void OnOutput_System_AddsSysTag()
     {
         _renderer.OnOutput("System message", OutputState.System);
-        Assert.Single(_layer._outputLines);
-        Assert.Contains("[SYS]", _layer._outputLines[0]);
-        Assert.Contains("System message", _layer._outputLines[0]);
+        Assert.Single(_layer.OutputLines);
+        Assert.Contains("[SYS]", _layer.OutputLines[0]);
+        Assert.Contains("System message", _layer.OutputLines[0]);
     }
 
     [Fact]
     public void OnOutput_Info_NoTag()
     {
         _renderer.OnOutput("Just info", OutputState.Info);
-        Assert.Single(_layer._outputLines);
-        var line = _layer._outputLines[0];
+        Assert.Single(_layer.OutputLines);
+        var line = _layer.OutputLines[0];
         Assert.Contains("Just info", line);
         Assert.DoesNotContain("[OK]", line);
         Assert.DoesNotContain("[WARN]", line);
@@ -104,16 +104,16 @@ public class ConsoleUiRendererTests
     {
         // Start with some content
         _renderer.OnOutput("Content before stream", OutputState.Info);
-        int countBefore = _layer._outputLines.Count;
+        int countBefore = _layer.OutputLines.Count;
         
         // Simulate streaming
         _renderer.OnStreamStart();
         _layer.UpdateLiveStreamLine("streaming text");
-        Assert.Equal(countBefore + 1, _layer._outputLines.Count);
+        Assert.Equal(countBefore + 1, _layer.OutputLines.Count);
         
         // Stop streaming — should remove the live stream line
         _renderer.OnStreamStop();
-        Assert.Equal(countBefore, _layer._outputLines.Count);
+        Assert.Equal(countBefore, _layer.OutputLines.Count);
     }
 
     // ── RenderHistory tests ──
@@ -129,9 +129,9 @@ public class ConsoleUiRendererTests
 
         _renderer.RenderHistory(entries);
 
-        Assert.Equal(2, _layer._outputLines.Count);
-        Assert.Contains("Line 1", _layer._outputLines[0]);
-        Assert.Contains("Line 2", _layer._outputLines[1]);
+        Assert.Equal(2, _layer.OutputLines.Count);
+        Assert.Contains("Line 1", _layer.OutputLines[0]);
+        Assert.Contains("Line 2", _layer.OutputLines[1]);
     }
 
     [Fact]
@@ -145,11 +145,11 @@ public class ConsoleUiRendererTests
 
         _renderer.RenderHistory(entries);
 
-        Assert.Equal(2, _layer._outputLines.Count);
-        Assert.Contains("[WARN]", _layer._outputLines[0]);
-        Assert.Contains("Message 1", _layer._outputLines[0]);
-        Assert.Contains("[ERR]", _layer._outputLines[1]);
-        Assert.Contains("Message 2", _layer._outputLines[1]);
+        Assert.Equal(2, _layer.OutputLines.Count);
+        Assert.Contains("[WARN]", _layer.OutputLines[0]);
+        Assert.Contains("Message 1", _layer.OutputLines[0]);
+        Assert.Contains("[ERR]", _layer.OutputLines[1]);
+        Assert.Contains("Message 2", _layer.OutputLines[1]);
     }
 
     [Fact]
@@ -162,8 +162,8 @@ public class ConsoleUiRendererTests
 
         _renderer.RenderHistory(entries);
 
-        Assert.Single(_layer._outputLines);
-        Assert.Equal("", _layer._outputLines[0]);
+        Assert.Single(_layer.OutputLines);
+        Assert.Equal("", _layer.OutputLines[0]);
     }
 
     [Fact]
@@ -179,10 +179,10 @@ public class ConsoleUiRendererTests
 
         _renderer.RenderHistory(entries);
 
-        Assert.Equal(4, _layer._outputLines.Count);
-        Assert.Contains("First", _layer._outputLines[0]);
-        Assert.Equal("", _layer._outputLines[1]);
-        Assert.Contains("Second", _layer._outputLines[2]);
-        Assert.Contains("Third", _layer._outputLines[3]);
+        Assert.Equal(4, _layer.OutputLines.Count);
+        Assert.Contains("First", _layer.OutputLines[0]);
+        Assert.Equal("", _layer.OutputLines[1]);
+        Assert.Contains("Second", _layer.OutputLines[2]);
+        Assert.Contains("Third", _layer.OutputLines[3]);
     }
 }

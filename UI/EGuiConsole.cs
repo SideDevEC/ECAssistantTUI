@@ -163,7 +163,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
             if (layer != null)
             {
                 layer.UpdateDimensions(ScreenWidth, ScreenHeight);
-                layer._isDirty = true;
+                layer.MarkDirty();
             }
             _fullRepaint = true;
             Repaint();
@@ -327,10 +327,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         
         lock (_writeLock)
         {
-            _outputDirty = true;
-            Repaint();
-            PositionCursorAtInput();
-            _term.Flush();
+            FlushRepaint(outputDirty: true);
         }
     }
     
@@ -375,6 +372,20 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         _term.Flush();
     }
     
+    /// <summary>
+    /// Repaint + cursor reposition + flush under the write lock.
+    /// Single shared tail for the key-handler branches — must be called while
+    /// holding _writeLock.
+    /// </summary>
+    private void FlushRepaint(bool outputDirty = false, bool inputDirty = false)
+    {
+        if (outputDirty) _outputDirty = true;
+        if (inputDirty) _inputDirty = true;
+        Repaint();
+        PositionCursorAtInput();
+        _term.Flush();
+    }
+
     /// <summary>
     /// Paint the output region using the active layer's visible rows.
     /// Delta rendering: only writes rows that differ from the cache.
@@ -563,10 +574,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
             lock (_writeLock)
             {
                 if (CheckResize()) _fullRepaint = true;
-                _inputDirty = true;
-                Repaint();
-                PositionCursorAtInput();
-                _term.Flush();
+                FlushRepaint(inputDirty: true);
             }
         }
         
@@ -636,11 +644,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
 
                     lock (_writeLock)
                     {
-                        _outputDirty = true;
-                        _inputDirty = true;
-                        Repaint();
-                        PositionCursorAtInput();
-                        _term.Flush();
+                        FlushRepaint(outputDirty: true, inputDirty: true);
                     }
                     _approvalAnswered.Set();
                     continue;
@@ -654,10 +658,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                     {
                         lock (_writeLock)
                         {
-                            _inputDirty = true;
-                            Repaint();
-                            PositionCursorAtInput();
-                            _term.Flush();
+                            FlushRepaint(inputDirty: true);
                         }
                     }
                 }
@@ -693,10 +694,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                                 lock (_writeLock)
                                 {
                                     _activeLayer?.HandleScroll(1, 3);
-                                    _outputDirty = true;
-                                    Repaint();
-                                    PositionCursorAtInput();
-                                    _term.Flush();
+                                    FlushRepaint(outputDirty: true);
                                 }
                                 continue;
                             }
@@ -705,10 +703,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                                 lock (_writeLock)
                                 {
                                     _activeLayer?.HandleScroll(-1, 3);
-                                    _outputDirty = true;
-                                    Repaint();
-                                    PositionCursorAtInput();
-                                    _term.Flush();
+                                    FlushRepaint(outputDirty: true);
                                 }
                                 continue;
                             }
@@ -747,10 +742,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                         _activeLayer.AddOutputLine(prompt + result);
                     }
                     
-                    _inputDirty = true;
-                    Repaint();
-                    PositionCursorAtInput();
-                    _term.Flush();
+                    FlushRepaint(inputDirty: true);
                     
                     // Forward to controller
                     _onPrompt?.Invoke(result);
@@ -762,10 +754,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                     {
                         // ESC with text in buffer: clear the buffer
                         _inputBuffer.Clear();
-                        _inputDirty = true;
-                        Repaint();
-                        PositionCursorAtInput();
-                        _term.Flush();
+                        FlushRepaint(inputDirty: true);
                     }
                     else
                     {
@@ -778,80 +767,53 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                 {
                     int regionHeight = _outputRegionEnd - _outputRegionStart + 1;
                     _activeLayer?.ScrollUp(regionHeight);
-                    _outputDirty = true;
-                    Repaint();
-                    PositionCursorAtInput();
-                    _term.Flush();
+                    FlushRepaint(outputDirty: true);
                 }
                 else if (key.Key == ConsoleKey.PageDown)
                 {
                     int regionHeight = _outputRegionEnd - _outputRegionStart + 1;
                     _activeLayer?.ScrollDown(regionHeight);
-                    _outputDirty = true;
-                    Repaint();
-                    PositionCursorAtInput();
-                    _term.Flush();
+                    FlushRepaint(outputDirty: true);
                 }
                 else if (key.Key == ConsoleKey.UpArrow)
                 {
                     _activeLayer?.ScrollUp(1);
-                    _outputDirty = true;
-                    Repaint();
-                    PositionCursorAtInput();
-                    _term.Flush();
+                    FlushRepaint(outputDirty: true);
                 }
                 else if (key.Key == ConsoleKey.DownArrow)
                 {
                     _activeLayer?.ScrollDown(1);
-                    _outputDirty = true;
-                    Repaint();
-                    PositionCursorAtInput();
-                    _term.Flush();
+                    FlushRepaint(outputDirty: true);
                 }
                 else if (key.Key == ConsoleKey.Home)
                 {
                     int regionHeight = _outputRegionEnd - _outputRegionStart + 1;
-                    int maxScroll = Math.Max(0, (_activeLayer?._outputLines.Count ?? 0) - regionHeight);
-                    _activeLayer?.ScrollUp(maxScroll - (_activeLayer?._scrollOffset ?? 0));
-                    _outputDirty = true;
-                    Repaint();
-                    PositionCursorAtInput();
-                    _term.Flush();
+                    int maxScroll = Math.Max(0, (_activeLayer?.OutputLines.Count ?? 0) - regionHeight);
+                    _activeLayer?.ScrollUp(maxScroll - (_activeLayer?.ScrollOffset ?? 0));
+                    FlushRepaint(outputDirty: true);
                 }
                 else if (key.Key == ConsoleKey.End)
                 {
                     _activeLayer?.ScrollToBottom();
-                    _outputDirty = true;
-                    Repaint();
-                    PositionCursorAtInput();
-                    _term.Flush();
+                    FlushRepaint(outputDirty: true);
                 }
                 else if (key.Key == ConsoleKey.Backspace)
                 {
                     if (_inputBuffer.Length > 0)
                     {
                         _inputBuffer.Remove(_inputBuffer.Length - 1, 1);
-                        _inputDirty = true;
-                        Repaint();
-                        PositionCursorAtInput();
-                        _term.Flush();
+                        FlushRepaint(inputDirty: true);
                     }
                 }
                 else if (key.Key == ConsoleKey.Tab)
                 {
                     _inputBuffer.Append("    ");
-                    _inputDirty = true;
-                    Repaint();
-                    PositionCursorAtInput();
-                    _term.Flush();
+                    FlushRepaint(inputDirty: true);
                 }
                 else if (key.KeyChar != '\0' && !char.IsControl(key.KeyChar))
                 {
                     _inputBuffer.Append(key.KeyChar);
-                    _inputDirty = true;
-                    Repaint();
-                    PositionCursorAtInput();
-                    _term.Flush();
+                    FlushRepaint(inputDirty: true);
                 }
             }
         }
@@ -901,20 +863,26 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     
     public override bool IsEscapePressed()
     {
-        try
+        bool escapePressed = false;
+        // Console input is a shared resource with the input loop — read under
+        // _writeLock so we never race ReadKey/KeyAvailable against rendering
+        // or the input loop.
+        lock (_writeLock)
         {
-            if (Console.KeyAvailable)
+            try
             {
-                var key = Console.ReadKey(true);
-                if (key.Key == ConsoleKey.Escape)
+                if (Console.KeyAvailable)
                 {
-                    _onEscape?.Invoke();
-                    return true;
+                    var key = Console.ReadKey(true);
+                    escapePressed = key.Key == ConsoleKey.Escape;
                 }
             }
+            catch (InvalidOperationException) { }
         }
-        catch (InvalidOperationException) { }
-        
-        return false;
+
+        if (escapePressed)
+            _onEscape?.Invoke();
+
+        return escapePressed;
     }
 }

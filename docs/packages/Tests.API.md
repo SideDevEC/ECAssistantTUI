@@ -9,7 +9,7 @@ Types: 4  |  LOC: 574  |  ~167 tokens
 Cross-package deps: ECAssistant.Core, ECAssistant.TUI.UI
 
 ### Class: BaseLayerBufferTests
-> Tests for BaseLayer output buffer management (AddOutputLine, _outputLines).
+> Tests for BaseLayer output buffer management (AddOutputLine, OutputLines).
 Cross-package deps: ECAssistant.Core, ECAssistant.TUI.UI
 
 ### Class: ConsoleUiRendererTests

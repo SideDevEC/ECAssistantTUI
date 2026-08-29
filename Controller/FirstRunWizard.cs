@@ -13,6 +13,9 @@ namespace ECAssistant.TUI.Controller;
 /// </summary>
 public sealed class FirstRunWizard
 {
+    // Single shared client for all wizard HTTP calls (DNS-aware, no socket exhaustion)
+    private static readonly HttpClient SharedHttp = new();
+
     private readonly IGuiConsole _console;
     private readonly EColor _color;
     private readonly ModelCatalogDocument _catalog;
@@ -295,9 +298,10 @@ public sealed class FirstRunWizard
             if (_remoteConfigured)
             {
                 _console.WriteLineColored(_color.Dim + "Testing remote setup with a tiny completion..." + _color.Reset);
-                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"{_remoteEndpoint.TrimEnd('/')}/chat/completions");
                 if (!string.IsNullOrEmpty(_remoteApiKey))
-                    http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _remoteApiKey);
+                    request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _remoteApiKey);
 
                 var body = System.Text.Json.JsonSerializer.Serialize(new
                 {
@@ -305,8 +309,8 @@ public sealed class FirstRunWizard
                     messages = new[] { new { role = "user", content = "Reply with exactly: OK" } },
                     max_tokens = 10
                 });
-                using var content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
-                using var resp = await http.PostAsync($"{_remoteEndpoint.TrimEnd('/')}/chat/completions", content);
+                request.Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
+                using var resp = await SharedHttp.SendAsync(request, cts.Token);
 
                 if (resp.IsSuccessStatusCode)
                     _console.WriteLineColored(_color.Green + "✔ Remote test passed — the model answered." + _color.Reset);
@@ -315,8 +319,7 @@ public sealed class FirstRunWizard
                 return;
             }
 
-            using var probe = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
-            var up = await probe.GetAsync("http://localhost:58777/eca/health");
+            var up = await ProbeLocalServerAsync();
             _console.WriteLineColored(_color.Dim + (up.IsSuccessStatusCode
                 ? "Local LLM server is running — send a message to verify your model."
                 : "Local server starts with the app — send a message to verify your model.") + _color.Reset);
@@ -558,19 +561,34 @@ public sealed class FirstRunWizard
         return true;
     }
 
+    /// <summary>Quick reachability probe of the local LLM server health endpoint.</summary>
+    private static async Task<HttpResponseMessage> ProbeLocalServerAsync()
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        try
+        {
+            return await SharedHttp.GetAsync("http://localhost:58777/eca/health", cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable);
+        }
+    }
+
     /// <summary>GET {endpoint}/models with the API key; true when the endpoint answers.</summary>
     private static async Task<bool> TestRemoteConnectionAsync(string endpoint, string apiKey)
     {
         try
         {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"{endpoint.TrimEnd('/')}/models");
             if (!string.IsNullOrEmpty(apiKey))
-                http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
-            using var resp = await http.GetAsync($"{endpoint.TrimEnd('/')}/models");
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+            using var resp = await SharedHttp.SendAsync(request, cts.Token);
             // 401/403 = reachable but key wrong — still a config problem
             return resp.IsSuccessStatusCode;
         }
-        catch
+        catch (Exception)
         {
             return false;
         }

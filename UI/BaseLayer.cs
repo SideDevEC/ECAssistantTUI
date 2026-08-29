@@ -17,12 +17,19 @@ namespace ECAssistant.TUI.UI;
 /// </summary>
 public abstract class BaseLayer
 {
+    // Guards all mutable buffer/scroll state. Console rendering (EGuiConsole,
+    // under its own _writeLock) and background stream updates (timer threads in
+    // ConsoleUiRenderer) both go through this lock. Never call RequestRepaint
+    // while holding it — repaint acquires the console's write lock, and the
+    // render path already holds that lock when it reads layer state.
+    private readonly object _stateLock = new();
+
     // ── Output buffer ──
     // Lines stored with ANSI color codes intact.
-    internal readonly List<string> _outputLines = new();
-    
+    private readonly List<string> _outputLines = new();
+
     // Scroll position: 0 = bottom (newest), N = scrolled up N lines from bottom
-    internal int _scrollOffset;
+    private int _scrollOffset;
     
     // Status bar content
     protected string _statusBar = "";
@@ -33,8 +40,21 @@ public abstract class BaseLayer
     protected string? _liveStreamText;
     protected int _liveStreamLineIndex = -1;
     
-    // Dirty flag — buffer changed since last render
-    internal bool _isDirty = true;
+
+    /// <summary>Read-only view of the output buffer (for tests / consumers).</summary>
+    public IReadOnlyList<string> OutputLines
+    {
+        get { lock (_stateLock) return _outputLines.ToArray(); }
+    }
+
+    /// <summary>Current scroll offset (lines scrolled up from bottom).</summary>
+    public int ScrollOffset
+    {
+        get { lock (_stateLock) return _scrollOffset; }
+    }
+
+    /// <summary>Mark the layer content dirty so the next repaint picks it up.</summary>
+    internal void MarkDirty() => RequestRepaint();
     
     // Console reference (set by Bind/Unbind, used for repaint requests)
     protected IGuiConsole? _console;
@@ -54,7 +74,6 @@ public abstract class BaseLayer
     {
         _console = console;
         UpdateDimensions(console.ScreenWidth, console.ScreenHeight);
-        _isDirty = true;
     }
     
     /// <summary>Unbind from the console. Layer stops requesting repaints but keeps its buffer.</summary>
@@ -70,7 +89,6 @@ public abstract class BaseLayer
         _screenHeight = height;
         _outputRegionStart = 0;
         _outputRegionEnd = height - 3;
-        _isDirty = true;
     }
     
     // ═══════════════════════════════════════════════════
@@ -88,30 +106,33 @@ public abstract class BaseLayer
     {
         int regionHeight = _outputRegionEnd - _outputRegionStart + 1;
         var visibleRows = new List<string>();
-        int linesUsed = 0;
-        int maxVisibleLine = _outputLines.Count - 1 - _scrollOffset;
-        
-        for (int i = maxVisibleLine; i >= 0 && linesUsed < regionHeight; i--)
+        lock (_stateLock)
         {
-            string line = _outputLines[i];
-            int visibleLen = StripAnsi(line).Length;
-            if (visibleLen <= _screenWidth)
+            int linesUsed = 0;
+            int maxVisibleLine = _outputLines.Count - 1 - _scrollOffset;
+
+            for (int i = maxVisibleLine; i >= 0 && linesUsed < regionHeight; i--)
             {
-                visibleRows.Insert(0, line);
-                linesUsed++;
-            }
-            else
-            {
-                var wrapped = WrapLine(line, _screenWidth);
-                for (int w = wrapped.Count - 1; w >= 0; w--)
+                string line = _outputLines[i];
+                int visibleLen = StripAnsi(line).Length;
+                if (visibleLen <= _screenWidth)
                 {
-                    if (linesUsed >= regionHeight) break;
-                    visibleRows.Insert(0, wrapped[w]);
+                    visibleRows.Insert(0, line);
                     linesUsed++;
+                }
+                else
+                {
+                    var wrapped = WrapLine(line, _screenWidth);
+                    for (int w = wrapped.Count - 1; w >= 0; w--)
+                    {
+                        if (linesUsed >= regionHeight) break;
+                        visibleRows.Insert(0, wrapped[w]);
+                        linesUsed++;
+                    }
                 }
             }
         }
-        
+
         return visibleRows;
     }
     
@@ -132,28 +153,32 @@ public abstract class BaseLayer
     /// </summary>
     public void AddOutputLine(string text)
     {
-        var lines = text.Split('\n');
-        for (int i = 0; i < lines.Length; i++)
+        lock (_stateLock)
         {
-            string clean = lines[i].EndsWith('\r') ? lines[i][..^1] : lines[i];
-            if (i == lines.Length - 1 && string.IsNullOrEmpty(clean) && lines.Length > 1)
-                continue;
-            _outputLines.Add(clean);
+            var lines = text.Split('\n');
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string clean = lines[i].EndsWith('\r') ? lines[i][..^1] : lines[i];
+                if (i == lines.Length - 1 && string.IsNullOrEmpty(clean) && lines.Length > 1)
+                    continue;
+                _outputLines.Add(clean);
+            }
+            _scrollOffset = 0; // snap to bottom
         }
-        _scrollOffset = 0; // snap to bottom
-        _isDirty = true;
         RequestRepaint();
     }
     
     /// <summary>Clear all output, reset scroll.</summary>
     public virtual void Clear()
     {
-        _outputLines.Clear();
-        _scrollOffset = 0;
-        _liveStreamLineIndex = -1;
-        _liveStreamText = null;
-        _statusBar = "";
-        _isDirty = true;
+        lock (_stateLock)
+        {
+            _outputLines.Clear();
+            _scrollOffset = 0;
+            _liveStreamLineIndex = -1;
+            _liveStreamText = null;
+            _statusBar = "";
+        }
         RequestRepaint();
     }
     
@@ -167,18 +192,20 @@ public abstract class BaseLayer
     /// </summary>
     public void UpdateLiveStreamLine(string text)
     {
-        if (_liveStreamLineIndex < 0 || _liveStreamLineIndex >= _outputLines.Count)
+        lock (_stateLock)
         {
-            _outputLines.Add(text);
-            _liveStreamLineIndex = _outputLines.Count - 1;
+            if (_liveStreamLineIndex < 0 || _liveStreamLineIndex >= _outputLines.Count)
+            {
+                _outputLines.Add(text);
+                _liveStreamLineIndex = _outputLines.Count - 1;
+            }
+            else
+            {
+                _outputLines[_liveStreamLineIndex] = text;
+            }
+            _liveStreamText = text;
+            _scrollOffset = 0;
         }
-        else
-        {
-            _outputLines[_liveStreamLineIndex] = text;
-        }
-        _liveStreamText = text;
-        _scrollOffset = 0;
-        _isDirty = true;
         RequestRepaint();
     }
     
@@ -188,13 +215,15 @@ public abstract class BaseLayer
     /// </summary>
     public void ClearLiveStreamLine()
     {
-        if (_liveStreamLineIndex >= 0 && _liveStreamLineIndex < _outputLines.Count)
+        lock (_stateLock)
         {
-            _outputLines.RemoveAt(_liveStreamLineIndex);
-            _liveStreamLineIndex = -1;
+            if (_liveStreamLineIndex >= 0 && _liveStreamLineIndex < _outputLines.Count)
+            {
+                _outputLines.RemoveAt(_liveStreamLineIndex);
+                _liveStreamLineIndex = -1;
+            }
+            _liveStreamText = null;
         }
-        _liveStreamText = null;
-        _isDirty = true;
         RequestRepaint();
     }
     
@@ -214,34 +243,40 @@ public abstract class BaseLayer
     /// <summary>Scroll up (away from newest). Positive = scroll back in history.</summary>
     public void ScrollUp(int lines)
     {
-        int regionHeight = _outputRegionEnd - _outputRegionStart + 1;
-        int maxScroll = Math.Max(0, _outputLines.Count - regionHeight);
-        int newOffset = Math.Min(maxScroll, _scrollOffset + lines);
-        if (newOffset == _scrollOffset) return;
-        _scrollOffset = newOffset;
-        UpdateScrollStatus();
-        _isDirty = true;
+        lock (_stateLock)
+        {
+            int regionHeight = _outputRegionEnd - _outputRegionStart + 1;
+            int maxScroll = Math.Max(0, _outputLines.Count - regionHeight);
+            int newOffset = Math.Min(maxScroll, _scrollOffset + lines);
+            if (newOffset == _scrollOffset) return;
+            _scrollOffset = newOffset;
+            UpdateScrollStatus();
+        }
         RequestRepaint();
     }
     
     /// <summary>Scroll down (toward newest). Positive = scroll toward recent.</summary>
     public void ScrollDown(int lines)
     {
-        int newOffset = Math.Max(0, _scrollOffset - lines);
-        if (newOffset == _scrollOffset) return;
-        _scrollOffset = newOffset;
-        UpdateScrollStatus();
-        _isDirty = true;
+        lock (_stateLock)
+        {
+            int newOffset = Math.Max(0, _scrollOffset - lines);
+            if (newOffset == _scrollOffset) return;
+            _scrollOffset = newOffset;
+            UpdateScrollStatus();
+        }
         RequestRepaint();
     }
     
     /// <summary>Reset scroll to bottom (newest content).</summary>
     public void ScrollToBottom()
     {
-        if (_scrollOffset == 0) return;
-        _scrollOffset = 0;
-        UpdateScrollStatus();
-        _isDirty = true;
+        lock (_stateLock)
+        {
+            if (_scrollOffset == 0) return;
+            _scrollOffset = 0;
+            UpdateScrollStatus();
+        }
         RequestRepaint();
     }
     

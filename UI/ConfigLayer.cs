@@ -1,5 +1,4 @@
 using ECAssistant.Core;
-using System.Text.Json;
 using ECAssistant.Core.Config;
 
 namespace ECAssistant.TUI.UI;
@@ -7,6 +6,7 @@ namespace ECAssistant.TUI.UI;
 /// <summary>
 /// Config layer — displays all EAgentConfig values in a readable format.
 /// Read-only inspection. Accessible via /config command.
+/// Uses the typed EAgentConfig surface directly (no reflection).
 /// </summary>
 public sealed class ConfigLayer : BaseLayer
 {
@@ -22,22 +22,21 @@ public sealed class ConfigLayer : BaseLayer
     /// <summary>Build the config display from an EAgentConfig instance.</summary>
     public void BuildFromConfig(EAgentConfig config, string modelPath)
     {
-        _outputLines.Clear();
-        _scrollOffset = 0;
+        Clear();
         
-        _outputLines.Add($"{_color.Cyan}{_color.Bold}  ECAssistant — Configuration{_color.Reset}");
-        _outputLines.Add($"{_color.Dim}  ════════════════════════════════════════{_color.Reset}");
-        _outputLines.Add("");
+        AddOutputLine($"{_color.Cyan}{_color.Bold}  ECAssistant — Configuration{_color.Reset}");
+        AddOutputLine($"{_color.Dim}  ════════════════════════════════════════{_color.Reset}");
+        AddOutputLine("");
         
         // ── LLM Settings ──
-        _outputLines.Add($"{_color.Yellow}{_color.Bold}  LLM{_color.Reset}");
+        AddOutputLine($"{_color.Yellow}{_color.Bold}  LLM{_color.Reset}");
         AddConfigProperty("Model", config.Llm.ModelPath);
         AddConfigProperty("Resolved", modelPath);
         AddConfigProperty("Context Size", config.Llm.ContextSize);
         
         // ── LLM Provider (v10.30: HTTP-based inference) ──
-        _outputLines.Add("");
-        _outputLines.Add($"{_color.Yellow}{_color.Bold}  LLM Provider{_color.Reset}");
+        AddOutputLine("");
+        AddOutputLine($"{_color.Yellow}{_color.Bold}  LLM Provider{_color.Reset}");
         AddConfigProperty("Mode", config.LlmProvider.Mode);
         AddConfigProperty("Vision", config.SupportsVision ? "enabled" : "disabled");
         AddConfigProperty("Endpoint", config.LlmProvider.Endpoint);
@@ -57,110 +56,61 @@ public sealed class ConfigLayer : BaseLayer
         bool summarizeLlm = config.BackgroundTasks?.Summarize?.UseLlm ?? false;
         string bgStatus = (decomposeLlm || summarizeLlm) ? $"decompose:{(decomposeLlm ? "LLM" : "keyword")} summarize:{(summarizeLlm ? "LLM" : "extractive")}" : "disabled";
         
-        _outputLines.Add($"{_color.Cyan}  Bg Tasks:     {_color.Reset}{(decomposeLlm || summarizeLlm ? bgStatus : $"{_color.Dim}disabled{_color.Reset}")}");
-        _outputLines.Add("");
+        AddOutputLine($"{_color.Cyan}  Bg Tasks:     {_color.Reset}{(decomposeLlm || summarizeLlm ? bgStatus : $"{_color.Dim}disabled{_color.Reset}")}");
+        AddOutputLine("");
         
         // ── Agent Settings ──
-        _outputLines.Add($"{_color.Yellow}{_color.Bold}  Agent{_color.Reset}");
+        AddOutputLine($"{_color.Yellow}{_color.Bold}  Agent{_color.Reset}");
         AddConfigProperty("Working Dir", config.AgentSettings.WorkingDirectory);
         AddConfigProperty("Root Path", config.RootPath);
-        _outputLines.Add("");
+        AddOutputLine("");
         
         // ── Memory ──
-        _outputLines.Add($"{_color.Yellow}{_color.Bold}  Memory{_color.Reset}");
+        AddOutputLine($"{_color.Yellow}{_color.Bold}  Memory{_color.Reset}");
         AddConfigProperty("Data Path", config.Memory.DataPath);
-        _outputLines.Add("");
+        AddOutputLine("");
         
         // ── Workspace ──
-        _outputLines.Add($"{_color.Yellow}{_color.Bold}  Workspace{_color.Reset}");
+        AddOutputLine($"{_color.Yellow}{_color.Bold}  Workspace{_color.Reset}");
         AddConfigProperty("Path", config.Workspace.Path);
-        _outputLines.Add("");
+        AddOutputLine("");
         
         // ── Tools ──
-        _outputLines.Add($"{_color.Yellow}{_color.Bold}  Tools{_color.Reset}");
-        try
+        AddOutputLine($"{_color.Yellow}{_color.Bold}  Tools{_color.Reset}");
+        var systemTools = config.SystemTools;
+        if (systemTools is { Count: > 0 })
         {
-            var toolsProp = config.GetType().GetProperty("Tools");
-            if (toolsProp != null)
+            foreach (var tool in systemTools)
             {
-                var toolsConfig = toolsProp.GetValue(config);
-                if (toolsConfig != null)
-                {
-                    var toolsListProp = toolsConfig.GetType().GetProperty("Tools");
-                    if (toolsListProp != null)
-                    {
-                        var toolsList = toolsListProp.GetValue(toolsConfig) as System.Collections.IEnumerable;
-                        if (toolsList != null)
-                        {
-                            foreach (var tool in toolsList)
-                            {
-                                var nameProp = tool.GetType().GetProperty("Name");
-                                var enabledProp = tool.GetType().GetProperty("Enabled");
-                                string name = nameProp?.GetValue(tool)?.ToString() ?? "?";
-                                bool enabled = (bool)(enabledProp?.GetValue(tool) ?? false);
-                                _outputLines.Add($"{_color.Cyan}  {name,-16}{_color.Reset}{(enabled ? "enabled" : $"{_color.Dim}disabled{_color.Reset}")}");
-                            }
-                        }
-                    }
-                }
+                AddOutputLine($"{_color.Cyan}  {tool.ToolName,-16}{_color.Reset}{(tool.ApprovalRequired ? "approval required" : $"{_color.Dim}auto-approved{_color.Reset}")}");
             }
         }
-        catch { }
-        _outputLines.Add("");
+        else
+        {
+            AddOutputLine($"{_color.Dim}  (default tool policy — no overrides configured){_color.Reset}");
+        }
+        AddOutputLine("");
         
         // ── SubAgent ──
-        _outputLines.Add($"{_color.Yellow}{_color.Bold}  SubAgent{_color.Reset}");
-        try
+        AddOutputLine($"{_color.Yellow}{_color.Bold}  SubAgent{_color.Reset}");
+        var subAgent = config.SubAgent;
+        if (subAgent != null)
         {
-            var subAgentProp = config.GetType().GetProperty("SubAgent");
-            if (subAgentProp != null)
-            {
-                var subAgent = subAgentProp.GetValue(config);
-                if (subAgent != null)
-                {
-                    TryAddPropertyFromObject(subAgent, "Enabled");
-                    TryAddPropertyFromObject(subAgent, "ModelPath");
-                    TryAddPropertyFromObject(subAgent, "MaxParallel");
-                    TryAddPropertyFromObject(subAgent, "MaxTurns");
-                }
-            }
+            AddConfigProperty("Enabled", subAgent.Enabled);
+            AddConfigProperty("MaxConcurrent", subAgent.MaxConcurrent);
+            AddConfigProperty("MaxTurns", subAgent.MaxTurns);
+            AddConfigProperty("TimeoutSec", subAgent.TimeoutSeconds);
         }
-        catch { }
-        _outputLines.Add("");
+        AddOutputLine("");
         
         // ── Footer ──
-        _outputLines.Add($"{_color.Dim}  ────────────────────────────────────────{_color.Reset}");
-        _outputLines.Add($"{_color.Dim}  Press Enter or ESC to return{_color.Reset}");
-        
-        _isDirty = true;
-        RequestRepaint();
+        AddOutputLine($"{_color.Dim}  ────────────────────────────────────────{_color.Reset}");
+        AddOutputLine($"{_color.Dim}  Press Enter or ESC to return{_color.Reset}");
     }
     
     private void AddConfigProperty(string label, object? value)
     {
-        _outputLines.Add($"{_color.Cyan}  {label,-16}{_color.Reset}{value ?? "(null)"}");
-    }
-    
-    private void TryAddProperty(object obj, string propName)
-    {
-        try
-        {
-            var prop = obj.GetType().GetProperty(propName);
-            if (prop != null)
-                AddConfigProperty(propName, prop.GetValue(obj));
-        }
-        catch { }
-    }
-    
-    private void TryAddPropertyFromObject(object obj, string propName)
-    {
-        try
-        {
-            var prop = obj.GetType().GetProperty(propName);
-            if (prop != null)
-                AddConfigProperty(propName, prop.GetValue(obj));
-        }
-        catch { }
+        AddOutputLine($"{_color.Cyan}  {label,-16}{_color.Reset}{value ?? "(null)"}");
     }
     
     public override bool ProcessInput(string input)

@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantTUI
 
-Generated: 2026-08-27T21:07:04.894322+00:00
+Generated: 2026-08-29T08:19:28.915120+00:00
 Packages: 2  |  Types: 22
 
 ---
 
-## ECAssistantTUI (18 types, ~3420 LOC)
+## ECAssistantTUI (18 types, ~3392 LOC)
 
 - 🔵 IAppController  (ECAssistantTUI)
 - 🔵 IGuiConsole  (ECAssistantTUI)

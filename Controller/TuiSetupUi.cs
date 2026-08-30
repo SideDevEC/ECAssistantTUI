@@ -1,6 +1,7 @@
 using ECAssistant.Core.Setup;
 
 using ECAssistant.TUI.UI;
+using EColor = ECAssistant.Core.EColor;
 namespace ECAssistant.TUI.Controller;
 
 /// <summary>
@@ -9,6 +10,7 @@ namespace ECAssistant.TUI.Controller;
 /// </summary>
 public sealed class TuiSetupUi : ISetupUi
 {
+    private static readonly EColor Color = new();
     private readonly IGuiConsole _console;
 
     public TuiSetupUi(IGuiConsole console) => _console = console;
@@ -18,4 +20,6 @@ public sealed class TuiSetupUi : ISetupUi
     public void Write(string text) => _console.WriteRaw(text);
 
     public string? ReadLine() => _console.PromptRaw("");
+
+    public void WriteLineGreen(string text) => _console.WriteLineColored($"{Color.Green}{text}{Color.Reset}");
 }

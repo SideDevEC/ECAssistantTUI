@@ -99,9 +99,8 @@ public sealed class StartupLayer : BaseLayer
         }
         
         // Sessions listing and session info need SessionManager — controller handles them
-        var cmd = input[1..].ToLower().Trim();
-        var parts = cmd.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
-        switch (parts[0])
+        var parts = input[1..].ToLower().Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+        switch (parts.Length > 0 ? parts[0] : "")
         {
             case "sessions":
             case "session-peek":

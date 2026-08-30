@@ -203,3 +203,12 @@ The TUI was updated to match the new Core HTTP-based engine surface:
 - `/menu <topic>` layered help with topic back-stack (ESC walks back); `/help` alias.
 - `/reinstall`: y/n warning → stop server, delete keys/config (models kept) → wizard.
 - `EGuiConsole`: generic cross-thread prompt queue (`PromptViaInputLoop`) — installer prompts after `await` no longer fight the input loop.
+
+## Changelog — 2026-08-30 (cleanup hardening)
+
+- **ConsoleTerminalOutput**: `OnResize` event now actually raised (200ms poll) instead of CS0067 no-op
+- **EGuiConsole**: silent-input mode no longer echoes typed characters; approval prompt wait is quit-aware (no deadlock when quit requested during cross-thread prompt)
+- **LoadingIndicator**: label updates replace their line in the layer buffer — no raw `\r\x1b[2K` junk output in ANSI mode
+- **AnsiInputParser**: pure streaming escape-sequence decoder (X10/SGR mouse, CSI/SS3 arrows, unknown-CSI drain)
+- Case-preserving command parsing (session names case-insensitive-friendly), ANSI-safe line wrapping, crash guard on bare `/` input
+- Root-only runtime contract: no dev base-dir model fallback

@@ -470,9 +470,9 @@ public sealed class AppController : IAppController
         // ── Controller handles layer-switching commands only ──
         if (input.StartsWith("/"))
         {
-            var lowerInput = input[1..].ToLower().Trim();
-            var parts = lowerInput.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
-            var cmd = parts[0];
+            // Lowercase only the command word — user args (session names, labels, keys) keep their case
+            var parts = input[1..].Trim().Split(' ', 2);
+            var cmd = parts[0].ToLowerInvariant().Trim();
             var arg = parts.Length > 1 ? parts[1].Trim() : "";
             
             switch (cmd)
@@ -568,9 +568,8 @@ public sealed class AppController : IAppController
             return;
         }
         
-        var lowerInput = input[1..].ToLower().Trim();
-        var parts = lowerInput.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
-        var cmd = parts[0];
+        var parts = input[1..].Trim().Split(' ', 2);
+        var cmd = parts[0].ToLowerInvariant();
         var arg = parts.Length > 1 ? parts[1].Trim() : "";
         
         switch (cmd)
@@ -856,16 +855,13 @@ public sealed class AppController : IAppController
         }
         
         bool switched;
-        string newKey;
         if (int.TryParse(arg, out var idx))
         {
             switched = _sessionManager.SwitchTo(idx);
-            newKey = _sessionManager.ActiveSession?.Key ?? "";
         }
         else
         {
             switched = _sessionManager.SwitchTo(arg);
-            newKey = arg;
         }
         
         if (switched)

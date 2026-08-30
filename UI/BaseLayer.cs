@@ -168,6 +168,28 @@ public abstract class BaseLayer
         RequestRepaint();
     }
     
+    /// <summary>
+    /// Remove the last output line if it matches <paramref name="expected"/> (exact or
+    /// ANSI-stripped compare). Returns true when a line was removed. Used to replace
+    /// in-place status lines (e.g. loading indicator) without emitting raw ANSI.
+    /// Does NOT request repaint — caller decides when to repaint.
+    /// </summary>
+    public bool RemoveLastOutputLineIf(string expected)
+    {
+        lock (_stateLock)
+        {
+            if (_outputLines.Count == 0) return false;
+            int idx = _outputLines.Count - 1;
+            string last = _outputLines[idx];
+            if (last == expected || StripAnsi(last) == StripAnsi(expected))
+            {
+                _outputLines.RemoveAt(idx);
+                return true;
+            }
+            return false;
+        }
+    }
+
     /// <summary>Clear all output, reset scroll.</summary>
     public virtual void Clear()
     {
@@ -409,24 +431,82 @@ public abstract class BaseLayer
         return text.Substring(0, cutIdx) + "\x1b[0m [...]\x1b[0m";
     }
     
-    /// <summary>Wrap a line with ANSI codes into multiple rows, each ≤ maxCols visible width.</summary>
+    /// <summary>Wrap a line with ANSI codes into multiple rows, each ≤ maxCols visible width.
+    /// ANSI sequences are preserved: active color codes are replayed at the start of each
+    /// continuation row and rows are reset at the end, so wrapped output keeps its colors.</summary>
     public static List<string> WrapLine(string text, int maxCols)
     {
         var result = new List<string>();
         var visible = StripAnsi(text);
-        if (visible.Length <= maxCols)
+        if (visible.Length <= maxCols || maxCols <= 0)
         {
             result.Add(text);
             return result;
         }
-        int idx = 0;
-        while (idx < visible.Length)
+
+        var sb = new StringBuilder();
+        var activeCodes = new StringBuilder(); // escape sequences still in effect at the row break
+        int visibleInChunk = 0;
+        int i = 0;
+        while (i < text.Length)
         {
-            int len = Math.Min(maxCols, visible.Length - idx);
-            string chunk = visible.Substring(idx, len);
-            result.Add(chunk);
-            idx += len;
+            char c = text[i];
+            if (c == '\x1b')
+            {
+                int start = i;
+                i++;
+                if (i < text.Length && text[i] == '[')
+                {
+                    i++;
+                    while (i < text.Length && text[i] >= 0x30 && text[i] <= 0x3F) i++;
+                    while (i < text.Length && text[i] >= 0x20 && text[i] <= 0x2F) i++;
+                    if (i < text.Length && text[i] >= 0x40 && text[i] <= 0x7E) i++;
+                }
+                else if (i < text.Length && text[i] == ']')
+                {
+                    i++;
+                    while (i < text.Length && text[i] != '\x07' && text[i] != '\x1b') i++;
+                    if (i < text.Length && text[i] == '\x1b' && i + 1 < text.Length && text[i + 1] == '\\') i += 2;
+                    else if (i < text.Length) i++;
+                }
+                else if (i < text.Length)
+                {
+                    i++;
+                }
+
+                string seq = text[start..i];
+                // A reset clears the active codes; anything else stays active across row breaks.
+                if (seq == "\x1b[0m" || seq == "\x1b[m")
+                    activeCodes.Clear();
+                else
+                    activeCodes.Append(seq);
+                sb.Append(seq);
+                continue;
+            }
+
+            sb.Append(c);
+            visibleInChunk++;
+            i++;
+
+            if (visibleInChunk == maxCols)
+            {
+                // Close the row with a reset, then reopen the active codes on the next row.
+                string row = sb.ToString();
+                if (activeCodes.Length > 0)
+                    row += "\x1b[0m";
+                result.Add(row);
+                sb.Clear();
+                if (activeCodes.Length > 0)
+                    sb.Append(activeCodes);
+                visibleInChunk = 0;
+            }
         }
+
+        // Only emit the trailing row if it contains visible characters (or nothing was
+        // emitted yet) — a row holding only replayed escape codes would be a phantom blank row.
+        string tail = sb.ToString();
+        if (StripAnsi(tail).Length > 0 || result.Count == 0)
+            result.Add(tail);
         return result;
     }
 }

@@ -41,7 +41,7 @@ public sealed class SessionLayer : BaseLayer
     }
     
     // OutputLines / ScrollOffset accessors are inherited from BaseLayer.
-    
+
     public override bool ProcessInput(string input)
     {
         if (string.IsNullOrEmpty(input)) return true;
@@ -58,9 +58,8 @@ public sealed class SessionLayer : BaseLayer
         }
         
         // Session-specific commands
-        var lowerInput = input[1..].ToLower().Trim();
-        var parts = lowerInput.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
-        var cmd = parts[0];
+        var parts = input[1..].ToLower().Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+        var cmd = parts.Length > 0 ? parts[0] : "";
         var arg = parts.Length > 1 ? parts[1].Trim() : "";
         var color = Color ?? new EColor();
         
@@ -125,6 +124,7 @@ public sealed class SessionLayer : BaseLayer
                     AddOutputLine($"{color.Cyan}[Mode] Single-turn mode reset.{color.Reset}");
                 }
                 return true;
+            
             
             case "sessions":
                 // Session listing is handled by the controller (it owns SessionManager)

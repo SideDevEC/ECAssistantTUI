@@ -51,7 +51,6 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     // ── Pending approval: set by inference thread, consumed by input loop ──
     private volatile bool _approvalPending;
     private string? _approvalMessage;
-    private bool? _approvalResult;
     private string? _approvalAnswer;
     private readonly System.Threading.ManualResetEventSlim _approvalAnswered = new();
     private System.Threading.Thread? _inputLoopThread;
@@ -442,7 +441,10 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         // Use the active layer's prompt prefix (or default "> ")
         string prompt = _activeLayer?.GetInputPrompt() ?? PromptStr;
         _term.Write(prompt);
-        _term.Write(_inputBuffer.ToString());
+        
+        // Silent mode: typed characters are buffered but NOT echoed
+        if (!_silentInput)
+            _term.Write(_inputBuffer.ToString());
         
         // Position cursor right after the last typed character
         PositionCursorAtInput();
@@ -451,7 +453,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     private void PositionCursorAtInput()
     {
         string prompt = _activeLayer?.GetInputPrompt() ?? PromptStr;
-        int col = prompt.Length + _inputBuffer.Length;
+        int col = prompt.Length + (_silentInput ? 0 : _inputBuffer.Length);
         // Position cursor at end of input, show it
         _term.Write($"\x1b[{_inputRow + 1};{col + 1}H\x1b[?25h");
     }
@@ -489,6 +491,81 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     public override void InfoColored(string coloredText) => WriteOutput(coloredText + "\n");
     public override void WarningColored(string coloredText) => WriteOutput(coloredText + "\n");
     public override void WriteRawDirect(string text) => WriteOutput(text);
+    
+    // ═══════════════════════════════════════════════════
+    //  LOADING INDICATOR (in-place status lines, no raw ANSI)
+    // ═══════════════════════════════════════════════════
+    
+    /// <summary>True when the ANSI/layer render path is active (vs. plain console writes).</summary>
+    public bool IsAnsiSupported => _ansiSupported;
+    
+    /// <summary>
+    /// Write (or replace) a loading-indicator status line through the layer/render
+    /// path. Replaces the previous line in the active layer or startup buffer
+    /// instead of emitting \r\x1b[2K raw escape codes that would land in the
+    /// layer buffer as junk lines.
+    /// </summary>
+    public void WriteLoadingLine(string? previousLine, string newText)
+    {
+        lock (_writeLock)
+        {
+            if (_bufferingMode)
+            {
+                RemoveStartupBufferLine(previousLine);
+                _startupBuffer.Add(newText + "\n");
+                return;
+            }
+            RemoveLayerLine(previousLine);
+            if (_activeLayer != null)
+            {
+                _activeLayer.AddOutputLine(newText);
+            }
+            else
+            {
+                _term.Write(newText + "\n");
+                _term.Flush();
+            }
+        }
+    }
+    
+    /// <summary>Remove a previously written loading-indicator line via the layer/render path.</summary>
+    public void ClearLoadingLine(string previousLine)
+    {
+        lock (_writeLock)
+        {
+            if (_bufferingMode)
+            {
+                RemoveStartupBufferLine(previousLine);
+                return;
+            }
+            if (RemoveLayerLine(previousLine))
+            {
+                _outputDirty = true;
+                Repaint();
+                PositionCursorAtInput();
+                _term.Flush();
+            }
+        }
+    }
+    
+    private void RemoveStartupBufferLine(string? previousLine)
+    {
+        if (previousLine == null) return;
+        for (int i = _startupBuffer.Count - 1; i >= 0; i--)
+        {
+            if (_startupBuffer[i] == previousLine + "\n" || _startupBuffer[i] == previousLine)
+            {
+                _startupBuffer.RemoveAt(i);
+                return;
+            }
+        }
+    }
+    
+    private bool RemoveLayerLine(string? previousLine)
+    {
+        if (previousLine == null || _activeLayer == null) return false;
+        return _activeLayer.RemoveLastOutputLineIf(previousLine);
+    }
     
     // ═══════════════════════════════════════════════════
     //  CLEAR CANVAS
@@ -552,14 +629,24 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         _approvalAnswered.Reset();
         _approvalMessage = label;
         _approvalPending = true;
-        _approvalResult = null;
         _approvalAnswer = null;
 
         // Turn off silent input so the prompt is visible
         _silentInput = false;
 
-        // Wait for the main input loop to deliver the answer
-        _approvalAnswered.Wait();
+        // Wait for the main input loop to deliver the answer. Poll with a
+        // timeout so a quit request while a cross-thread prompt is pending
+        // exits instead of deadlocking on an answer that can never arrive.
+        while (!_approvalAnswered.Wait(100))
+        {
+            if (_quitRequested)
+            {
+                _approvalPending = false;
+                _approvalMessage = null;
+                _approvalAnswer = null;
+                return null;
+            }
+        }
 
         return _approvalAnswer;
     }
@@ -706,11 +793,13 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                 if (key.Key == ConsoleKey.Enter)
                 {
                     var result = _inputBuffer.ToString();
+                    bool wasSilent = _silentInput;
                     _inputBuffer.Clear();
                     _silentInput = false;
                     
-                    // Add submitted input to active layer's buffer (skip commands)
-                    if (!result.StartsWith("/") && _activeLayer != null)
+                    // Add submitted input to active layer's buffer (skip commands;
+                    // skip while silent — buffered input must not be echoed)
+                    if (!wasSilent && !result.StartsWith("/") && _activeLayer != null)
                     {
                         string prompt = _activeLayer.GetInputPrompt();
                         _activeLayer.AddOutputLine(prompt + result);

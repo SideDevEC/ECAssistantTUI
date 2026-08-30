@@ -11,9 +11,37 @@ public class ConsoleTerminalOutput : ITerminalOutput
 
     public event EventHandler? OnResize;
 
+    private readonly System.Threading.Timer? _resizePoll;
+    private int _lastW;
+    private int _lastH;
+
     public ConsoleTerminalOutput()
     {
         Console.CancelKeyPress += (s, e) => { };
+
+        // Poll window size and raise OnResize so the interface event is
+        // actually fired (instead of the never-raised CS0067 warning).
+        try
+        {
+            _lastW = Console.WindowWidth;
+            _lastH = Console.WindowHeight;
+        }
+        catch { }
+        _resizePoll = new System.Threading.Timer(_ =>
+        {
+            try
+            {
+                int w = Console.WindowWidth;
+                int h = Console.WindowHeight;
+                if (w != _lastW || h != _lastH)
+                {
+                    _lastW = w;
+                    _lastH = h;
+                    OnResize?.Invoke(this, EventArgs.Empty);
+                }
+            }
+            catch { }
+        }, null, 200, 200);
     }
 
     public void Write(string text) => Console.Write(text);

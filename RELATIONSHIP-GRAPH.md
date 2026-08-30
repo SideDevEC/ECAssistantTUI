@@ -1,6 +1,6 @@
 # RELATIONSHIP-GRAPH.md — ECAssistantTUI
 
-Generated: 2026-08-30T19:16:10.154930+00:00
+Generated: 2026-08-30T19:57:26.059747+00:00
 Edges: 13  |  Packages: 2
 
 ---

@@ -1,4 +1,5 @@
 using ECAssistant.Core;
+using System.Collections.Concurrent;
 using ECAssistant.Core.Config;
 using ECAssistant.Core.Engine;
 using ECAssistant.Core.Orchestration;
@@ -52,7 +53,7 @@ public sealed class AppController : IAppController
     
     // ── Owned objects ──
     private readonly IGuiConsole _console;
-    private readonly Dictionary<string, BaseLayer> _layers = new();
+    private readonly ConcurrentDictionary<string, BaseLayer> _layers = new();
     private BaseLayer? _activeLayer;
     private string? _previousLayerKey; // for help → return to prior layer
     private readonly List<string> _helpTopicStack = new(); // /menu submenu navigation (topic back-stack)
@@ -66,17 +67,18 @@ public sealed class AppController : IAppController
     
     // ── Session → Layer mapping ──
     // Each Core session has a corresponding SessionLayer
-    private readonly Dictionary<string, SessionLayer> _sessionLayers = new();
+    private readonly ConcurrentDictionary<string, SessionLayer> _sessionLayers = new();
 
     // ── Session → Renderer mapping ──
     // Each Core session has a ConsoleUiRenderer bridging listener events to
     // its layer; kept so it can be disposed/listener-removed on close.
-    private readonly Dictionary<string, ConsoleUiRenderer> _renderers = new();
+    private readonly ConcurrentDictionary<string, ConsoleUiRenderer> _renderers = new();
     
     // ── Startup layer (always present, never deleted) ──
     private StartupLayer? _startupLayer;
     
-    private const string VersionString = "v12.3";
+    // v12.9: matches the latest version referenced in code comments (AnsiInputParser delegation).
+    private const string VersionString = "v12.9";
     
     public AppController(
         IGuiConsole console,
@@ -224,6 +226,8 @@ public sealed class AppController : IAppController
         }
         catch (Exception ex)
         {
+            // L6: surface the full exception to the logger, not just the message.
+            _logger.Error("Setup", $"First-run setup failed: {ex}");
             _console.WriteLineColored(_color.Yellow + $"[Setup] First-run setup skipped: {ex.Message}" + _color.Reset);
         }
     }
@@ -317,7 +321,17 @@ public sealed class AppController : IAppController
 
         loading.Stop();
 
+        // M8: null-check the active session before dereferencing it.
         var activeSession = _sessionManager.ActiveSession ?? _sessionManager.Main;
+        if (activeSession == null)
+        {
+            _console.WriteLineColored(_color.Yellow + "[Ready] No active session — staying on the home screen." + _color.Reset);
+            _console.BlankLine();
+            _console.InitConsole();
+            UpdateStartupLayerStatus();
+            return 0;
+        }
+
         _console.WriteLineColored(_color.Green + _color.Bold + "[Ready] " + $"Active session: {activeKey} ({_sessionManager.List().Count} total)" + _color.Reset);
         _console.BlankLine();
 
@@ -336,6 +350,11 @@ public sealed class AppController : IAppController
                 _console.WriteLine("===========================================");
                 _console.WriteLineColored(_color.Cyan + _color.Bold + "[Mode] The agent decides tools automatically." + _color.Reset);
                 _console.BlankLine();
+            }
+            else
+            {
+                // M8: the active session's layer was not created — fall back to home.
+                _console.WriteLineColored(_color.Yellow + $"[Ready] No UI layer for active session '{activeKey}' — staying on the home screen." + _color.Reset);
             }
         }
 
@@ -446,20 +465,35 @@ public sealed class AppController : IAppController
     /// Controller handles only layer-switching commands. Everything else
     /// is delegated to the active layer's ProcessInput.
     /// </summary>
+    /// <summary>
+    /// Called when user hits Enter. Receives the full input string.
+    /// Controller handles only layer-switching commands. Everything else
+    /// is delegated to the active layer's ProcessInput.
+    ///
+    /// M1: genuinely async — no .GetAwaiter().GetResult() on the input thread.
+    /// The console invokes this from its own input loop, so we dispatch onto a
+    /// background task (same pattern as RunCommandTask) and let the continuation
+    /// run off the input thread. This avoids blocking the input thread while an
+    /// idle-reconnect or command completes.
+    /// </summary>
     private void OnPrompt(string input)
     {
-        try
+        _ = Task.Run(async () =>
         {
-            // v12.6: block the input thread until an in-progress idle-reconnect has fully
-            // restored client + KV sessions. Messages raced the reconnect before and were lost.
-            _sessionManager?.MarkUserActivityAsync().GetAwaiter().GetResult();
-            HandlePrompt(input).GetAwaiter().GetResult();
-        }
-        catch (Exception ex)
-        {
-            // Central exception guard for the synchronous prompt path
-            ReportCommandError("prompt", ex);
-        }
+            try
+            {
+                // v12.6: wait for any in-progress idle-reconnect to fully restore the
+                // client + KV sessions before processing. Messages raced the reconnect
+                // before and were lost.
+                await (_sessionManager?.MarkUserActivityAsync() ?? Task.CompletedTask).ConfigureAwait(false);
+                await HandlePrompt(input).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // Central exception guard for the async prompt path
+                ReportCommandError("prompt", ex);
+            }
+        });
     }
 
     private async Task HandlePrompt(string input)
@@ -652,7 +686,7 @@ public sealed class AppController : IAppController
         {
             _console.WriteLineColored(_color.Red + _color.Bold + $"[{label}] " + $"Unhandled error: {ex.GetType().Name}: {ex.Message}" + _color.Reset);
         }
-        catch { /* console unavailable — logger already has the details */ }
+        catch { /* M5: console unavailable — logger already has the details */ }
     }
     
     private void GoHome()
@@ -874,6 +908,11 @@ public sealed class AppController : IAppController
                 _console.WriteLineColored(_color.Green + _color.Bold + "[Session] " + $"Switched to [{newActive.Key}] {newActive.GetStatusSummary()}" + _color.Reset);
                 _console.BlankLine();
             }
+            else
+            {
+                // L3: the session switched but its UI layer was not created.
+                _console.WriteLineColored(_color.Yellow + $"[Session] Switched to [{newActive.Key}], but no UI layer exists for it." + _color.Reset);
+            }
         }
         else
         {
@@ -977,9 +1016,24 @@ public sealed class AppController : IAppController
                 await http.GetAsync($"{endpoint}/eca/health");
                 await Task.Delay(500); // still up — keep waiting
             }
-            catch
+            catch (HttpRequestException)
             {
-                return true; // no response = server down
+                // Connection refused / reset = server down.
+                return true;
+            }
+            catch (TaskCanceledException)
+            {
+                // M4: HttpClient 2s timeout — endpoint did not answer in time.
+                // Treat as "down" so we don't spin forever on a hung server.
+                return true;
+            }
+            catch (Exception ex)
+            {
+                // M4: only HttpRequestException/TaskCanceledException mean "server down".
+                // Any other exception is unexpected — log it and keep polling instead of
+                // falsely concluding the server stopped.
+                _logger.Warn("Reinstall", $"Unexpected error probing LLM server health: {ex}");
+                await Task.Delay(500);
             }
         }
         return false;
@@ -994,7 +1048,12 @@ public sealed class AppController : IAppController
 
     private void StopSession(string arg)
     {
-        if (_sessionManager == null || !int.TryParse(arg, out var idx)) return;
+        // L3: usage message when the index is missing or non-integer.
+        if (_sessionManager == null || string.IsNullOrEmpty(arg) || !int.TryParse(arg, out var idx))
+        {
+            _console.WriteLineColored(_color.Cyan + "[Session] Usage: session-stop <n>" + _color.Reset);
+            return;
+        }
         var sessions = _sessionManager.List();
         if (idx >= 1 && idx <= sessions.Count)
         {
@@ -1010,7 +1069,12 @@ public sealed class AppController : IAppController
     
     private async Task CloseSessionAsync(string arg)
     {
-        if (_sessionManager == null || !int.TryParse(arg, out var idx)) return;
+        // L3: usage message when the index is missing or non-integer.
+        if (_sessionManager == null || string.IsNullOrEmpty(arg) || !int.TryParse(arg, out var idx))
+        {
+            _console.WriteLineColored(_color.Cyan + "[Session] Usage: session-close <n>" + _color.Reset);
+            return;
+        }
 
         var sessions = _sessionManager.List();
         if (idx < 1 || idx > sessions.Count)
@@ -1026,7 +1090,7 @@ public sealed class AppController : IAppController
         {
             sessions[idx - 1].RemoveListener(renderer);
             renderer.Dispose();
-            _renderers.Remove(key);
+            _renderers.TryRemove(key, out _);
         }
 
         _sessionManager.DeleteSession(key);
@@ -1036,8 +1100,27 @@ public sealed class AppController : IAppController
         if (_layers.TryGetValue(layerKey, out var layer))
         {
             layer.UnbindFromConsole();
-            _layers.Remove(layerKey);
-            _sessionLayers.Remove(key);
+            _layers.TryRemove(layerKey, out _);
+            _sessionLayers.TryRemove(key, out _);
+        }
+
+        // M3: if the closed session was active, switch to the new active session's layer
+        // (or fall back to the startup/home layer) so the UI stays on a valid layer.
+        var wasActive = (_sessionManager?.ActiveSession?.Key == key) ||
+                        string.Equals(key, _activeLayer?.Name.Replace("session:", "", StringComparison.Ordinal), StringComparison.Ordinal);
+        if (wasActive)
+        {
+            var newActive = _sessionManager?.ActiveSession;
+            if (newActive != null && _layers.TryGetValue($"session:{newActive.Key}", out var nextLayer))
+            {
+                SwitchToLayer($"session:{newActive.Key}");
+                _console.WriteLineColored(_color.Cyan + $"[Session] Now on [{newActive.Key}]." + _color.Reset);
+            }
+            else
+            {
+                // No remaining session layer — fall back to the home screen.
+                GoHome();
+            }
         }
 
         _console.WriteLineColored(_color.Green + _color.Bold + "[Session] " + $"Closed session {idx}." + _color.Reset);
@@ -1045,9 +1128,18 @@ public sealed class AppController : IAppController
     
     private void PeekSession(string arg)
     {
-        if (_sessionManager == null || !int.TryParse(arg, out var idx)) return;
+        // L3: usage message when the index is missing or non-integer.
+        if (_sessionManager == null || string.IsNullOrEmpty(arg) || !int.TryParse(arg, out var idx))
+        {
+            _console.WriteLineColored(_color.Cyan + "[Session] Usage: session-peek <n>" + _color.Reset);
+            return;
+        }
         var sessions = _sessionManager.List();
-        if (idx < 1 || idx > sessions.Count) return;
+        if (idx < 1 || idx > sessions.Count)
+        {
+            _console.WriteLineColored(_color.Red + _color.Bold + "[Session] " + $"No session at index {idx}" + _color.Reset);
+            return;
+        }
         var s = sessions[idx - 1];
         if (s != null)
         {
@@ -1086,6 +1178,14 @@ public sealed class AppController : IAppController
     private void SessionInfo(string arg)
     {
         if (_sessionManager == null) return;
+
+        // L3: usage message when an index was given but is not a valid integer.
+        if (!string.IsNullOrEmpty(arg) && !int.TryParse(arg, out _))
+        {
+            _console.WriteLineColored(_color.Cyan + "[Session] Usage: session-info [n]" + _color.Reset);
+            return;
+        }
+
         AgentSession? infoSession;
         if (int.TryParse(arg, out var idx))
         {
@@ -1123,13 +1223,16 @@ public sealed class AppController : IAppController
     
     private void RemoveFromQueue(string arg)
     {
-        if (int.TryParse(arg, out var qi))
+        // L3: usage message when the index is missing or non-integer.
+        if (string.IsNullOrEmpty(arg) || !int.TryParse(arg, out var qi))
         {
-            if (_sessionManager?.ActiveSession?.RemoveFromQueue(qi) == true)
-                _console.WriteLineColored(_color.Green + _color.Bold + "[Queue] " + $"Removed prompt {qi}" + _color.Reset);
-            else
-                _console.WriteLineColored(_color.Red + _color.Bold + "[Queue] " + $"No prompt at index {qi}" + _color.Reset);
+            _console.WriteLineColored(_color.Cyan + "[Queue] Usage: session-queue-remove <index>" + _color.Reset);
+            return;
         }
+        if (_sessionManager?.ActiveSession?.RemoveFromQueue(qi) == true)
+            _console.WriteLineColored(_color.Green + _color.Bold + "[Queue] " + $"Removed prompt {qi}" + _color.Reset);
+        else
+            _console.WriteLineColored(_color.Red + _color.Bold + "[Queue] " + $"No prompt at index {qi}" + _color.Reset);
     }
     
     private static string TruncatePrompt(string prompt, int maxLen = 60)

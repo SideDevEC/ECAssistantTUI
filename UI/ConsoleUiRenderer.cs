@@ -20,7 +20,7 @@ public class ConsoleUiRenderer : IOutputListener, IDisposable
     private readonly EColor _color;
     private readonly Func<string>? _streamBufferGetter;
     private Timer? _streamPollTimer;
-    private string _lastStreamSnapshot = "";
+    private volatile string _lastStreamSnapshot = ""; // L7: volatile — read/written across timer/UI threads; benign races (worst case: a stale compare skips one 80ms tick)
     private readonly Func<string, bool>? _approvalPrompt;
 
     public ConsoleUiRenderer(SessionLayer layer, EColor color, Func<string>? streamBufferGetter = null, Func<string, bool>? approvalPrompt = null)
@@ -92,7 +92,13 @@ public class ConsoleUiRenderer : IOutputListener, IDisposable
                 // Write the live stream content to the layer's buffer
                 _layer.UpdateLiveStreamLine(current);
             }
-            catch { }
+            catch (Exception pollEx)
+            {
+                // M5: log once per failure cycle instead of silently swallowing.
+                // The stream buffer getter should never throw, but if it does
+                // (e.g. session disposed mid-poll) we want a trace in the log.
+                System.Diagnostics.Debug.WriteLine($"[StreamPoll] {pollEx.GetType().Name}: {pollEx.Message}");
+            }
         }, null, 80, 80);
     }
 

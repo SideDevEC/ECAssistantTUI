@@ -58,7 +58,7 @@ public sealed class SessionLayer : BaseLayer
         }
         
         // Session-specific commands
-        var parts = input[1..].ToLower().Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+        var parts = input[1..].ToLowerInvariant().Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
         var cmd = parts.Length > 0 ? parts[0] : "";
         var arg = parts.Length > 1 ? parts[1].Trim() : "";
         var color = Color ?? new EColor();

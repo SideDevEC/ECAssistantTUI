@@ -1,4 +1,5 @@
 using ECAssistant.Core;
+using System.Collections.Concurrent;
 using System.Text;
 using ECAssistant.Core.UI;
 
@@ -26,6 +27,7 @@ namespace ECAssistant.TUI.UI;
 /// </summary>
 public sealed class EGuiConsole : EGuiBase, IGuiConsole
 {
+    private sealed record PromptRequest(string Label, TaskCompletionSource<string?> Tcs);
     private readonly ITerminalOutput _term;
     private bool _ansiSupported;
     private readonly object _writeLock = new();
@@ -49,10 +51,11 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     private Func<bool>? _silentInputCheck;
     
     // ── Pending approval: set by inference thread, consumed by input loop ──
-    private volatile bool _approvalPending;
-    private string? _approvalMessage;
-    private string? _approvalAnswer;
-    private readonly System.Threading.ManualResetEventSlim _approvalAnswered = new();
+    // M6: Cross-thread prompt queue — each prompt request gets a TCS that the input loop completes.
+    // The queue is ConcurrentQueue (thread-safe by construction); the old single-slot fields
+    // were removed in the H2 fix. No additional synchronization is needed.
+    private readonly ConcurrentQueue<PromptRequest> _promptQueue = new();
+    private volatile bool _promptActive; // true while the input loop is servicing a prompt
     private System.Threading.Thread? _inputLoopThread;
     
     // ── Startup buffering ──
@@ -108,10 +111,12 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         
         UpdateDimensions();
         
-        // Flush all buffered startup output into the active layer, then paint once
-        _bufferingMode = false;
+        // M7: set _bufferingMode = false INSIDE the _writeLock section so that a
+        // concurrent WriteOutput call doesn't slip in between the flag flip and the
+        // buffer flush, which could lose a startup line.
         lock (_writeLock)
         {
+            _bufferingMode = false;
             if (_activeLayer != null)
             {
                 foreach (var line in _startupBuffer)
@@ -202,7 +207,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     {
         if (OperatingSystem.IsWindows())
         {
-            try { EnableWindowsAnsi(); } catch { }
+            try { EnableWindowsAnsi(); } catch { /* M5: benign — Windows ANSI enablement fails on non-Windows or redirected output */ }
             try { if (Console.IsOutputRedirected) return false; } catch { return false; }
             return true;
         }
@@ -249,6 +254,8 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         }
         catch
         {
+            // M5: benign — Console.WindowWidth/Height throws when output is redirected;
+            // fall back to default 80x24.
             ScreenWidth = 80;
             ScreenHeight = 24;
         }
@@ -279,7 +286,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                 return true;
             }
         }
-        catch { }
+        catch { /* M5: benign — terminal not ready or redirected */ }
         return false;
     }
     
@@ -314,7 +321,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                 }
             }
         }
-        catch { }
+        catch { /* M5: benign — terminal not ready or redirected; resize check is best-effort */ }
     }
     
     // ═══════════════════════════════════════════════════
@@ -577,7 +584,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         {
             lock (_writeLock)
             {
-                try { Console.Clear(); } catch { }
+                try { Console.Clear(); } catch { /* M5: benign — Console.Clear fails when output is redirected */ }
                 _term.Flush();
             }
             return;
@@ -626,29 +633,24 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     /// </summary>
     private string? PromptViaInputLoop(string label)
     {
-        _approvalAnswered.Reset();
-        _approvalMessage = label;
-        _approvalPending = true;
-        _approvalAnswer = null;
-
-        // Turn off silent input so the prompt is visible
+        var tcs = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var request = new PromptRequest(label, tcs);
+        _promptQueue.Enqueue(request);
         _silentInput = false;
 
-        // Wait for the main input loop to deliver the answer. Poll with a
-        // timeout so a quit request while a cross-thread prompt is pending
-        // exits instead of deadlocking on an answer that can never arrive.
-        while (!_approvalAnswered.Wait(100))
+        // Wait for the input loop to process our request. Poll with timeout
+        // so a quit request exits instead of deadlocking.
+        while (!tcs.Task.IsCompleted)
         {
+            if (tcs.Task.Wait(100))
+                break;
             if (_quitRequested)
             {
-                _approvalPending = false;
-                _approvalMessage = null;
-                _approvalAnswer = null;
+                tcs.TrySetResult(null);
                 return null;
             }
         }
-
-        return _approvalAnswer;
+        return tcs.Task.Result;
     }
     
     /// <summary>
@@ -675,40 +677,40 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
             ConsoleKeyInfo key;
             try
             {
-                // Check for pending approval from inference thread
-                if (_approvalPending)
+                // Check for pending cross-thread prompt requests from the queue
+                if (_promptQueue.TryDequeue(out var promptReq) && !_promptActive)
                 {
+                    _promptActive = true;
+                    var promptLabel = promptReq.Label;
                     lock (_writeLock)
                     {
-                        var msg = _approvalMessage ?? "? ";
                         _outputDirty = true;
                         Repaint();
-                        // Show prompt at input line — the message IS the prompt label
-                        _term.Write($"\x1b[{_inputRow + 1};1H\x1b[2K\x1b[33m{msg}\x1b[0m");
+                        _term.Write($"\x1b[{_inputRow + 1};1H\x1b[2K\x1b[33m{promptLabel}\x1b[0m");
                         _term.Flush();
                     }
 
-                    // Generic line read (we're on the input loop thread):
-                    // printable chars append, Enter submits, ESC cancels (null).
                     _inputBuffer.Clear();
-                    while (_approvalPending)
+                    string? answer = null;
+                    while (_promptActive)
                     {
                         if (!Console.KeyAvailable)
                         {
                             System.Threading.Thread.Sleep(10);
+                            if (_quitRequested) { _promptActive = false; break; }
                             continue;
                         }
                         var keyInfo = Console.ReadKey(true);
                         if (keyInfo.Key == ConsoleKey.Enter)
                         {
-                            _approvalAnswer = _inputBuffer.ToString().Trim();
-                            _approvalPending = false;
+                            answer = _inputBuffer.ToString().Trim();
+                            _promptActive = false;
                             _inputBuffer.Clear();
                         }
                         else if (keyInfo.Key == ConsoleKey.Escape)
                         {
-                            _approvalAnswer = null;
-                            _approvalPending = false;
+                            answer = null;
+                            _promptActive = false;
                             _inputBuffer.Clear();
                         }
                         else if (keyInfo.Key == ConsoleKey.Backspace)
@@ -718,7 +720,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                                 _inputBuffer.Remove(_inputBuffer.Length - 1, 1);
                                 lock (_writeLock)
                                 {
-                                    _term.Write($"\x1b[{_inputRow + 1};1H\x1b[2K\x1b[33m{_approvalMessage}\x1b[0m{_inputBuffer}\x1b[0m");
+                                    _term.Write($"\x1b[{_inputRow + 1};1H\x1b[2K\x1b[33m{promptLabel}\x1b[0m{_inputBuffer}\x1b[0m");
                                     _term.Flush();
                                 }
                             }
@@ -728,7 +730,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                             _inputBuffer.Append(keyInfo.KeyChar);
                             lock (_writeLock)
                             {
-                                _term.Write($"\x1b[{_inputRow + 1};1H\x1b[2K\x1b[33m{_approvalMessage}\x1b[0m{_inputBuffer}\x1b[0m");
+                                _term.Write($"\x1b[{_inputRow + 1};1H\x1b[2K\x1b[33m{promptLabel}\x1b[0m{_inputBuffer}\x1b[0m");
                                 _term.Flush();
                             }
                         }
@@ -738,7 +740,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                     {
                         FlushRepaint(outputDirty: true, inputDirty: true);
                     }
-                    _approvalAnswered.Set();
+                    promptReq.Tcs.TrySetResult(answer);
                     continue;
                 }
                 
@@ -758,10 +760,9 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                 if (!Console.KeyAvailable)
                 {
                     Thread.Sleep(10);
-                    // Re-check for pending approval while waiting for key input
-                    // This prevents deadlock when inference thread requests approval
-                    // while the main loop is sleeping here waiting for a key.
-                    if (_approvalPending)
+                    // Re-check for pending cross-thread prompts while waiting for key input.
+                    // If a prompt request arrived, loop back to process it.
+                    if (!_promptQueue.IsEmpty)
                         continue;
                     continue;
                 }
@@ -786,32 +787,41 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                 return ReadInputLineFallback(key);
             }
             
-            lock (_writeLock)
+            // M2: Enter is handled outside the lock so _onPrompt can re-enter the
+            // console without deadlocking. All other keys stay inside the lock.
+            if (key.Key == ConsoleKey.Enter)
             {
-                if (CheckResize()) _fullRepaint = true;
-                
-                if (key.Key == ConsoleKey.Enter)
+                string enterResult;
+                bool enterWasSilent;
+                lock (_writeLock)
                 {
-                    var result = _inputBuffer.ToString();
-                    bool wasSilent = _silentInput;
+                    if (CheckResize()) _fullRepaint = true;
+                    enterResult = _inputBuffer.ToString();
+                    enterWasSilent = _silentInput;
                     _inputBuffer.Clear();
                     _silentInput = false;
                     
                     // Add submitted input to active layer's buffer (skip commands;
                     // skip while silent — buffered input must not be echoed)
-                    if (!wasSilent && !result.StartsWith("/") && _activeLayer != null)
+                    if (!enterWasSilent && !enterResult.StartsWith("/") && _activeLayer != null)
                     {
                         string prompt = _activeLayer.GetInputPrompt();
-                        _activeLayer.AddOutputLine(prompt + result);
+                        _activeLayer.AddOutputLine(prompt + enterResult);
                     }
                     
                     FlushRepaint(inputDirty: true);
-                    
-                    // Forward to controller
-                    _onPrompt?.Invoke(result);
-                    return result;
                 }
-                else if (key.Key == ConsoleKey.Escape)
+                // M2: invoke _onPrompt OUTSIDE the _writeLock so the controller
+                // can re-enter the console (e.g. to write output) without deadlocking.
+                _onPrompt?.Invoke(enterResult);
+                return enterResult;
+            }
+
+            lock (_writeLock)
+            {
+                if (CheckResize()) _fullRepaint = true;
+                
+                if (key.Key == ConsoleKey.Escape)
                 {
                     if (_inputBuffer.Length > 0)
                     {
@@ -822,6 +832,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                     else
                     {
                         // ESC with empty buffer: forward to controller
+                        _escapeFlag = true;
                         _onEscape?.Invoke();
                     }
                     continue;
@@ -881,6 +892,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
             }
         }
         
+        _inputLoopThread = null;
         return null;
     }
     
@@ -1007,28 +1019,19 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         }
     }
     
+    // Volatile flag set by the input loop when ESC is detected. The engine can
+    // read this without stealing keys from the console input loop.
+    private volatile bool _escapeFlag;
+
     public override bool IsEscapePressed()
     {
-        bool escapePressed = false;
-        // Console input is a shared resource with the input loop — read under
-        // _writeLock so we never race ReadKey/KeyAvailable against rendering
-        // or the input loop.
-        lock (_writeLock)
+        // Check the flag set by the input loop — do NOT call Console.ReadKey
+        // from here (foreign thread), as that races the input loop and drops keys.
+        if (_escapeFlag)
         {
-            try
-            {
-                if (Console.KeyAvailable)
-                {
-                    var key = Console.ReadKey(true);
-                    escapePressed = key.Key == ConsoleKey.Escape;
-                }
-            }
-            catch (InvalidOperationException) { }
+            _escapeFlag = false;
+            return true;
         }
-
-        if (escapePressed)
-            _onEscape?.Invoke();
-
-        return escapePressed;
+        return false;
     }
 }

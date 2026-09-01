@@ -85,10 +85,15 @@ public abstract class BaseLayer
     /// <summary>Update screen dimensions (called by EGuiConsole on resize or bind).</summary>
     public void UpdateDimensions(int width, int height)
     {
-        _screenWidth = width;
-        _screenHeight = height;
-        _outputRegionStart = 0;
-        _outputRegionEnd = height - 3;
+        // L8: protect dimension updates with _stateLock so background threads
+        // reading visible rows see consistent dimensions.
+        lock (_stateLock)
+        {
+            _screenWidth = width;
+            _screenHeight = height;
+            _outputRegionStart = 0;
+            _outputRegionEnd = height - 3;
+        }
     }
     
     // ═══════════════════════════════════════════════════
@@ -350,7 +355,7 @@ public abstract class BaseLayer
         bool isCommand = input.StartsWith("/");
         if (!isCommand) return false;
         
-        var cmd = input[1..].ToLower().Trim();
+        var cmd = input[1..].ToLowerInvariant().Trim();
         
         switch (cmd)
         {
@@ -427,6 +432,25 @@ public abstract class BaseLayer
                 cutIdx = i;
                 break;
             }
+        }
+        // L2: if the string ended while still inside an escape sequence (unterminated OSC),
+        // inEscape may still be true and cutIdx may be 0 — reset and truncate at the visible boundary.
+        if (cutIdx == 0 && inEscape)
+        {
+            int visibleEnd = Math.Min(maxWidth, visible.Length);
+            int pos = 0; int vis = 0;
+            bool esc = false;
+            while (pos < text.Length && vis < visibleEnd)
+            {
+                if (text[pos] == '') { esc = true; pos++; continue; }
+                if (esc)
+                {
+                    if (text[pos] >= '@' && text[pos] <= '~') esc = false;
+                    pos++; continue;
+                }
+                vis++; pos++;
+            }
+            cutIdx = pos;
         }
         return text.Substring(0, cutIdx) + "\x1b[0m [...]\x1b[0m";
     }

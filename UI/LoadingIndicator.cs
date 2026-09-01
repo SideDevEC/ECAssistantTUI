@@ -38,12 +38,19 @@ public class LoadingIndicator : IDisposable
 
     public void Stop()
     {
+        // M9: guard against Stop() before Start() — nothing to clear.
+        if (string.IsNullOrEmpty(_currentLine)) return;
+
         // Remove the loading line via EGuiConsole (buffering/layer/term path);
         // raw fallback only for foreign IGuiConsole implementations.
+        // M9: ClearLoadingLine only works when the line is still the last one in the
+        // buffer. If other output was added after the loading line, it won't match —
+        // in that case the line stays in history (harmless, it's just a status line).
         if (_egui != null)
             _egui.ClearLoadingLine(_currentLine);
         else
             _gui.WriteRaw("\r\x1b[2K");
+        _currentLine = "";
     }
 
     private void Write(string line, string? previous = null)

@@ -67,6 +67,9 @@ public class BaseLayerAnsiTests
     }
 
     [Fact]
+    // L9: The bounds here are loose (10 + 10) because TruncateAnsi appends "\x1b[0m [...]\x1b[0m"
+    // and the exact visible length depends on how many ANSI codes precede the cut point.
+    [Fact]
     public void TruncateAnsi_LongText_TruncatesWithIndicator()
     {
         string input = "\x1b[31mThis is a very long red text that exceeds the limit\x1b[0m";

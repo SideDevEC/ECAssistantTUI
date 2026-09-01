@@ -105,7 +105,7 @@ public sealed class ConfigLayer : BaseLayer
         
         // ── Footer ──
         AddOutputLine($"{_color.Dim}  ────────────────────────────────────────{_color.Reset}");
-        AddOutputLine($"{_color.Dim}  Press Enter or ESC to return{_color.Reset}");
+        AddOutputLine($"{_color.Dim}  Press ESC to return{_color.Reset}");
     }
     
     private void AddConfigProperty(string label, object? value)

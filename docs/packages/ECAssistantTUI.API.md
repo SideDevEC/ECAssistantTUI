@@ -1,6 +1,6 @@
 # ECAssistantTUI.API.md
 
-Types: 20  |  LOC: 3372  |  ~1519 tokens
+Types: 20  |  LOC: 3480  |  ~1523 tokens
 
 ---
 
@@ -95,7 +95,7 @@ Cross-package deps: ECAssistant.Core, ECAssistant.Core.Config
 
 ### Class: ConsoleTerminalOutput
 > ITerminalOutput implementation using System.Console.
-Implements: ITerminalOutput
+Implements: ITerminalOutput, IDisposable
 
 ### Class: ConsoleUiRenderer
 > Bridges Core's IOutputListener to a SessionLayer's buffer.

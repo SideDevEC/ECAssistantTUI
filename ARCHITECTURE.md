@@ -1,6 +1,6 @@
 # ECAssistant TUI — Architecture
 
-**Updated:** 2026-09-01 (v12.10 — full code audit: 26 bugs fixed — ConcurrentDictionary, prompt queue, ESC flag, ToLowerInvariant, loading indicator)
+**Updated:** 2026-09-02 (v14.7 — consumes LLMDecision from Core, no tag parsing in TUI layer)
 **Build:** 0 errors, 0 warnings
 **Tests:** 66/66 passing
 **Namespace:** `ECAssistant.TUI.*`

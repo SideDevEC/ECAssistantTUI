@@ -3,8 +3,8 @@
 **Updated:** 2026-08-16 (v11.1)
 **Build:** 0 errors, 0 warnings
 **Tests:** 66/66 passing
-**Repo:** https://github.com/LLamaDudeX/ECAssistantTUI.git
-**Core repo:** https://github.com/LLamaDudeX/ECAssistantCore.git
+**Repo:** https://github.com/SideDevEC/ECAssistantTUI.git
+**Core repo:** https://github.com/SideDevEC/ECAssistantCore.git
 **Namespace:** `ECAssistant.TUI.*`
 
 ## What It Is

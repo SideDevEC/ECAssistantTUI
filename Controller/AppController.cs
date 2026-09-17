@@ -5,6 +5,7 @@ using ECAssistant.Core.Engine;
 using ECAssistant.Core.Orchestration;
 using ECAssistant.Core.Setup;
 using ECAssistant.Core.Tools;
+using ECAssistant.Core.Config;
 using ECAssistant.Core.Tools.Shell;
 using ECAssistant.Core.Tools.Background;
 using ECAssistant.TUI.UI;
@@ -29,8 +30,9 @@ namespace ECAssistant.TUI.Controller;
 public sealed class AppController : IAppController
 {
     // ── Dependencies (injected from Program.cs) ──
-    private readonly EAgentConfig _config;
-    private readonly string _modelPath;
+    // Mutable: reloaded after /reinstall so the fresh config takes effect without an app restart.
+    private EAgentConfig _config;
+    private string _modelPath;
 
     /// <summary>
     /// Access the active session's vector memory store.
@@ -179,8 +181,9 @@ public sealed class AppController : IAppController
     {
         try
         {
-            var llmRoot = Path.Combine(_userConfigDir, "llm");
+            var llmRoot = PathExpander.Default.Expand("~/.ECAssistantLLM");
             var modelsDir = Path.Combine(llmRoot, "models");
+            var serverBinaryPath = Path.Combine(llmRoot, "server", "ECAssistant.LLM.dll");
             var catalogPath = Path.Combine(_workingDir, "model-catalog.json");
             var serverConfigPath = Path.Combine(llmRoot, "llm-server.json");
             var appsettingsPath = Path.Combine(_userConfigDir, "appsettings.json");
@@ -193,9 +196,9 @@ public sealed class AppController : IAppController
                 return;
             }
 
-            var detector = new FirstRunDetector(modelsDir, serverConfigPath);
+            var detector = new FirstRunDetector(modelsDir, serverConfigPath, serverBinaryPath);
             var status = detector.Evaluate(catalog.Models);
-            if (onlyIfNeeded && !status.NeedsSetup) return;
+            if (onlyIfNeeded && !status.NeedsSetup && !status.NeedsServerBinary) return;
 
             // Heads-up when first-run fires but a previous setup exists (remote config, etc.)
             if (File.Exists(appsettingsPath))
@@ -206,6 +209,9 @@ public sealed class AppController : IAppController
                         "[Setup] Detected a previous AI configuration — the wizard below will replace it. " +
                         "(Use /reinstall for a full reset.)" + _color.Reset);
             }
+
+            // ── Step 0: Ensure server binary is installed from NuGet content ──
+            EnsureServerBinaryInstalled(llmRoot);
 
             using var http = new HttpClient();
             http.DefaultRequestHeaders.UserAgent.ParseAdd("ECAssistant-Installer/1.0");
@@ -230,6 +236,32 @@ public sealed class AppController : IAppController
             _logger.Error("Setup", $"First-run setup failed: {ex}");
             _console.WriteLineColored(_color.Yellow + $"[Setup] First-run setup skipped: {ex.Message}" + _color.Reset);
         }
+    }
+
+    /// <summary>
+    /// Ensure the LLM server binary is installed from the app's NuGet-populated content
+    /// directory to the shared location (~/.ECAssistantLLM/server/).
+    /// Wizard-time only — ServerLauncher never references the app content directory.
+    /// </summary>
+    private void EnsureServerBinaryInstalled(string llmRoot)
+    {
+        var targetServerDir = Path.Combine(llmRoot, "server");
+        var sourceServerDir = Path.Combine(AppContext.BaseDirectory, "server");
+
+        var installer = new ServerBinaryInstaller(sourceServerDir, targetServerDir);
+
+        if (installer.IsInstalled())
+            return;
+
+        if (!installer.IsSourceAvailable())
+        {
+            _console.WriteLineColored(_color.Yellow + "[Setup] LLM server binary not found in app content." + _color.Reset);
+            _console.WriteLineColored(_color.Yellow + "[Setup] Ensure the ECAssistant.LLM.Server NuGet package is referenced." + _color.Reset);
+            return;
+        }
+
+        installer.Install();
+        _console.WriteLineColored(_color.Cyan + $"[Setup] LLM server binary installed to {targetServerDir}" + _color.Reset);
     }
 
     /// <summary>
@@ -286,20 +318,7 @@ public sealed class AppController : IAppController
             activeKey = await _sessionManager.LoadSessionsFromDiskAsync(async (session) =>
             {
                 loading.UpdateLabel($"Initializing session '{session.Key}'");
-                var builder = new SessionBuilder(_config, _workingDir, _userConfigDir, _logger, _bgMgr);
-
-                var layer = new SessionLayer(session.Key);
-                layer.CoreSession = session;
-                layer.Color = _color;
-                layer.WorkingDir = _workingDir;
-                _layers[layer.Name] = layer;
-                _sessionLayers[session.Key] = layer;
-
-                var renderer = new ConsoleUiRenderer(layer, _color, session.GetStreamBuffer, (msg) => PromptApproval(msg));
-                session.AddListener(renderer);
-                _renderers[session.Key] = renderer;
-
-                await builder.BuildAsync(session, _externalTools);
+                await WireSessionAsync(session);
             });
         }
         catch (ModelLoadException mle)
@@ -951,6 +970,8 @@ public sealed class AppController : IAppController
     /// /reinstall — reset AI configuration to first-run state: stop LLM server, delete API keys,
     /// reset provider config, delete generated server config (models are kept),
     /// then re-run the installation wizard. Requires explicit yes/no confirmation.
+    /// After the wizard completes, the runtime is rebuilt from the fresh config
+    /// so no app restart is needed.
     /// </summary>
     private async Task ReinstallAsync()
     {
@@ -1001,6 +1022,135 @@ public sealed class AppController : IAppController
 
         // 3. Back to the installation wizard
         await RunSetupFlowAsync(onlyIfNeeded: false);
+
+        // 4. Rebuild the runtime from the fresh config — no app restart needed.
+        await ReloadAfterSetupAsync();
+    }
+
+    /// <summary>
+    /// Rebuilds config, session manager, sessions and layers from the current
+    /// on-disk configuration (appsettings.json). Called after /reinstall so the
+    /// new setup takes effect immediately, without an app restart.
+    /// </summary>
+    public async Task ReloadAfterSetupAsync()
+    {
+        _console.WriteLineColored(_color.Cyan + _color.Bold + "[Setup] Applying new configuration…" + _color.Reset);
+
+        // 1. Tear down old runtime state
+        foreach (var renderer in _renderers.Values)
+            renderer.Dispose();
+        _renderers.Clear();
+        if (_sessionManager != null)
+        {
+            _sessionManager.StopAll();
+            try { await _sessionManager.DisposeAsync(); }
+            catch (Exception ex)
+            {
+                _logger.Error("Reload", $"Dispose error: {ex.Message}");
+            }
+        }
+        _sessionManager = null;
+        foreach (var key in _sessionLayers.Keys)
+            _layers.TryRemove($"session:{key}", out _);
+        _sessionLayers.Clear();
+
+        // 2. Load fresh config from disk (same loader the composition root uses)
+        var appsettingsPath = Path.Combine(_userConfigDir, "appsettings.json");
+        _config = new ConfigLoader(new FileSystemAdapter()).Load(appsettingsPath);
+        _modelPath = ResolveModelPath(_config);
+
+        // 3. Rebuild sessions + layers (same wiring as startup)
+        var discovered = new SessionDiscovery().DiscoverSessions(_workingDir);
+        _sessionManager = new SessionManager(_config, _modelPath, _workingDir, _logger);
+        try
+        {
+            await _sessionManager.InitializeAsync();
+        }
+        catch (Exception ex)
+        {
+            _console.WriteLineColored(_color.Red + $"[Setup] Runtime rebuild failed: {ex.Message}" + _color.Reset);
+            _console.WriteLineColored(_color.Yellow + "Fix the configuration in appsettings.json and restart." + _color.Reset);
+            return;
+        }
+
+        var loading = new LoadingIndicator(_console, _color);
+        loading.Start("Loading model weights");
+        string activeKey;
+        try
+        {
+            activeKey = await _sessionManager.LoadSessionsFromDiskAsync(async (session) =>
+            {
+                loading.UpdateLabel($"Initializing session '{session.Key}'");
+                await WireSessionAsync(session);
+            });
+        }
+        catch (Exception ex)
+        {
+            loading.Stop();
+            _console.WriteLineColored(_color.Red + $"[Setup] Session load failed: {ex.Message}" + _color.Reset);
+            _logger.Error("Reload", $"Session load failed: {ex}");
+            return;
+        }
+        loading.Stop();
+
+        // 4. Switch to the active session layer
+        _console.InitConsole();
+        var activeSession = _sessionManager.ActiveSession ?? _sessionManager.Main;
+        if (activeSession != null && _layers.TryGetValue($"session:{activeKey}", out var layerToBind))
+        {
+            SwitchToLayer($"session:{activeKey}");
+            _console.WriteLineColored(_color.Green + _color.Bold + "[Ready] New configuration applied." + _color.Reset);
+            _console.BlankLine();
+        }
+        else
+        {
+            _console.SetActiveLayer(_startupLayer);
+            _activeLayer = _startupLayer;
+            _console.WriteLineColored(_color.Green + _color.Bold + "[Ready] New configuration applied — home screen." + _color.Reset);
+        }
+
+        _console.SetSilentInputCheck(() =>
+        {
+            var s = _sessionManager?.ActiveSession;
+            return s != null && s.RunState == SessionRunState.Running;
+        });
+        if (_sessionManager.IsLocalMode)
+            _sessionManager.StartIdleWatchdog(idleTimeoutMin: 15);
+    }
+
+    /// <summary>Resolve the model path the same way EcaCompositionRoot does
+    /// (rooted → as-is; relative → workdir, then llm/models/).</summary>
+    private string ResolveModelPath(EAgentConfig config)
+    {
+        var modelPath = config.Llm.ModelPath;
+        if (Path.IsPathRooted(modelPath))
+            return modelPath;
+        var inWorkDir = Path.Combine(_userConfigDir, modelPath);
+        var llmRoot = PathExpander.Default.Expand("~/.ECAssistantLLM");
+        var inLlmModels = Path.Combine(llmRoot, "models", Path.GetFileName(modelPath));
+        if (File.Exists(inWorkDir)) return inWorkDir;
+        if (File.Exists(inLlmModels)) return inLlmModels;
+        return inWorkDir;
+    }
+
+    /// <summary>Wire a core session to its layer, renderer and builder (shared by
+    /// startup and post-reinstall reload).</summary>
+    private async Task WireSessionAsync(AgentSession session)
+    {
+        var builder = new SessionBuilder(_config, _workingDir, _userConfigDir, _logger, _bgMgr);
+
+        var layer = new SessionLayer(session.Key);
+        layer.CoreSession = session;
+        layer.Color = _color;
+        layer.WorkingDir = _workingDir;
+        _layers[layer.Name] = layer;
+        _sessionLayers[session.Key] = layer;
+
+        var renderer = new ConsoleUiRenderer(layer, _color, session.GetStreamBuffer, (msg) => PromptApproval(msg));
+        session.AddListener(renderer);
+        _renderers[session.Key] = renderer;
+
+        await builder.BuildAsync(session, _externalTools);
     }
 
     /// <summary>Polls the LLM server health endpoint until it stops responding (server down) or the timeout expires.</summary>

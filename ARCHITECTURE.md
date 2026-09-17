@@ -191,6 +191,13 @@ The TUI was updated to match the new Core HTTP-based engine surface:
 - Catalog source: `model-catalog.json` in app root (auto-created with defaults, user-editable)
 - All failures are non-fatal — setup is wrapped in try/catch and never blocks startup
 
+## Changelog — 2026-09-02 (post-reinstall hot reload)
+
+- **AppController.ReloadAfterSetupAsync()** — after `/reinstall` + wizard, the runtime rebuilds in place: dispose renderers/sessions/SessionManager → reload `EAgentConfig` from appsettings.json via `ConfigLoader` → re-resolve model path (`ResolveModelPath`, mirrors EcaCompositionRoot rules) → rebuild sessions via shared `WireSessionAsync()` → switch to active session layer. No app restart needed.
+- **WireSessionAsync(session)** — session→layer/renderer/builder wiring extracted; shared by `InitializeAppAsync` and reload path (no duplicated logic).
+- `_config`/`_modelPath` fields now mutable (reloaded after setup).
+- Regenerated API-INDEX via LDC generator.
+
 ## Changelog — 2026-08-27 (Installer Wizard + /menu)
 
 - **FirstRunWizard**: local/remote AI choice; remote = endpoint/key/model/embedding-model + live connection test, key encrypted via SecureKeyStore.SetKey (keyfile: ref); local = catalog + internet/disk pre-flight, retry ×3, GPU preference → gpu_layers, memory estimates, embeddings ensure, post-install test, model removal

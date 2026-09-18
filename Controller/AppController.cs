@@ -181,54 +181,12 @@ public sealed class AppController : IAppController
     {
         try
         {
-            var llmRoot = PathExpander.Default.Expand("~/.ECAssistantLLM");
-            var modelsDir = Path.Combine(llmRoot, "models");
-            var serverBinaryPath = Path.Combine(llmRoot, "server", "ECAssistant.LLM.dll");
-            var catalogPath = Path.Combine(_workingDir, "model-catalog.json");
-            var serverConfigPath = Path.Combine(llmRoot, "llm-server.json");
-            var appsettingsPath = Path.Combine(_userConfigDir, "appsettings.json");
-
-            var catalog = ModelCatalogDocument.Load(catalogPath);
-            var validationError = catalog.Validate();
-            if (validationError != null)
-            {
-                _console.WriteLineColored(_color.Yellow + $"[Setup] model-catalog.json is invalid: {validationError} — skipping first-run setup." + _color.Reset);
-                return;
-            }
-
-            var detector = new FirstRunDetector(modelsDir, serverConfigPath, serverBinaryPath);
-            var status = detector.Evaluate(catalog.Models);
-            if (onlyIfNeeded && !status.NeedsSetup && !status.NeedsServerBinary) return;
-
-            // Heads-up when first-run fires but a previous setup exists (remote config, etc.)
-            if (File.Exists(appsettingsPath))
-            {
-                var existing = File.ReadAllText(appsettingsPath);
-                if (existing.Contains("\"llm_providers\"", StringComparison.OrdinalIgnoreCase))
-                    _console.WriteLineColored(_color.Yellow +
-                        "[Setup] Detected a previous AI configuration — the wizard below will replace it. " +
-                        "(Use /reinstall for a full reset.)" + _color.Reset);
-            }
-
-            // ── Step 0: Ensure server binary is installed from NuGet content ──
-            EnsureServerBinaryInstalled(llmRoot);
-
-            using var http = new HttpClient();
-            http.DefaultRequestHeaders.UserAgent.ParseAdd("ECAssistant-Installer/1.0");
-            var installer = new ModelInstallerService(http, modelsDir, serverConfigPath, appsettingsPath);
-            // v12.7: TUI and Console share the SAME staged installer wizard (initial install == /reinstall).
-            var wizard = new SetupWizard(new TuiSetupUi(_console));
-            await wizard.RunAsync(new WizardContext
-            {
-                AppsettingsPath = appsettingsPath,
-                UserConfigDir = _userConfigDir,
-                Catalog = catalog,
-                InstalledEntryIds = status.InstalledEntryIds,
-                Installer = installer,
-                Probe = new RemoteModelProbe(),
-                GpuLayers = 0,
-                ModelsDir = modelsDir
-            });
+            // v12.9: TUI and Console share the SAME Core orchestrator (detect → wizard).
+            // The LLM server is installed by the wizard exactly when a local path
+            // (local chat model OR local embeddings) is chosen — never before, never for
+            // pure remote users. /reinstall keeps models and re-runs this same flow.
+            var orchestrator = new FirstRunOrchestrator(_userConfigDir, new TuiSetupUi(_console));
+            await orchestrator.RunIfNeededAsync().ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -236,32 +194,6 @@ public sealed class AppController : IAppController
             _logger.Error("Setup", $"First-run setup failed: {ex}");
             _console.WriteLineColored(_color.Yellow + $"[Setup] First-run setup skipped: {ex.Message}" + _color.Reset);
         }
-    }
-
-    /// <summary>
-    /// Ensure the LLM server binary is installed from the app's NuGet-populated content
-    /// directory to the shared location (~/.ECAssistantLLM/server/).
-    /// Wizard-time only — ServerLauncher never references the app content directory.
-    /// </summary>
-    private void EnsureServerBinaryInstalled(string llmRoot)
-    {
-        var targetServerDir = Path.Combine(llmRoot, "server");
-        var sourceServerDir = Path.Combine(AppContext.BaseDirectory, "server");
-
-        var installer = new ServerBinaryInstaller(sourceServerDir, targetServerDir);
-
-        if (installer.IsInstalled())
-            return;
-
-        if (!installer.IsSourceAvailable())
-        {
-            _console.WriteLineColored(_color.Yellow + "[Setup] LLM server binary not found in app content." + _color.Reset);
-            _console.WriteLineColored(_color.Yellow + "[Setup] Ensure the ECAssistant.LLM.Server NuGet package is referenced." + _color.Reset);
-            return;
-        }
-
-        installer.Install();
-        _console.WriteLineColored(_color.Cyan + $"[Setup] LLM server binary installed to {targetServerDir}" + _color.Reset);
     }
 
     /// <summary>

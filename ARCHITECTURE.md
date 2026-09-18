@@ -183,13 +183,18 @@ The TUI was updated to match the new Core HTTP-based engine surface:
 | `BaseLayerBufferTests.cs` | 10 | AddOutputLine, multi-line, scroll reset, clear |
 | `LayerTests.cs` | 21 | SessionLayer, HelpLayer, StartupLayer, ConfigLayer, scroll, live stream |
 | `ConsoleUiRendererTests.cs` | 16 | OnOutput tags, stream, RenderHistory, writes to SessionLayer |
-## First-Run Setup Wizard (2026-08-27)
+## First-Run Setup (v12.9 — shared Core orchestrator)
 
-- `Controller/FirstRunWizard.cs` — shown by `AppController.InitializeAppAsync` before session init when `FirstRunDetector` reports no usable models
-- Grouped numbered list (chat / vision / embedding, ★ = recommended); each line shows only name, size (GB), license type and installed indicator; installed models render in green; picks `1,3` / `a` (all recommended) / Enter to skip
-- Downloads via Core `ModelInstallerService` with per-percent progress bars; results merged into `llm-server.json` automatically
-- Catalog source: `model-catalog.json` in app root (auto-created with defaults, user-editable)
-- All failures are non-fatal — setup is wrapped in try/catch and never blocks startup
+- `AppController.RunSetupFlowAsync` now delegates to **`FirstRunOrchestrator` (Core)** — the exact same detect→wizard flow the Console host uses; TUI keeps no setup logic of its own
+- Wizard stages (Core `SetupWizard` via `TuiSetupUi`): LLM local/remote → embeddings; **server binary install happens inside the wizard** (`ServerInstallCoordinator` + `NuGetServerFetcher` from Core) exactly when local chat OR local embeddings is chosen — never for pure-remote users
+- `/reinstall` unchanged in UX: y/n confirm → stop server (verified) → config/keys reset (models kept) → shared wizard re-run → `ReloadAfterSetupAsync()` hot rebuild, no app restart
+- Interactive version/foreign-install prompts (VERSION stamp mismatch, foreign `~/.ECAssistantLLM` layout) are rendered through `TuiSetupUi`
+- All failures non-fatal — setup never blocks startup
+
+## Changelog — 2026-09-18 (v12.9 setup refactor)
+
+- Setup orchestration moved to Core (`FirstRunOrchestrator`); `AppController.RunSetupFlowAsync` is a thin delegation
+- Removed TUI-side `EnsureServerBinaryInstalled` — server install is wizard-time (`ServerInstallCoordinator`), conditional on local chat/local embeddings, fetched from nuget.org (no embedded DLLs)
 
 ## Changelog — 2026-09-02 (post-reinstall hot reload)
 

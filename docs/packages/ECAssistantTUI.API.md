@@ -1,6 +1,6 @@
 # ECAssistantTUI.API.md
 
-Types: 20  |  LOC: 3480  |  ~1523 tokens
+Types: 20  |  LOC: 3591  |  ~1529 tokens
 
 ---
 
@@ -72,7 +72,7 @@ Cross-package deps: ECAssistant.TUI.Input, Xunit
 Implements: IAppController
 Constructor:
   - AppController(IGuiConsole console, EAgentConfig config, string modelPath, string workingDir, string userConfigDir, ILogger logger, IGuiConsole console, EAgentConfig config, string modelPath, string workingDir, string userConfigDir, ILogger logger, List<EToolBase>? externalTools, IGuiConsole console, EAgentConfig config, string modelPath, string workingDir, string userConfigDir, ILogger logger, List<EToolBase>? externalTools, BackgroundProcessManager? backgroundProcesses, FileWatcherService? fileWatcher, IAiSetupResetter? setupResetter = null)
-Cross-package deps: ECAssistant.Core, ECAssistant.Core.Config, ECAssistant.Core.Engine, ECAssistant.Core.Orchestration, ECAssistant.Core.Setup, ECAssistant.Core.Tools, ECAssistant.Core.Tools.Shell, ECAssistant.Core.Tools.Background, ECAssistant.TUI.UI, ECAssistant.Core.Session, ECAssistant.TUI.Session, ECAssistant.Core.Services, ECAssistant.Core.Analysis, ECAssistant.Core.Interfaces
+Cross-package deps: ECAssistant.Core, ECAssistant.Core.Config, ECAssistant.Core.Engine, ECAssistant.Core.Orchestration, ECAssistant.Core.Setup, ECAssistant.Core.Tools, ECAssistant.Core.Config, ECAssistant.Core.Tools.Shell, ECAssistant.Core.Tools.Background, ECAssistant.TUI.UI, ECAssistant.Core.Session, ECAssistant.TUI.Session, ECAssistant.Core.Services, ECAssistant.Core.Analysis, ECAssistant.Core.Interfaces
 
 ### Class: BaseLayer
 > Abstract base class for all layers in the EGuiConsole system.

@@ -28,6 +28,15 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - name: Add GitHub Packages source
+        run: |
+          dotnet nuget add source \
+            --username SideDevEC \
+            --password ${{ secrets.GITHUB_TOKEN }} \
+            --store-password-in-clear-text \
+            --name github \
+            https://nuget.pkg.github.com/SideDevEC/index.json
+
       - name: Restore dependencies
         run: dotnet restore ECAssistant.TUI.csproj
 

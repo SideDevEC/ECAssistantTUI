@@ -10,6 +10,20 @@
     <PublishAot>false</PublishAot>
     <SelfContained>false</SelfContained>
     <NoWarn>$(NoWarn);MSB3277</NoWarn>
+    <!-- NuGet package — ECAssistant.TUI is consumed by ECAssistantConsole via PackageReference. -->
+    <IsPackable>true</IsPackable>
+    <PackageId>ECAssistant.TUI</PackageId>
+    <PackageVersion>12.9.0</PackageVersion>
+    <Authors>SideDevEC</Authors>
+    <Company>SideDevEC</Company>
+    <Product>ECAssistant</Product>
+    <PackageTags>ecassistant;tui;terminal;local-llm</PackageTags>
+    <PackageProjectUrl>https://github.com/SideDevEC/ECAssistantTUI</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/SideDevEC/ECAssistantTUI.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <Description>ECAssistant TUI — terminal UI library for the ECAssistant local AI agent.</Description>
   </PropertyGroup>
 
   <ItemGroup>
@@ -17,11 +31,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Core.dll in lib/ (gitignored, built locally) -->
-    <Reference Include="ECAssistant.Core">
-      <HintPath>lib\ECAssistant.Core.dll</HintPath>
-      <Private>true</Private>
-    </Reference>
+    <!-- Core as NuGet package — no lib/ DLLs, no sync step. -->
+    <PackageReference Include="ECAssistant.Core" Version="12.9.0" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.5" />
   </ItemGroup>
 
@@ -42,6 +53,10 @@
     <Compile Include="UI/ConsoleUiRenderer.cs" />
     <Compile Include="UI/ITerminalOutput.cs" />
     <Compile Include="UI/ConsoleTerminalOutput.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="" />
   </ItemGroup>
 
 </Project>

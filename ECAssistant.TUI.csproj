@@ -13,7 +13,7 @@
     <!-- NuGet package — ECAssistant.TUI is consumed by ECAssistantConsole via PackageReference. -->
     <IsPackable>true</IsPackable>
     <PackageId>ECAssistant.TUI</PackageId>
-    <PackageVersion>12.9.0</PackageVersion>
+    <PackageVersion>12.9.1</PackageVersion>
     <Authors>SideDevEC</Authors>
     <Company>SideDevEC</Company>
     <Product>ECAssistant</Product>
@@ -32,7 +32,7 @@
 
   <ItemGroup>
     <!-- Core as NuGet package — no lib/ DLLs, no sync step. -->
-    <PackageReference Include="ECAssistant.Core" Version="12.9.0" />
+    <PackageReference Include="ECAssistant.Core" Version="12.9.1" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.5" />
   </ItemGroup>
 

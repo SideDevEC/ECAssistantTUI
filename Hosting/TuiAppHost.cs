@@ -39,7 +39,7 @@ public static class TuiAppHost
     public static bool IsLocalModelUsable(string userConfigDir)
         => FirstRunOrchestrator.IsLocalModelUsable(
             Path.Combine(userConfigDir, "appsettings.json"),
-            Path.Combine(LlmRoot, "llm-server.json"));
+            Path.Combine(LlmRoot(), "llm-server.json"));
 
     /// <summary>Shared LLM root (~/.ECAssistantLLM).</summary>
     public static string LlmRoot()

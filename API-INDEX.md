@@ -1,6 +1,6 @@
 # API-INDEX.md — ECAssistantTUI
 
-Generated: 2026-09-19T15:43:19.967207+00:00
+Generated: 2026-09-19T15:44:44.567412+00:00
 Packages: 2  |  Types: 26
 
 ---

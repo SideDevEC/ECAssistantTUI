@@ -40,6 +40,7 @@
     <Compile Remove="**/*.cs" />
     <Compile Include="Controller/AppController.cs" />
     <Compile Include="Controller/TuiSetupUi.cs" />
+    <Compile Include="Hosting/TuiAppHost.cs" />
     <Compile Include="Input/AnsiInputParser.cs" />
     <Compile Include="Controller/IAppController.cs" />
     <Compile Include="UI/IGuiConsole.cs" />

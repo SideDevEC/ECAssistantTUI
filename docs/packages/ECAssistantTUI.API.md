@@ -1,6 +1,6 @@
 # ECAssistantTUI.API.md
 
-Types: 20  |  LOC: 3537  |  ~1529 tokens
+Types: 21  |  LOC: 3584  |  ~1589 tokens
 
 ---
 
@@ -146,6 +146,10 @@ Implements: BaseLayer
 Constructor:
   - StartupLayer(EColor color)
 Cross-package deps: ECAssistant.Core
+
+### Class: TuiAppHost
+> Host facade for thin console hosts: the ONLY entry point a host needs to run
+Cross-package deps: ECAssistant.Core, ECAssistant.Core.Composition, ECAssistant.Core.Setup, ECAssistant.TUI.Controller, ECAssistant.TUI.UI
 
 ### Class: TuiSetupUi
 > Adapts the TUI console to the staged installer wizard's ISetupUi abstraction,

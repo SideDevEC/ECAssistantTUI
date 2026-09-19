@@ -1,16 +1,9 @@
 {
   "project": "ECAssistantTUI",
-  "timestamp": "2026-09-19T15:42:28.455747+00:00",
-  "total_violations": 1,
-  "errors": 1,
+  "timestamp": "2026-09-19T15:43:19.967940+00:00",
+  "total_violations": 0,
+  "errors": 0,
   "warnings": 0,
-  "violations": [
-    {
-      "rule": "no-statics",
-      "severity": "error",
-      "file": "Hosting/TuiAppHost.cs",
-      "message": "Static mutable field found in TuiAppHost: static string LlmRoot ="
-    }
-  ],
-  "passed": false
+  "violations": [],
+  "passed": true
 }

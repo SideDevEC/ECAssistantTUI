@@ -42,7 +42,8 @@ public static class TuiAppHost
             Path.Combine(LlmRoot, "llm-server.json"));
 
     /// <summary>Shared LLM root (~/.ECAssistantLLM).</summary>
-    public static string LlmRoot => PathExpander.Default.Expand("~/.ECAssistantLLM");
+    public static string LlmRoot()
+        => PathExpander.Default.Expand("~/.ECAssistantLLM");
 
     /// <summary>
     /// Build the service bundle and hand back a ready-to-run AppController.

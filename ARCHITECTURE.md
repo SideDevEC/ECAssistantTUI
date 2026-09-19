@@ -1,6 +1,6 @@
 # ECAssistant TUI — Architecture
 
-**Updated:** 2026-09-02 (v14.7 — consumes LLMDecision from Core, no tag parsing in TUI layer)
+**Updated:** 2026-09-19 (v12.9.9 — Core 12.9.8 wizard rework: remote GitHub catalog, flat model list with local discovery + on-disk highlight, vision derived not asked; LLM server 14.9.3 with shutdown grace)
 **Build:** 0 errors, 0 warnings
 **Tests:** 66/66 passing
 **Namespace:** `ECAssistant.TUI.*`

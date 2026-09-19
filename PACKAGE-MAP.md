@@ -1,6 +1,6 @@
 # PACKAGE-MAP.md — ECAssistantTUI
 
-Generated: 2026-09-18T16:10:26.740294+00:00
+Generated: 2026-09-19T15:28:50.892853+00:00
 
 ---
 

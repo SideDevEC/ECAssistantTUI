@@ -170,14 +170,16 @@ public sealed class AppController : IAppController
     /// </summary>
     private async Task RunFirstRunSetupIfNeededAsync()
     {
-        await RunSetupFlowAsync(onlyIfNeeded: true);
+        await RunSetupFlowAsync();
     }
 
     /// <summary>
     /// Full installation flow: local/remote choice, model catalog + downloads, config wiring.
-    /// With onlyIfNeeded=false it runs even when models are already configured (/reinstall).
+    /// /reinstall reaches the wizard because ResetAiSetup() deleted the generated server
+    /// config first — RunIfNeededAsync then sees a fresh install. The onlyIfNeeded flag
+    /// is therefore implied by the reset, not by this method.
     /// </summary>
-    private async Task RunSetupFlowAsync(bool onlyIfNeeded)
+    private async Task RunSetupFlowAsync()
     {
         try
         {
@@ -945,7 +947,7 @@ public sealed class AppController : IAppController
 
             // 2. Reset provider config + delete keys + generated server config (models are kept)
             ResetAiSetup();
-            _console.WriteLineColored(_color.Green + "[Reinstall] Setup fully reset — keys, config and models deleted." + _color.Reset);
+            _console.WriteLineColored(_color.Green + "[Reinstall] Setup fully reset — keys and config deleted (models are kept)." + _color.Reset);
         }
         catch (Exception ex)
         {
@@ -953,7 +955,7 @@ public sealed class AppController : IAppController
         }
 
         // 3. Back to the installation wizard
-        await RunSetupFlowAsync(onlyIfNeeded: false);
+        await RunSetupFlowAsync();
 
         // 4. Rebuild the runtime from the fresh config — no app restart needed.
         await ReloadAfterSetupAsync();

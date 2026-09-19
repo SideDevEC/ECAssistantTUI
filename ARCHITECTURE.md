@@ -225,15 +225,12 @@ The TUI was updated to match the new Core HTTP-based engine surface:
 - Case-preserving command parsing (session names case-insensitive-friendly), ANSI-safe line wrapping, crash guard on bare `/` input
 - Root-only runtime contract: no dev base-dir model fallback
 
-## Addendum — TuiAppHost host facade (12.9.9)
+## Addendum — dependency chain rule (12.9.9)
 
-`ECAssistant.TUI.Hosting.TuiAppHost` is the ONLY surface thin hosts use to launch
-the chat app: `RunFirstRunSetupAsync`, `IsRemoteModeConfigured`, `IsLocalModelUsable`,
-`CreateApp` (composition root → ready AppController), `LlmRoot`.
-
-Purpose: enforce the strict dependency chain Console → TUI → Core. Core types stay
-internal to the TUI; hosts cannot reach past the facade. The Console main csproj
-now references ECAssistant.TUI exclusively.
+**Rule (Emre):** Console → TUI → Core as a pure package chain. The Console csproj
+references `ECAssistant.TUI` ONLY — Core arrives transitively (and remains directly
+usable by hosts; nothing is hidden or wrapped). This guarantees the Console always
+runs against the TUI's pinned Core version — no stale-Core escape hatch.
 
 ⚠ csproj note: the TUI project uses an explicit `Compile Include` whitelist — new
 files MUST be added there or they are silently not compiled (bit us once today).

@@ -85,7 +85,6 @@ public class ConsoleUiRendererTests
         Assert.DoesNotContain("[SYS]", line);
     }
 
-    [Fact]
     // L9: This test is vacuous — OnStreamStart with no _streamBufferGetter just disposes
     // a null timer and returns. It asserts nothing meaningful (Assert.True(true)).
     // Kept as a smoke test to ensure no NullReferenceException on the null getter path.

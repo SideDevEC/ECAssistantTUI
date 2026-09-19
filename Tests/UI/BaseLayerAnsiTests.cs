@@ -66,7 +66,6 @@ public class BaseLayerAnsiTests
         Assert.Equal(input, BaseLayer.TruncateAnsi(input, 50));
     }
 
-    [Fact]
     // L9: The bounds here are loose (10 + 10) because TruncateAnsi appends "\x1b[0m [...]\x1b[0m"
     // and the exact visible length depends on how many ANSI codes precede the cut point.
     [Fact]

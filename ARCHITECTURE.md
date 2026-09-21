@@ -1,8 +1,8 @@
 # ECAssistant TUI — Architecture
 
-**Updated:** 2026-09-21 (v12.9.10 — Core 12.9.9 process-backend fix + always-alive server; LLM server 14.9.5)
+**Updated:** 2026-09-21 (evening — terminal restore on all exit paths + non-ANSI cursor-escape guard; Core 12.9 probe timeout 12s)
 **Build:** 0 errors, 0 warnings
-**Tests:** 66/66 passing
+**Tests:** 76/76 passing
 **Namespace:** `ECAssistant.TUI.*`
 
 ## Overview
@@ -62,6 +62,10 @@ public interface IGuiConsole
     void SetActiveLayer(BaseLayer? layer);
     void InitConsole();
     void ShutdownConsole();
+    // RestoreTerminal: idempotent — leaves alt screen, shows cursor, clears mouse
+    // modes (1000/1002/1003/1006). Routed from graceful shutdown AND from
+    // ProcessExit / CancelKeyPress hooks, so init-failure, crash and Ctrl-C exits
+    // can no longer leak terminal state into the next launch.
     void Quit();
     bool IsQuitRequested { get; }
     void RequestRepaint();
@@ -234,3 +238,18 @@ runs against the TUI's pinned Core version — no stale-Core escape hatch.
 
 ⚠ csproj note: the TUI project uses an explicit `Compile Include` whitelist — new
 files MUST be added there or they are silently not compiled (bit us once today).
+
+## Changelog — 2026-09-21 (terminal restore hardening)
+
+- **EGuiConsole.RestoreTerminal()** (new, idempotent): leaves the alternate screen
+  (`?1049l`), restores the cursor (`?25h`), clears mouse modes (1000/1002/1003/1006).
+  Graceful shutdown, `AppDomain.ProcessExit` and `Console.CancelKeyPress` all route here.
+- **All exit paths restore now**: init failure / unhandled exception / Ctrl-C used to
+  exit without `ShutdownConsole()` — hidden cursor + alt-screen state poisoned the
+  next launch (overwrote older scrollback output, cursor stranded mid-screen).
+- **PositionCursorAtInput no-ops without ANSI support**: raw cursor-position escapes
+  (`ESC[row;colH`) used to be written in plain line mode, landing mid-scrollback.
+- **AppController.ShutdownTerminal()**: public terminal-only restore for the host's
+  try/finally path (ConsoleApplication wraps RunAsync).
+- **Verified via PTY harness**: `?1049h` enter → TUI → `/exit` → `?1049l` + `ESC[H 2J 3J`
+  + "Session ended." on a clean prompt; non-ANSI path writes 0 cursor escapes.

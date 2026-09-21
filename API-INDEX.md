@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantTUI
 
-Generated: 2026-09-19T16:01:04.991775+00:00
+Generated: 2026-09-21T16:04:45.991012+00:00
 Packages: 2  |  Types: 25
 
 ---
 
-## ECAssistantTUI (20 types, ~3537 LOC)
+## ECAssistantTUI (20 types, ~3583 LOC)
 
 - 🔵 IAppController  (ECAssistantTUI)
 - 🔵 IGuiConsole  (ECAssistantTUI)
@@ -28,7 +28,7 @@ Packages: 2  |  Types: 25
 - 🟡 StartupLayer : BaseLayer  (ECAssistantTUI)  deps: [EColor]
 - 🟡 TuiSetupUi : ISetupUi  (ECAssistantTUI)  deps: [IGuiConsole]
 
-## Tests (5 types, ~690 LOC)
+## Tests (5 types, ~688 LOC)
 
 - 🟡 AnsiInputParserTests  (Tests)
 - 🟡 BaseLayerAnsiTests  (Tests)

@@ -62,6 +62,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     // Before InitConsole(), output is queued here instead of written to terminal.
     private readonly List<string> _startupBuffer = new();
     private bool _bufferingMode = true;
+    private bool _altScreenActive = false;
     
     // ── Active layer ──
     private BaseLayer? _activeLayer;
@@ -107,6 +108,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         // 1000/1002/1003 (tracking variants) + 1006 (SGR). Nothing arrives afterwards.
         _term.Write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l");
         _term.Write("\x1b[?1049h\x1b[?25l");
+        _altScreenActive = true;
         _term.Flush();
         
         UpdateDimensions();
@@ -149,6 +151,15 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         if (!_ansiSupported) return;
         
         _term.Write("\x1b[?1000l\x1b[?25h\x1b[?1049l");
+        _altScreenActive = false;
+        _term.Flush();
+
+        // Clean exit: the pre-TUI phase (boot banners, setup wizard, load spinner) wrote
+        // to the normal screen, and all of it sits in the scrollback the user returns to
+        // on /exit — a wall of mixed text. Clear screen + scrollback so the user lands on
+        // a clean prompt (Emre, 2026-09-21).
+        _term.Write("\x1b[H\x1b[2J\x1b[3J");
+        _term.Write("\x1b[36m[ECAssistant] Session ended.\x1b[0m\r\n");
         _term.Flush();
     }
     
@@ -608,6 +619,13 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     
     public override string? PromptColored(string labelAndText)
     {
+        // Pre-TUI phase (first-run wizard, /reinstall): the alt-screen is not active yet,
+        // so the input-loop's repaint logic would mesh escape sequences with the wizard
+        // output. Use plain terminal reads until InitConsole() starts the real UI.
+        if (!_altScreenActive)
+        {
+            return Console.ReadLine();
+        }
         // If this is called from another thread while the input loop is running,
         // use the pending prompt mechanism to avoid console input conflict.
         if (_inputLoopThread != null && !object.ReferenceEquals(System.Threading.Thread.CurrentThread, _inputLoopThread))
@@ -619,6 +637,11 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
 
     public override string? PromptRaw(string label)
     {
+        // Pre-TUI phase: plain reads (see PromptColored).
+        if (!_altScreenActive)
+        {
+            return Console.ReadLine();
+        }
         // Cross-thread prompt (e.g. installer continuation after await) → route through the input loop
         if (_inputLoopThread != null && !object.ReferenceEquals(System.Threading.Thread.CurrentThread, _inputLoopThread))
         {

@@ -474,6 +474,15 @@ public sealed class AppController : IAppController
                 case "home":
                     GoHome();
                     return;
+
+                case "verbose":
+                case "debug":
+                    SetSessionVerbosity(SessionVerbosity.Verbose);
+                    return;
+
+                case "silent":
+                    SetSessionVerbosity(SessionVerbosity.Silent);
+                    return;
                 
                 case "menu":
                 case "help":
@@ -509,6 +518,21 @@ public sealed class AppController : IAppController
         HandleSessionManagerCommand(input);
     }
     
+    /// <summary>Switch UI verbosity of the active session (/silent, /verbose, /debug).
+    /// Runtime-only — does not persist to appsettings.json.</summary>
+    private void SetSessionVerbosity(SessionVerbosity verbosity)
+    {
+        var s = _sessionManager?.ActiveSession;
+        if (s == null)
+        {
+            _console.WriteLineColored(_color.Yellow + "[Verbosity] No active session." + _color.Reset);
+            return;
+        }
+        s.SetVerbosity(verbosity);
+        var name = verbosity == SessionVerbosity.Silent ? "silent" : "verbose";
+        _console.WriteLineColored(_color.Cyan + $"[Verbosity] Switched to {name} mode." + _color.Reset);
+    }
+
     /// <summary>Called when user hits ESC (with empty input buffer).</summary>
     private void OnEscapePressed()
     {
@@ -773,6 +797,7 @@ public sealed class AppController : IAppController
                     "",
                     $"{_color.Yellow}{_color.Bold}  /reinstall            Reset AI setup (stops server, deletes keys) + reinstall{_color.Reset}",
                     $"{_color.Yellow}{_color.Bold}  /config               Show configuration values{_color.Reset}",
+                    $"{_color.Yellow}{_color.Bold}  /silent /verbose      Toggle output verbosity (default: silent){_color.Reset}",
                     "",
                     footer,
                 };

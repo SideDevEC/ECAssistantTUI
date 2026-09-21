@@ -1,6 +1,6 @@
 # Tests.API.md
 
-Types: 5  |  LOC: 688  |  ~208 tokens
+Types: 6  |  LOC: 743  |  ~248 tokens
 
 ---
 
@@ -19,6 +19,10 @@ Cross-package deps: ECAssistant.Core, ECAssistant.TUI.UI
 ### Class: ConsoleUiRendererTests
 > Tests for ConsoleUiRenderer — verifies it writes to SessionLayer's buffer
 Cross-package deps: ECAssistant.Core, ECAssistant.Core.Session, ECAssistant.TUI.Session, ECAssistant.TUI.UI
+
+### Class: EGuiConsoleTerminalRestoreTests
+> Terminal-restore behavior tests (2026-09-21 fixes): the restore sequence must
+Cross-package deps: ECAssistant.TUI.UI
 
 ### Class: LayerTests
 > Tests for BaseLayer subclasses (SessionLayer, HelpLayer).

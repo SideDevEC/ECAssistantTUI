@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantTUI
 
-Generated: 2026-09-21T16:04:45.991012+00:00
-Packages: 2  |  Types: 25
+Generated: 2026-09-21T16:09:09.769565+00:00
+Packages: 2  |  Types: 27
 
 ---
 
-## ECAssistantTUI (20 types, ~3583 LOC)
+## ECAssistantTUI (21 types, ~3638 LOC)
 
 - 🔵 IAppController  (ECAssistantTUI)
 - 🔵 IGuiConsole  (ECAssistantTUI)
@@ -21,6 +21,7 @@ Packages: 2  |  Types: 25
 - 🟡 ConsoleUiRenderer : IOutputListener, IDisposable  (ECAssistantTUI)  deps: [SessionLayer, EColor, Func, Func]
 - 🟡 ConsoleUiRendererTests  (ECAssistantTUI)
 - 🟡 EGuiConsole : EGuiBase, IGuiConsole  (ECAssistantTUI)  deps: [ITerminalOutput]
+- 🟡 EGuiConsoleTerminalRestoreTests  (ECAssistantTUI)
 - 🟡 HelpLayer : BaseLayer  (ECAssistantTUI)  deps: [EColor, string]
 - 🟡 LayerTests  (ECAssistantTUI)
 - 🟡 LoadingIndicator : IDisposable  (ECAssistantTUI)  deps: [IGuiConsole, EColor]
@@ -28,10 +29,11 @@ Packages: 2  |  Types: 25
 - 🟡 StartupLayer : BaseLayer  (ECAssistantTUI)  deps: [EColor]
 - 🟡 TuiSetupUi : ISetupUi  (ECAssistantTUI)  deps: [IGuiConsole]
 
-## Tests (5 types, ~688 LOC)
+## Tests (6 types, ~743 LOC)
 
 - 🟡 AnsiInputParserTests  (Tests)
 - 🟡 BaseLayerAnsiTests  (Tests)
 - 🟡 BaseLayerBufferTests  (Tests)
 - 🟡 ConsoleUiRendererTests  (Tests)
+- 🟡 EGuiConsoleTerminalRestoreTests  (Tests)
 - 🟡 LayerTests  (Tests)

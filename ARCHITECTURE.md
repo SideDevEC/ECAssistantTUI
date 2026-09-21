@@ -2,7 +2,7 @@
 
 **Updated:** 2026-09-21 (evening — terminal restore on all exit paths + non-ANSI cursor-escape guard; Core 12.9 probe timeout 12s)
 **Build:** 0 errors, 0 warnings
-**Tests:** 76/76 passing
+**Tests:** 78/78 passing
 **Namespace:** `ECAssistant.TUI.*`
 
 ## Overview
@@ -179,7 +179,7 @@ The TUI was updated to match the new Core HTTP-based engine surface:
 - **`ECAssistant.TUI.csproj`** — removed all LLamaSharp packages + `System.Text.Json`; added `Microsoft.Extensions.Logging.Abstractions`.
 - **Build** — fresh Core + TUI DLLs are copied into `lib/` after building Core.
 
-## Test Summary (66 tests)
+## Test Summary (78 tests)
 
 | File | Tests | What |
 |---|---|---|

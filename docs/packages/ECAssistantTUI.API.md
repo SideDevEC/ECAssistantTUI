@@ -1,6 +1,6 @@
 # ECAssistantTUI.API.md
 
-Types: 20  |  LOC: 3583  |  ~1529 tokens
+Types: 21  |  LOC: 3638  |  ~1569 tokens
 
 ---
 
@@ -114,6 +114,10 @@ Implements: EGuiBase, IGuiConsole
 Constructor:
   - EGuiConsole(ITerminalOutput terminal)
 Cross-package deps: ECAssistant.Core, ECAssistant.Core.UI
+
+### Class: EGuiConsoleTerminalRestoreTests
+> Terminal-restore behavior tests (2026-09-21 fixes): the restore sequence must
+Cross-package deps: ECAssistant.TUI.UI
 
 ### Class: HelpLayer
 > Static help content layer. Shows the help screen with all available commands.

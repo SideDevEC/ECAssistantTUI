@@ -63,6 +63,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     private readonly List<string> _startupBuffer = new();
     private bool _bufferingMode = true;
     private bool _altScreenActive = false;
+    private bool _restoreDone = false;
     
     // ── Active layer ──
     private BaseLayer? _activeLayer;
@@ -100,6 +101,8 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
             FlushStartupBuffer();
             return;
         }
+        
+        InstallTerminalRestoreHooks();
         
         // Enter alternate screen buffer + hide cursor. Mouse tracking is deliberately NOT
         // enabled — the terminal handles the mouse natively (native scrollback), so no
@@ -148,9 +151,21 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         _resizeTimer?.Dispose();
         _resizeTimer = null;
         
-        if (!_ansiSupported) return;
+        RestoreTerminal();
+    }
+
+    /// <summary>
+    /// Idempotent terminal restore. Called from the graceful shutdown path AND from
+    /// the ProcessExit hook — covers crash / init-failure / Ctrl-C exits that never
+    /// reach ShutdownAppAsync. Leaves the alt screen, restores the cursor, clears
+    /// mouse modes so a half-dead instance cannot poison the next launch.
+    /// </summary>
+    private void RestoreTerminal()
+    {
+        if (_restoreDone || !_ansiSupported) return;
+        _restoreDone = true;
         
-        _term.Write("\x1b[?1000l\x1b[?25h\x1b[?1049l");
+        _term.Write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?25h\x1b[?1049l");
         _altScreenActive = false;
         _term.Flush();
 
@@ -214,6 +229,18 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     //  ANSI / PLATFORM
     // ═══════════════════════════════════════════════════
     
+    /// <summary>
+    /// Terminal restore on non-graceful exits: init failure (return 1 before the
+    /// input loop), Ctrl-C, and unhandled exceptions. ProcessExit fires on every
+    /// exit; CancelKeyPress fires before the default SIGINT termination. Both are
+    /// no-ops after a successful graceful ShutdownConsole (idempotent guard).
+    /// </summary>
+    private void InstallTerminalRestoreHooks()
+    {
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => RestoreTerminal();
+        Console.CancelKeyPress += (_, _) => RestoreTerminal();
+    }
+
     private bool DetectAnsiSupport()
     {
         if (OperatingSystem.IsWindows())
@@ -470,6 +497,10 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     
     private void PositionCursorAtInput()
     {
+        // Without ANSI support there is no alt screen and no reliable cursor model —
+        // writing raw positioning escapes would land mid-scrollback (overwrites the
+        // user's older terminal output). Plain line mode: cursor simply trails output.
+        if (!_ansiSupported) return;
         string prompt = _activeLayer?.GetInputPrompt() ?? PromptStr;
         int col = prompt.Length + (_silentInput ? 0 : _inputBuffer.Length);
         // Position cursor at end of input, show it

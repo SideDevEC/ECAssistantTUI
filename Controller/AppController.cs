@@ -326,6 +326,12 @@ public sealed class AppController : IAppController
     }
 
     /// <summary>
+    /// Terminal-only restore for exits that never reach the graceful shutdown path
+    /// (init failure, exception). Idempotent — safe to call after ShutdownAppAsync.
+    /// </summary>
+    public void ShutdownTerminal() => _console.ShutdownConsole();
+
+    /// <summary>
     /// Shutdown: stop sessions, disconnect from LLM server, restore console.
     /// </summary>
     private async Task ShutdownAppAsync()

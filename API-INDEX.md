@@ -1,16 +1,17 @@
 # API-INDEX.md — ECAssistantTUI
 
-Generated: 2026-09-21T16:09:09.769565+00:00
-Packages: 2  |  Types: 27
+Generated: 2026-09-21T17:01:03.903732+00:00
+Packages: 2  |  Types: 29
 
 ---
 
-## ECAssistantTUI (21 types, ~3638 LOC)
+## ECAssistantTUI (22 types, ~3835 LOC)
 
 - 🔵 IAppController  (ECAssistantTUI)
 - 🔵 IGuiConsole  (ECAssistantTUI)
 - 🔵 ITerminalOutput  (ECAssistantTUI)
 - 🟡 AnsiInputParser  (ECAssistantTUI)
+- 🟡 AnsiInputParserCursorPasteTests  (ECAssistantTUI)
 - 🟡 AnsiInputParserTests  (ECAssistantTUI)
 - 🟡 AppController : IAppController  (ECAssistantTUI)  deps: [IGuiConsole, EAgentConfig, string, string, string, ILogger, IGuiConsole, EAgentConfig, string, string, string, ILogger, List, IGuiConsole, EAgentConfig, string, string, string, ILogger, List, BackgroundProcessManager, FileWatcherService, IAiSetupResetter? setupResetter =]
 - 🟡 BaseLayer  (ECAssistantTUI)
@@ -29,8 +30,9 @@ Packages: 2  |  Types: 27
 - 🟡 StartupLayer : BaseLayer  (ECAssistantTUI)  deps: [EColor]
 - 🟡 TuiSetupUi : ISetupUi  (ECAssistantTUI)  deps: [IGuiConsole]
 
-## Tests (6 types, ~743 LOC)
+## Tests (7 types, ~852 LOC)
 
+- 🟡 AnsiInputParserCursorPasteTests  (Tests)
 - 🟡 AnsiInputParserTests  (Tests)
 - 🟡 BaseLayerAnsiTests  (Tests)
 - 🟡 BaseLayerBufferTests  (Tests)

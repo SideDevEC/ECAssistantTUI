@@ -1,6 +1,6 @@
 # ECAssistantTUI.API.md
 
-Types: 21  |  LOC: 3638  |  ~1569 tokens
+Types: 22  |  LOC: 3835  |  ~1612 tokens
 
 ---
 
@@ -62,6 +62,10 @@ Methods:
 
 ### Class: AnsiInputParser
 > Terminal input events decoded from ANSI escape sequences.
+
+### Class: AnsiInputParserCursorPasteTests
+> Tests for in-line cursor editing keys (left/right/delete) and bracketed paste
+Cross-package deps: ECAssistant.TUI.Input, Xunit
 
 ### Class: AnsiInputParserTests
 > Regression tests for the ANSI input parser — covers the mouse-scroll garbage bug:

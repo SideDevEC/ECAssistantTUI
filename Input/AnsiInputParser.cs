@@ -10,7 +10,19 @@ public enum AnsiInputEvent
     WheelUp,
     WheelDown,
     ArrowUp,
-    ArrowDown
+    ArrowDown,
+    /// <summary>Cursor left within the input line (CSI C / SS3 C).</summary>
+    ArrowRight,
+    /// <summary>Cursor right within the input line (CSI D / SS3 D).</summary>
+    ArrowLeft,
+    /// <summary>Delete key (CSI 3~).</summary>
+    Delete,
+    /// <summary>Bracketed paste start (CSI 200~).</summary>
+    BracketPasteStart,
+    /// <summary>Bracketed paste end (CSI 201~).</summary>
+    BracketPasteEnd,
+    /// <summary>Paste content character (see LastChar).</summary>
+    PasteChar
 }
 
 /// <summary>
@@ -22,7 +34,7 @@ public enum AnsiInputEvent
 /// </summary>
 public sealed class AnsiInputParser
 {
-    private enum State { Ground, AfterEsc, AfterCsiStart, InX10, InSgr, InSs3 }
+    private enum State { Ground, AfterEsc, AfterCsiStart, InX10, InSgr, InSs3, InPaste }
 
     private State _state = State.Ground;
     private readonly System.Text.StringBuilder _sgr = new();
@@ -34,6 +46,9 @@ public sealed class AnsiInputParser
 
     /// <summary>True when only ESC has been seen — a timeout here means the user really pressed ESC.</summary>
     public bool EscapeOnTimeout => _state is State.AfterEsc or State.AfterCsiStart;
+
+    /// <summary>Last plain character delivered as a PasteChar event (paste content).</summary>
+    public char LastChar { get; private set; }
 
     /// <summary>Feed the ESC character (the input loop's ESC keypress).</summary>
     public AnsiInputEvent FeedEsc()
@@ -47,6 +62,11 @@ public sealed class AnsiInputParser
     {
         switch (_state)
         {
+            case State.InPaste:
+                LastChar = c;
+                if (c == '\x1b') { _state = State.AfterEsc; return AnsiInputEvent.None; }
+                return AnsiInputEvent.PasteChar;
+
             case State.Ground:
                 return AnsiInputEvent.None; // normal characters are handled by the caller, not the parser
 
@@ -69,6 +89,8 @@ public sealed class AnsiInputParser
                 if (c == '<') { _state = State.InSgr; _sgr.Clear(); return AnsiInputEvent.None; }
                 if (c == 'A') { _state = State.Ground; return AnsiInputEvent.ArrowUp; }
                 if (c == 'B') { _state = State.Ground; return AnsiInputEvent.ArrowDown; }
+                if (c == 'C') { _state = State.Ground; return AnsiInputEvent.ArrowRight; }
+                if (c == 'D') { _state = State.Ground; return AnsiInputEvent.ArrowLeft; }
                 _state = State.InSgr; // unknown CSI — drain to final byte
                 _sgr.Clear();
                 _sgr.Append(c);
@@ -102,6 +124,13 @@ public sealed class AnsiInputParser
                     if (button == 64) return AnsiInputEvent.WheelUp;
                     if (button == 65) return AnsiInputEvent.WheelDown;
                 }
+                // Known tilde-terminated CSIs: Delete (3~) and bracketed paste (200~ / 201~).
+                if (!isSgrTerminator && c == '~')
+                {
+                    if (_sgr.ToString() == "200") { _sgr.Clear(); _state = State.InPaste; return AnsiInputEvent.BracketPasteStart; }
+                    if (_sgr.ToString() == "201") { _sgr.Clear(); return AnsiInputEvent.BracketPasteEnd; }
+                    if (_sgr.ToString() == "3") { _sgr.Clear(); return AnsiInputEvent.Delete; }
+                }
                 return AnsiInputEvent.None;
 
             case State.InSs3:
@@ -110,6 +139,8 @@ public sealed class AnsiInputParser
                 {
                     'A' => AnsiInputEvent.ArrowUp,
                     'B' => AnsiInputEvent.ArrowDown,
+                    'C' => AnsiInputEvent.ArrowRight,
+                    'D' => AnsiInputEvent.ArrowLeft,
                     _ => AnsiInputEvent.None
                 };
 
@@ -137,4 +168,7 @@ public sealed class AnsiInputParser
         _sgr.Clear();
         _x10BytesLeft = 0;
     }
+
+    /// <summary>Explicitly leave paste mode (paste end seen or timeout safety).</summary>
+    public void EndPaste() => _state = State.Ground;
 }

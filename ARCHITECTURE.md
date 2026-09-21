@@ -1,8 +1,8 @@
 # ECAssistant TUI — Architecture
 
-**Updated:** 2026-09-21 (evening — terminal restore on all exit paths + non-ANSI cursor-escape guard; Core 12.9 probe timeout 12s)
+**Updated:** 2026-09-21 (late evening — in-line cursor editing (left/right/insert/delete-at-cursor) + bracketed paste CSI 2004; terminal restore on all exit paths)
 **Build:** 0 errors, 0 warnings
-**Tests:** 78/78 passing
+**Tests:** 87/87 passing
 **Namespace:** `ECAssistant.TUI.*`
 
 ## Overview
@@ -253,3 +253,20 @@ files MUST be added there or they are silently not compiled (bit us once today).
   try/finally path (ConsoleApplication wraps RunAsync).
 - **Verified via PTY harness**: `?1049h` enter → TUI → `/exit` → `?1049l` + `ESC[H 2J 3J`
   + "Session ended." on a clean prompt; non-ANSI path writes 0 cursor escapes.
+
+## Changelog — 2026-09-21 (input-line editing + bracketed paste)
+
+- **AnsiInputParser**: new events `ArrowLeft`/`ArrowRight` (CSI C/D + SS3 C/D),
+  `Delete` (CSI 3~), `BracketPasteStart`/`BracketPasteEnd` (CSI 200~/201~) and
+  `PasteChar` (+ `LastChar`) for paste content. Pure parser, fully unit-tested.
+- **EGuiConsole in-line editing**: `_inputCursor` position — Left/Right move it,
+  printable chars INSERT at it, Backspace deletes before it, Delete deletes at it.
+  Applies to the main input line AND the cross-thread prompt sub-loop.
+- **Bracketed paste (CSI 2004)**: enabled when the alt screen is entered, disabled
+  on restore. Paste content is inserted at the cursor with newlines/tabs normalized
+  to spaces — a multi-line clipboard paste can no longer submit the line mid-paste
+  (previously every \r in a paste looked like an Enter keypress).
+- Arrow Up/Down keep their scroll-output role. Input cursor resets on Enter/ESC.
+- 9 new parser tests (cursor arrows, delete, paste window, split sequences,
+  newline-in-paste). TUI suite: 87/87. Verified end-to-end via PTY:
+  "ab" + LEFT + "X" → `aXb`; paste inserted at cursor → `aXhello worldb`.

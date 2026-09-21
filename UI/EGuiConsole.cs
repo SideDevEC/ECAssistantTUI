@@ -110,7 +110,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         // First, force-clear any mouse modes a crashed older instance may have left on:
         // 1000/1002/1003 (tracking variants) + 1006 (SGR). Nothing arrives afterwards.
         _term.Write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l");
-        _term.Write("\x1b[?1049h\x1b[?25l");
+        _term.Write("\x1b[?1049h\x1b[?2004h\x1b[?25l");
         _altScreenActive = true;
         _term.Flush();
         
@@ -165,7 +165,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         if (_restoreDone || !_ansiSupported) return;
         _restoreDone = true;
         
-        _term.Write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?25h\x1b[?1049l");
+        _term.Write("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?25h\x1b[?1049l");
         _altScreenActive = false;
         _term.Flush();
 
@@ -830,6 +830,17 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                         continue; // sequence fully consumed (mouse event / unknown CSI)
                     key = mapped.Value;
                 }
+                if (_pasteMode)
+                {
+                    // Inside a bracketed paste: feed everything into the buffer at the
+                    // cursor (newlines normalized by InsertPastedChar) — Enter must NOT
+                    // submit mid-paste.
+                    if (key.KeyChar != '\0')
+                    {
+                        InsertPastedChar(key.KeyChar);
+                    }
+                    continue;
+                }
             }
             catch (InvalidOperationException)
             {
@@ -853,6 +864,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                     enterResult = _inputBuffer.ToString();
                     enterWasSilent = _silentInput;
                     _inputBuffer.Clear();
+                    _inputCursor = 0;
                     _silentInput = false;
                     
                     // Add submitted input to active layer's buffer (skip commands;
@@ -881,6 +893,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                     {
                         // ESC with text in buffer: clear the buffer
                         _inputBuffer.Clear();
+                        _inputCursor = 0;
                         FlushRepaint(inputDirty: true);
                     }
                     else
@@ -925,23 +938,31 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                     _activeLayer?.ScrollToBottom();
                     FlushRepaint(outputDirty: true);
                 }
+                else if (key.Key == ConsoleKey.LeftArrow)
+                {
+                    if (_inputCursor > 0) { _inputCursor--; FlushRepaint(inputDirty: true); }
+                }
+                else if (key.Key == ConsoleKey.RightArrow)
+                {
+                    if (_inputCursor < _inputBuffer.Length) { _inputCursor++; FlushRepaint(inputDirty: true); }
+                }
+                else if (key.Key == ConsoleKey.Delete)
+                {
+                    DeleteAtCursor();
+                }
                 else if (key.Key == ConsoleKey.Backspace)
                 {
-                    if (_inputBuffer.Length > 0)
-                    {
-                        _inputBuffer.Remove(_inputBuffer.Length - 1, 1);
-                        FlushRepaint(inputDirty: true);
-                    }
+                    BackspaceAtCursor();
                 }
                 else if (key.Key == ConsoleKey.Tab)
                 {
-                    _inputBuffer.Append("    ");
+                    _inputBuffer.Insert(_inputCursor, "    ");
+                    _inputCursor += 4;
                     FlushRepaint(inputDirty: true);
                 }
                 else if (key.KeyChar != '\0' && !char.IsControl(key.KeyChar))
                 {
-                    _inputBuffer.Append(key.KeyChar);
-                    FlushRepaint(inputDirty: true);
+                    InsertAtCursor(key.KeyChar);
                 }
             }
         }
@@ -957,6 +978,8 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     /// Waits briefly for sequence bytes so fast event bursts are never split mid-sequence.
     /// </summary>
     private readonly Input.AnsiInputParser _inputParser = new();
+    private int _inputCursor;
+    private bool _pasteMode;
 
     /// <summary>
     /// Reads a full escape sequence after the ESC byte and maps it to a ConsoleKeyInfo.
@@ -993,6 +1016,27 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                 case Input.AnsiInputEvent.ArrowDown:
                     _inputParser.Reset();
                     return new ConsoleKeyInfo('\0', ConsoleKey.DownArrow, false, false, false);
+                case Input.AnsiInputEvent.ArrowLeft:
+                    _inputParser.Reset();
+                    return new ConsoleKeyInfo('\0', ConsoleKey.LeftArrow, false, false, false);
+                case Input.AnsiInputEvent.ArrowRight:
+                    _inputParser.Reset();
+                    return new ConsoleKeyInfo('\0', ConsoleKey.RightArrow, false, false, false);
+                case Input.AnsiInputEvent.Delete:
+                    _inputParser.Reset();
+                    return new ConsoleKeyInfo('\0', ConsoleKey.Delete, false, false, false);
+                case Input.AnsiInputEvent.BracketPasteStart:
+                    _pasteMode = true;
+                    return null; // paste window opens — subsequent chars feed the buffer
+                case Input.AnsiInputEvent.BracketPasteEnd:
+                    _pasteMode = false;
+                    _inputParser.Reset();
+                    return null;
+                case Input.AnsiInputEvent.PasteChar:
+                    // Paste content fed through the parser (used when paste content
+                    // itself contains an ESC byte we re-routed here).
+                    InsertPastedChar(_inputParser.LastChar);
+                    return null;
                 case Input.AnsiInputEvent.WheelUp:
                     ScrollByWheel(1);
                     return null;
@@ -1006,6 +1050,39 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
                     continue; // sequence still in progress — keep feeding
             }
         }
+    }
+
+    /// <summary>Paste content: newline/tab become spaces so a multi-line clipboard
+    /// paste never submits the line mid-paste. Inserted at the input cursor.</summary>
+    private void InsertPastedChar(char c)
+    {
+        var normalized = c switch { '\r' or '\n' => ' ', '\t' => ' ', _ => c };
+        if (char.IsControl(normalized)) return;
+        _inputBuffer.Insert(_inputCursor, normalized);
+        _inputCursor++;
+        FlushRepaint(inputDirty: true);
+    }
+
+    private void InsertAtCursor(char c)
+    {
+        _inputBuffer.Insert(_inputCursor, c);
+        _inputCursor++;
+        FlushRepaint(inputDirty: true);
+    }
+
+    private void BackspaceAtCursor()
+    {
+        if (_inputCursor == 0) return;
+        _inputCursor--;
+        _inputBuffer.Remove(_inputCursor, 1);
+        FlushRepaint(inputDirty: true);
+    }
+
+    private void DeleteAtCursor()
+    {
+        if (_inputCursor >= _inputBuffer.Length) return;
+        _inputBuffer.Remove(_inputCursor, 1);
+        FlushRepaint(inputDirty: true);
     }
 
     private void ScrollByWheel(int direction)

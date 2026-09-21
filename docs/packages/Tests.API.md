@@ -1,8 +1,12 @@
 # Tests.API.md
 
-Types: 6  |  LOC: 743  |  ~248 tokens
+Types: 7  |  LOC: 852  |  ~291 tokens
 
 ---
+
+### Class: AnsiInputParserCursorPasteTests
+> Tests for in-line cursor editing keys (left/right/delete) and bracketed paste
+Cross-package deps: ECAssistant.TUI.Input, Xunit
 
 ### Class: AnsiInputParserTests
 > Regression tests for the ANSI input parser — covers the mouse-scroll garbage bug:

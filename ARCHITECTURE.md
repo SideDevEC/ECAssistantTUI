@@ -1,6 +1,6 @@
 # ECAssistant TUI — Architecture
 
-**Updated:** 2026-09-19 (v12.9.9 — Core 12.9.8 wizard rework: remote GitHub catalog, flat model list with local discovery + on-disk highlight, vision derived not asked; LLM server 14.9.3 with shutdown grace)
+**Updated:** 2026-09-21 (v12.9.10 — Core 12.9.9 process-backend fix + always-alive server; LLM server 14.9.5)
 **Build:** 0 errors, 0 warnings
 **Tests:** 66/66 passing
 **Namespace:** `ECAssistant.TUI.*`

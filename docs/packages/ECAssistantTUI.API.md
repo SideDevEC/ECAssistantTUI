@@ -1,6 +1,6 @@
 # ECAssistantTUI.API.md
 
-Types: 22  |  LOC: 3835  |  ~1612 tokens
+Types: 22  |  LOC: 3842  |  ~1612 tokens
 
 ---
 

@@ -192,6 +192,7 @@ The TUI was updated to match the new Core HTTP-based engine surface:
 - `AppController.RunSetupFlowAsync` now delegates to **`FirstRunOrchestrator` (Core)** — the exact same detect→wizard flow the Console host uses; TUI keeps no setup logic of its own
 - Wizard stages (Core `SetupWizard` via `TuiSetupUi`): LLM local/remote → embeddings; **server binary install happens inside the wizard** (`ServerInstallCoordinator` + `NuGetServerFetcher` from Core) exactly when local chat OR local embeddings is chosen — never for pure-remote users
 - `/reinstall` unchanged in UX: y/n confirm → stop server (verified) → config/keys reset (models kept) → shared wizard re-run → `ReloadAfterSetupAsync()` hot rebuild, no app restart
+- 2026-09-21: `WaitForServerShutdownAsync` is now SKIPPED in remote mode — ResolvedEndpoint then points at the remote provider (e.g. openrouter.ai) whose health endpoint never stops responding, so `/reinstall` in remote mode falsely failed with "server did not shut down". New `IsLoopbackEndpoint()` guard only verifies shutdown for localhost/127.0.0.1/[::1] endpoints.
 - Interactive version/foreign-install prompts (VERSION stamp mismatch, foreign `~/.ECAssistantLLM` layout) are rendered through `TuiSetupUi`
 - All failures non-fatal — setup never blocks startup
 

@@ -966,7 +966,10 @@ public sealed class AppController : IAppController
             }
 
             // v12.7: verify the server actually went down before touching config files.
-            if (!await WaitForServerShutdownAsync(10))
+            // Skip entirely in remote mode — ResolvedEndpoint then points at the remote
+            // provider (e.g. openrouter.ai), which never stops responding and made
+            // /reinstall falsely fail with "server did not shut down" (2026-09-21).
+            if (IsLoopbackEndpoint(_config.LlmProvider.ResolvedEndpoint) && !await WaitForServerShutdownAsync(10))
             {
                 _console.WriteLineColored(_color.Red + _color.Bold +
                     "[Reinstall] The LLM server did not shut down. " +
@@ -1116,6 +1119,19 @@ public sealed class AppController : IAppController
         _renderers[session.Key] = renderer;
 
         await builder.BuildAsync(session, _externalTools);
+    }
+
+    /// <summary>
+    /// True when the configured LLM endpoint points at this machine (localhost/127.0.0.1/[::1]).
+    /// Only a loopback endpoint has a local server whose shutdown we can verify.
+    /// Stateless utility — no mutable state.
+    /// </summary>
+    private static bool IsLoopbackEndpoint(string endpoint)
+    {
+        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri))
+            return false;
+        var host = uri.Host;
+        return host == "localhost" || host == "127.0.0.1" || host == "[::1]" || host == "::1";
     }
 
     /// <summary>Polls the LLM server health endpoint until it stops responding (server down) or the timeout expires.</summary>

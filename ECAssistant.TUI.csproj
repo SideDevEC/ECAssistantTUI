@@ -32,7 +32,7 @@
 
   <ItemGroup>
     <!-- Core as NuGet package — no lib/ DLLs, no sync step. -->
-    <PackageReference Include="ECAssistant.Core" Version="12.9.10" Condition="'$(EcaUseProjectRefs)' != 'true'" />
+    <PackageReference Include="ECAssistant.Core" Version="12.9.11" Condition="'$(EcaUseProjectRefs)' != 'true'" />
     <ProjectReference Include="../ECAssistantCore/ECAssistant.Core.csproj" Condition="'$(EcaUseProjectRefs)' == 'true'" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.5" />
   </ItemGroup>

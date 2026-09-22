@@ -22,15 +22,18 @@ public class ConsoleUiRenderer : IOutputListener, IDisposable
     private Timer? _streamPollTimer;
     private volatile string _lastStreamSnapshot = ""; // L7: volatile — read/written across timer/UI threads; benign races (worst case: a stale compare skips one 80ms tick)
     private readonly Func<string, bool>? _approvalPrompt;
+    private readonly Func<string, ECAssistant.Core.Session.ApprovalScope>? _approvalPromptScoped;
     private readonly Func<string, System.Collections.Generic.IReadOnlyList<string>, int?>? _choicePrompt;
     private readonly Action<string?>? _statusCallback;
 
-    public ConsoleUiRenderer(SessionLayer layer, EColor color, Func<string>? streamBufferGetter = null, Func<string, bool>? approvalPrompt = null, Func<string, System.Collections.Generic.IReadOnlyList<string>, int?>? choicePrompt = null, Action<string?>? statusCallback = null)
+    public ConsoleUiRenderer(SessionLayer layer, EColor color, Func<string>? streamBufferGetter = null, Func<string, bool>? approvalPrompt = null,
+        Func<string, ECAssistant.Core.Session.ApprovalScope>? approvalPromptScoped = null, Func<string, System.Collections.Generic.IReadOnlyList<string>, int?>? choicePrompt = null, Action<string?>? statusCallback = null)
     {
         _layer = layer;
         _color = color;
         _streamBufferGetter = streamBufferGetter;
         _approvalPrompt = approvalPrompt;
+        _approvalPromptScoped = approvalPromptScoped;
         _choicePrompt = choicePrompt;
         _statusCallback = statusCallback;
     }
@@ -117,10 +120,22 @@ public class ConsoleUiRenderer : IOutputListener, IDisposable
 
     public bool OnRequestApproval(string message)
     {
+        return OnRequestApprovalScoped(message) == ECAssistant.Core.Session.ApprovalScope.AllowOnce;
+    }
+
+    /// <summary>
+    /// v14.10.2: scoped approval — the wired prompt callback decides whether the
+    /// user chose allow-once, allow-for-session, or deny. Falls back to the legacy
+    /// bool callback (AllowOnce/Deny) when no scoped callback is wired.
+    /// </summary>
+    public ECAssistant.Core.Session.ApprovalScope OnRequestApprovalScoped(string message)
+    {
+        if (_approvalPromptScoped != null)
+            return _approvalPromptScoped(message);
         if (_approvalPrompt != null)
-            return _approvalPrompt(message);
+            return _approvalPrompt(message) ? ECAssistant.Core.Session.ApprovalScope.AllowOnce : ECAssistant.Core.Session.ApprovalScope.Deny;
         // No approval callback — auto-deny
-        return false;
+        return ECAssistant.Core.Session.ApprovalScope.Deny;
     }
 
     /// <summary>v14.9: interactive checkpoint — delegate to the choice callback when

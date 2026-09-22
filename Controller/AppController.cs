@@ -364,18 +364,33 @@ public sealed class AppController : IAppController
     /// Called by ConsoleUiRenderer when a tool requires approval.
     /// </summary>
     private bool PromptApproval(string message)
+        => PromptApprovalScoped(message) == ECAssistant.Core.Session.ApprovalScope.AllowOnce;
+
+    /// <summary>
+    /// v14.10.2: tri-state approval prompt — y = allow once, a = allow for this
+    /// session (remember-decision, Claude-Code-style), anything else = deny.
+    /// </summary>
+    private ECAssistant.Core.Session.ApprovalScope PromptApprovalScoped(string message)
     {
         _console.WriteLineColored(_color.Yellow + _color.Bold + $"\n⚠ APPROVAL REQUIRED" + _color.Reset);
         _console.WriteLineColored(_color.Yellow + message + _color.Reset);
 
-        var input = _console.PromptColored("Approve? (y/n): ")?.Trim().ToLowerInvariant();
-        var approved = input == "y" || input == "yes";
+        var input = _console.PromptColored("Approve? (y = once / a = always this session / n): ")?.Trim().ToLowerInvariant();
+        var scope = input switch
+        {
+            "y" or "yes" => ECAssistant.Core.Session.ApprovalScope.AllowOnce,
+            "a" or "always" => ECAssistant.Core.Session.ApprovalScope.AllowSession,
+            _ => ECAssistant.Core.Session.ApprovalScope.Deny
+        };
 
-        _console.WriteLineColored(approved
-            ? _color.Green + "✓ Approved" + _color.Reset
-            : _color.Red + "✗ Denied" + _color.Reset);
+        _console.WriteLineColored(scope switch
+        {
+            ECAssistant.Core.Session.ApprovalScope.AllowOnce => _color.Green + "✓ Approved (once)" + _color.Reset,
+            ECAssistant.Core.Session.ApprovalScope.AllowSession => _color.Green + "✓ Approved (remembered for this session)" + _color.Reset,
+            _ => _color.Red + "✗ Denied" + _color.Reset
+        });
 
-        return approved;
+        return scope;
     }
 
     /// <summary>
@@ -973,7 +988,8 @@ public sealed class AppController : IAppController
 
         // Create ConsoleUiRenderer that writes to the layer's buffer
         var renderer = new ConsoleUiRenderer(layer, _color, newSession.GetStreamBuffer,
-            (msg) => PromptApproval(msg), (prompt, options) => PromptChoice(prompt, options),
+            (msg) => PromptApproval(msg), (msg) => PromptApprovalScoped(msg),
+            (prompt, options) => PromptChoice(prompt, options),
             (status) => ShowStatus(newSession.Key, status));
         newSession.AddListener(renderer);
         _renderers[newSession.Key] = renderer;
@@ -1168,6 +1184,7 @@ public sealed class AppController : IAppController
         _sessionLayers[session.Key] = layer;
 
         var renderer = new ConsoleUiRenderer(layer, _color, session.GetStreamBuffer, (msg) => PromptApproval(msg),
+            (msg) => PromptApprovalScoped(msg),
             (prompt, options) => PromptChoice(prompt, options),
             (status) => ShowStatus(session.Key, status));
         session.AddListener(renderer);

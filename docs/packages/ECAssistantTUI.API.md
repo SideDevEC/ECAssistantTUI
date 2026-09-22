@@ -1,6 +1,6 @@
 # ECAssistantTUI.API.md
 
-Types: 22  |  LOC: 3865  |  ~1635 tokens
+Types: 23  |  LOC: 3997  |  ~1707 tokens
 
 ---
 
@@ -105,7 +105,7 @@ Implements: ITerminalOutput, IDisposable
 > Bridges Core's IOutputListener to a SessionLayer's buffer.
 Implements: IOutputListener, IDisposable
 Constructor:
-  - ConsoleUiRenderer(SessionLayer layer, EColor color, Func<string>? streamBufferGetter = null, Func<string, bool>? approvalPrompt = null, Func<string, System.Collections.Generic.IReadOnlyList<string>, int?>? choicePrompt = null)
+  - ConsoleUiRenderer(SessionLayer layer, EColor color, Func<string>? streamBufferGetter = null, Func<string, bool>? approvalPrompt = null, Func<string, System.Collections.Generic.IReadOnlyList<string>, int?>? choicePrompt = null, Action<string?>? statusCallback = null)
 Cross-package deps: ECAssistant.Core, ECAssistant.Core.Session, ECAssistant.TUI.UI
 
 ### Class: ConsoleUiRendererTests
@@ -154,6 +154,13 @@ Implements: BaseLayer
 Constructor:
   - StartupLayer(EColor color)
 Cross-package deps: ECAssistant.Core
+
+### Class: StatusIndicator
+> v14.10.1: animated processing-status indicator (spinner) shown while the
+Implements: IDisposable
+Constructor:
+  - StatusIndicator(IGuiConsole gui, EColor color)
+Cross-package deps: ECAssistant.Core, ECAssistant.TUI.UI
 
 ### Class: TuiSetupUi
 > Adapts the TUI console to the staged installer wizard's ISetupUi abstraction,

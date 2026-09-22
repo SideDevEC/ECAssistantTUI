@@ -1,11 +1,11 @@
 # API-INDEX.md — ECAssistantTUI
 
-Generated: 2026-09-22T11:36:21.858044+00:00
-Packages: 2  |  Types: 29
+Generated: 2026-09-22T13:35:14.414564+00:00
+Packages: 2  |  Types: 30
 
 ---
 
-## ECAssistantTUI (22 types, ~3865 LOC)
+## ECAssistantTUI (23 types, ~3997 LOC)
 
 - 🔵 IAppController  (ECAssistantTUI)
 - 🔵 IGuiConsole  (ECAssistantTUI)
@@ -19,7 +19,7 @@ Packages: 2  |  Types: 29
 - 🟡 BaseLayerBufferTests  (ECAssistantTUI)
 - 🟡 ConfigLayer : BaseLayer  (ECAssistantTUI)  deps: [EColor]
 - 🟡 ConsoleTerminalOutput : ITerminalOutput, IDisposable  (ECAssistantTUI)
-- 🟡 ConsoleUiRenderer : IOutputListener, IDisposable  (ECAssistantTUI)  deps: [SessionLayer, EColor, Func, Func, IReadOnlyList]
+- 🟡 ConsoleUiRenderer : IOutputListener, IDisposable  (ECAssistantTUI)  deps: [SessionLayer, EColor, Func, Func, IReadOnlyList, Action]
 - 🟡 ConsoleUiRendererTests  (ECAssistantTUI)
 - 🟡 EGuiConsole : EGuiBase, IGuiConsole  (ECAssistantTUI)  deps: [ITerminalOutput]
 - 🟡 EGuiConsoleTerminalRestoreTests  (ECAssistantTUI)
@@ -28,6 +28,7 @@ Packages: 2  |  Types: 29
 - 🟡 LoadingIndicator : IDisposable  (ECAssistantTUI)  deps: [IGuiConsole, EColor]
 - 🟡 SessionLayer : BaseLayer  (ECAssistantTUI)  deps: [string, string label =]
 - 🟡 StartupLayer : BaseLayer  (ECAssistantTUI)  deps: [EColor]
+- 🟡 StatusIndicator : IDisposable  (ECAssistantTUI)  deps: [IGuiConsole, EColor]
 - 🟡 TuiSetupUi : ISetupUi  (ECAssistantTUI)  deps: [IGuiConsole]
 
 ## Tests (7 types, ~852 LOC)

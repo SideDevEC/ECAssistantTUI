@@ -1,6 +1,6 @@
 # ECAssistant TUI — Architecture
 
-**Updated:** 2026-09-22 (v14.9 checkpoint wiring COMPLETED — the TUI half of the interactive-checkpoint feature: AppController.PromptChoice (numbered list, Enter=cancel -> autonomous) + ConsoleUiRenderer.OnRequestChoice + optional choicePrompt ctor param wired at renderer creation; commits the previously-uncommitted half that Core's ARCHITECTURE.md already documented. Previously 2026-09-21: in-line cursor editing (left/right/insert/delete-at-cursor) + bracketed paste CSI 2004; terminal restore on all exit paths)
+**Updated:** 2026-09-22 (v14.10.1 — STATUS SPINNER: animated braille StatusIndicator (UI/StatusIndicator.cs, per-session, 90ms frames + phase label + elapsed seconds) shown while the agent works — structured inference is non-streamed up to 240s and was silent. Core emits phases via IOutputListener.OnStatus (Thinking / Running {tool}); ConsoleUiRenderer routes OnStatus → AppController.ShowStatus; clears on real OnOutput/OnStreamStart. csproj whitelist updated. Previously: v14.9 checkpoint wiring COMPLETED
 **Build:** 0 errors, 0 warnings
 **Tests:** 87/87 passing
 **Namespace:** `ECAssistant.TUI.*`

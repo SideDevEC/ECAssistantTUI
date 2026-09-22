@@ -51,6 +51,7 @@
     <Compile Include="UI/HelpLayer.cs" />
     <Compile Include="UI/SessionLayer.cs" />
     <Compile Include="UI/LoadingIndicator.cs" />
+    <Compile Include="UI/StatusIndicator.cs" />
     <Compile Include="UI/ConsoleUiRenderer.cs" />
     <Compile Include="UI/ITerminalOutput.cs" />
     <Compile Include="UI/ConsoleTerminalOutput.cs" />

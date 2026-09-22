@@ -1,7 +1,7 @@
 # RELATIONSHIP-GRAPH.md — ECAssistantTUI
 
-Generated: 2026-09-22T11:36:21.858343+00:00
-Edges: 13  |  Packages: 2
+Generated: 2026-09-22T13:35:14.416065+00:00
+Edges: 14  |  Packages: 2
 
 ---
 
@@ -19,6 +19,7 @@ Edges: 13  |  Packages: 2
 - LoadingIndicator ──uses──► IGuiConsole (ECAssistantTUI)
 - SessionLayer ──implements──► BaseLayer (ECAssistantTUI)
 - StartupLayer ──implements──► BaseLayer (ECAssistantTUI)
+- StatusIndicator ──uses──► IGuiConsole (ECAssistantTUI)
 - TuiSetupUi ──uses──► IGuiConsole (ECAssistantTUI)
 
 ## Tests

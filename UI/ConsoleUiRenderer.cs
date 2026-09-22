@@ -23,14 +23,16 @@ public class ConsoleUiRenderer : IOutputListener, IDisposable
     private volatile string _lastStreamSnapshot = ""; // L7: volatile — read/written across timer/UI threads; benign races (worst case: a stale compare skips one 80ms tick)
     private readonly Func<string, bool>? _approvalPrompt;
     private readonly Func<string, System.Collections.Generic.IReadOnlyList<string>, int?>? _choicePrompt;
+    private readonly Action<string?>? _statusCallback;
 
-    public ConsoleUiRenderer(SessionLayer layer, EColor color, Func<string>? streamBufferGetter = null, Func<string, bool>? approvalPrompt = null, Func<string, System.Collections.Generic.IReadOnlyList<string>, int?>? choicePrompt = null)
+    public ConsoleUiRenderer(SessionLayer layer, EColor color, Func<string>? streamBufferGetter = null, Func<string, bool>? approvalPrompt = null, Func<string, System.Collections.Generic.IReadOnlyList<string>, int?>? choicePrompt = null, Action<string?>? statusCallback = null)
     {
         _layer = layer;
         _color = color;
         _streamBufferGetter = streamBufferGetter;
         _approvalPrompt = approvalPrompt;
         _choicePrompt = choicePrompt;
+        _statusCallback = statusCallback;
     }
 
     /// <summary>Map output states to ANSI color codes.</summary>
@@ -61,6 +63,7 @@ public class ConsoleUiRenderer : IOutputListener, IDisposable
 
     public void OnOutput(string text, OutputState state)
     {
+        _statusCallback?.Invoke(null); // real output arriving — spinner goes away
         if (string.IsNullOrEmpty(text))
         {
             _layer.AddOutputLine("");
@@ -77,6 +80,7 @@ public class ConsoleUiRenderer : IOutputListener, IDisposable
 
     public void OnStreamStart()
     {
+        _statusCallback?.Invoke(null); // streamed tokens take over from the spinner
         _streamPollTimer?.Dispose();
         _lastStreamSnapshot = "";
 
@@ -121,6 +125,11 @@ public class ConsoleUiRenderer : IOutputListener, IDisposable
 
     /// <summary>v14.9: interactive checkpoint — delegate to the choice callback when
     /// wired; without one, return null so the orchestrator proceeds autonomously.</summary>
+    public void OnStatus(string? status)
+    {
+        _statusCallback?.Invoke(status);
+    }
+
     public int? OnRequestChoice(string prompt, System.Collections.Generic.IReadOnlyList<string> options)
     {
         if (_choicePrompt != null)

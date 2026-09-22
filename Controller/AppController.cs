@@ -75,6 +75,8 @@ public sealed class AppController : IAppController
     // Each Core session has a ConsoleUiRenderer bridging listener events to
     // its layer; kept so it can be disposed/listener-removed on close.
     private readonly ConcurrentDictionary<string, ConsoleUiRenderer> _renderers = new();
+    private readonly ConcurrentDictionary<string, UI.StatusIndicator> _statusIndicators = new();
+    private readonly object _statusLock = new();
     
     // ── Startup layer (always present, never deleted) ──
     private StartupLayer? _startupLayer;
@@ -394,6 +396,35 @@ public sealed class AppController : IAppController
         }
         _console.WriteLineColored(_color.Red + "✗ Invalid choice — proceeding autonomously" + _color.Reset);
         return null;
+    }
+
+    /// <summary>
+    /// v14.10.1: processing-status spinner (per session). Status = phase label
+    /// ("Thinking…", "Running EShellAgent…"); null/empty clears it — real output
+    /// takes over. Animated braille frames + elapsed seconds via StatusIndicator.
+    /// </summary>
+    private void ShowStatus(string sessionKey, string? status)
+    {
+        lock (_statusLock)
+        {
+            if (string.IsNullOrEmpty(status))
+            {
+                if (_statusIndicators.TryRemove(sessionKey, out var ind))
+                {
+                    ind.Stop();
+                    ind.Dispose();
+                }
+                return;
+            }
+            if (_statusIndicators.TryGetValue(sessionKey, out var si))
+            {
+                si.Update(status);
+                return;
+            }
+            si = new UI.StatusIndicator(_console, _color);
+            _statusIndicators[sessionKey] = si;
+            si.Start(status);
+        }
     }
     
     // ═══════════════════════════════════════════════════
@@ -942,7 +973,8 @@ public sealed class AppController : IAppController
 
         // Create ConsoleUiRenderer that writes to the layer's buffer
         var renderer = new ConsoleUiRenderer(layer, _color, newSession.GetStreamBuffer,
-            (msg) => PromptApproval(msg), (prompt, options) => PromptChoice(prompt, options));
+            (msg) => PromptApproval(msg), (prompt, options) => PromptChoice(prompt, options),
+            (status) => ShowStatus(newSession.Key, status));
         newSession.AddListener(renderer);
         _renderers[newSession.Key] = renderer;
 

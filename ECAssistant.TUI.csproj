@@ -56,6 +56,17 @@
     <Compile Include="UI/ConsoleTerminalOutput.cs" />
   </ItemGroup>
 
+  <!-- Guard: fail the build when a .cs file on disk is not whitelisted above
+       (the historical trap: new files silently not compiled). -->
+  <Target Name="VerifyCompileWhitelist" BeforeTargets="BeforeBuild">
+    <ItemGroup>
+      <_DiskCompile Include="**/*.cs" Exclude="$(BaseIntermediateOutputPath)**;$(BaseOutputPath)**;Tests/**" />
+      <_MissingCompile Include="@(_DiskCompile)" Exclude="@(Compile)" />
+    </ItemGroup>
+    <Error Condition="'@(_MissingCompile)' != ''"
+           Text="TUI compile whitelist: .cs file(s) on disk are NOT in the Compile list (add them or delete them): @(_MissingCompile)" />
+  </Target>
+
   <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="" />
   </ItemGroup>

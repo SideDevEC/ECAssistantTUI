@@ -1,6 +1,6 @@
 # ECAssistant TUI — Architecture
 
-**Updated:** 2026-09-22 (v14.10.1 — STATUS SPINNER: animated braille StatusIndicator (UI/StatusIndicator.cs, per-session, 90ms frames + phase label + elapsed seconds) shown while the agent works — structured inference is non-streamed up to 240s and was silent. Core emits phases via IOutputListener.OnStatus (Thinking / Running {tool}); ConsoleUiRenderer routes OnStatus → AppController.ShowStatus; clears on real OnOutput/OnStreamStart. csproj whitelist updated. Previously: v14.9 checkpoint wiring COMPLETED
+**Updated:** 2026-09-22 (late afternoon — SPINNER WIRE FIX: the status callback was only wired on the new-session renderer path (AppController ~975); WireSessionAsync (line ~1170) — the path every LOADED session uses — never received it, so the spinner silently never appeared (live-verified locally: no OnStatus reached the renderer). Now both renderer creation sites wire PromptChoice + ShowStatus. Live PTY test: spinner animates Thinking during the gap, clears on answer. Previously: STATUS SPINNER
 **Build:** 0 errors, 0 warnings
 **Tests:** 87/87 passing
 **Namespace:** `ECAssistant.TUI.*`

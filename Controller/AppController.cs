@@ -1167,7 +1167,9 @@ public sealed class AppController : IAppController
         _layers[layer.Name] = layer;
         _sessionLayers[session.Key] = layer;
 
-        var renderer = new ConsoleUiRenderer(layer, _color, session.GetStreamBuffer, (msg) => PromptApproval(msg));
+        var renderer = new ConsoleUiRenderer(layer, _color, session.GetStreamBuffer, (msg) => PromptApproval(msg),
+            (prompt, options) => PromptChoice(prompt, options),
+            (status) => ShowStatus(session.Key, status));
         session.AddListener(renderer);
         _renderers[session.Key] = renderer;
 

@@ -375,6 +375,26 @@ public sealed class AppController : IAppController
 
         return approved;
     }
+
+    /// <summary>
+    /// Prompt the user to pick from options at a decision checkpoint (v14.9).
+    /// Blocks until user responds. Returns 1-based index, null on cancel/invalid.
+    /// </summary>
+    private int? PromptChoice(string prompt, System.Collections.Generic.IReadOnlyList<string> options)
+    {
+        _console.WriteLineColored(_color.Cyan + _color.Bold + "\n❓ DECISION CHECKPOINT" + _color.Reset);
+        _console.WriteLineColored(_color.Cyan + prompt + _color.Reset);
+
+        var input = _console.PromptColored($"Choose 1-{options.Count} (Enter = cancel): ")?.Trim();
+        if (string.IsNullOrEmpty(input)) return null;
+        if (int.TryParse(input, out var pick) && pick >= 1 && pick <= options.Count)
+        {
+            _console.WriteLineColored(_color.Green + $"✓ Option {pick}: {options[pick - 1]}" + _color.Reset);
+            return pick;
+        }
+        _console.WriteLineColored(_color.Red + "✗ Invalid choice — proceeding autonomously" + _color.Reset);
+        return null;
+    }
     
     // ═══════════════════════════════════════════════════
     //  LAYER MANAGEMENT
@@ -921,7 +941,8 @@ public sealed class AppController : IAppController
         _sessionLayers[newSession.Key] = layer;
 
         // Create ConsoleUiRenderer that writes to the layer's buffer
-        var renderer = new ConsoleUiRenderer(layer, _color, newSession.GetStreamBuffer, (msg) => PromptApproval(msg));
+        var renderer = new ConsoleUiRenderer(layer, _color, newSession.GetStreamBuffer,
+            (msg) => PromptApproval(msg), (prompt, options) => PromptChoice(prompt, options));
         newSession.AddListener(renderer);
         _renderers[newSession.Key] = renderer;
 

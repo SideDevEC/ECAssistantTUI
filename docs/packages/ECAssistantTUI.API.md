@@ -1,6 +1,6 @@
 # ECAssistantTUI.API.md
 
-Types: 22  |  LOC: 3842  |  ~1612 tokens
+Types: 22  |  LOC: 3865  |  ~1635 tokens
 
 ---
 
@@ -105,7 +105,7 @@ Implements: ITerminalOutput, IDisposable
 > Bridges Core's IOutputListener to a SessionLayer's buffer.
 Implements: IOutputListener, IDisposable
 Constructor:
-  - ConsoleUiRenderer(SessionLayer layer, EColor color, Func<string>? streamBufferGetter = null, Func<string, bool>? approvalPrompt = null)
+  - ConsoleUiRenderer(SessionLayer layer, EColor color, Func<string>? streamBufferGetter = null, Func<string, bool>? approvalPrompt = null, Func<string, System.Collections.Generic.IReadOnlyList<string>, int?>? choicePrompt = null)
 Cross-package deps: ECAssistant.Core, ECAssistant.Core.Session, ECAssistant.TUI.UI
 
 ### Class: ConsoleUiRendererTests

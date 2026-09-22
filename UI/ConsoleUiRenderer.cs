@@ -22,13 +22,15 @@ public class ConsoleUiRenderer : IOutputListener, IDisposable
     private Timer? _streamPollTimer;
     private volatile string _lastStreamSnapshot = ""; // L7: volatile — read/written across timer/UI threads; benign races (worst case: a stale compare skips one 80ms tick)
     private readonly Func<string, bool>? _approvalPrompt;
+    private readonly Func<string, System.Collections.Generic.IReadOnlyList<string>, int?>? _choicePrompt;
 
-    public ConsoleUiRenderer(SessionLayer layer, EColor color, Func<string>? streamBufferGetter = null, Func<string, bool>? approvalPrompt = null)
+    public ConsoleUiRenderer(SessionLayer layer, EColor color, Func<string>? streamBufferGetter = null, Func<string, bool>? approvalPrompt = null, Func<string, System.Collections.Generic.IReadOnlyList<string>, int?>? choicePrompt = null)
     {
         _layer = layer;
         _color = color;
         _streamBufferGetter = streamBufferGetter;
         _approvalPrompt = approvalPrompt;
+        _choicePrompt = choicePrompt;
     }
 
     /// <summary>Map output states to ANSI color codes.</summary>
@@ -115,6 +117,15 @@ public class ConsoleUiRenderer : IOutputListener, IDisposable
             return _approvalPrompt(message);
         // No approval callback — auto-deny
         return false;
+    }
+
+    /// <summary>v14.9: interactive checkpoint — delegate to the choice callback when
+    /// wired; without one, return null so the orchestrator proceeds autonomously.</summary>
+    public int? OnRequestChoice(string prompt, System.Collections.Generic.IReadOnlyList<string> options)
+    {
+        if (_choicePrompt != null)
+            return _choicePrompt(prompt, options);
+        return null;
     }
 
     /// <summary>Render output history when switching to a session.</summary>

@@ -1,6 +1,6 @@
 # ECAssistant TUI — Architecture
 
-**Updated:** 2026-09-21 (late evening — in-line cursor editing (left/right/insert/delete-at-cursor) + bracketed paste CSI 2004; terminal restore on all exit paths)
+**Updated:** 2026-09-22 (v14.9 checkpoint wiring COMPLETED — the TUI half of the interactive-checkpoint feature: AppController.PromptChoice (numbered list, Enter=cancel -> autonomous) + ConsoleUiRenderer.OnRequestChoice + optional choicePrompt ctor param wired at renderer creation; commits the previously-uncommitted half that Core's ARCHITECTURE.md already documented. Previously 2026-09-21: in-line cursor editing (left/right/insert/delete-at-cursor) + bracketed paste CSI 2004; terminal restore on all exit paths)
 **Build:** 0 errors, 0 warnings
 **Tests:** 87/87 passing
 **Namespace:** `ECAssistant.TUI.*`

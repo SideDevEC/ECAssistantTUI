@@ -18,6 +18,13 @@ Part of [ECAssistant](https://github.com/SideDevEC/ECAssistant) — your models,
 - **Cross-platform** — raw ANSI/VT handling; no mouse sequences, terminal-native scrolling
 - **Async-safe** — all rendering marshaled to the UI thread; no deadlocks on streaming
 
+## What makes it different
+
+- **Interactive decision checkpoints** — the agent surfaces genuine ambiguity as a real numbered choice in your terminal (Enter = autonomous fallback); permission prompts and approvals render the same way — you're never guessing what it wants
+- **Everything visible, inline** — streamed tokens, thinking blocks, tool invocations, approvals, and results all render in place; nothing hides behind a spinner
+- **Cross-thread-safe by construction** — all rendering marshaled to the UI thread (the freeze-bug class common to terminal UIs is designed out)
+- **A library, not a framework** — bring your own host around [ECAssistantCore](https://github.com/SideDevEC/ECAssistantCore); no hidden coupling to any specific wiring
+
 ## Install
 
 Public on nuget.org — no token, no auth:

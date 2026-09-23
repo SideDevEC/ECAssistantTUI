@@ -30,14 +30,14 @@
 ## Key Notes
 - `InMemoryVectorStore`: Entries stored with `Embedding = null` by default → `SearchAsync` throws NRE after indexing. Tests account for this.
 - `HttpClientAdapter`: Network-dependent tests use try/catch fallback for flaky external services.
-- `Logger`: Uses temp log files and mock `EGuiBase` for isolation.
+- `Logger`: Uses temp log files and mock `GuiBase` for isolation.
 - `BackgroundProcessManager`: Uses real processes with temp working directories and 2s waits.
 - `SummaryService`: Tests both LLM path (via Func mock) and extractive fallback.
 - `ContextManager`: Uses `Mock<IInferenceEngine>` and `Mock<IConfigProvider>` for full isolation.
 - `MemoryService`: All 4 interfaces mocked (IFileSystem, IVectorStore, IConfigProvider, IVectorEmbedder).
 - `ConfigProvider`: All methods tested via mocked `IFileSystem.ReadFile`.
 - `ConfigLoader`: Tests valid JSON, invalid JSON, missing file, null content, deserialization-to-null, and IOException fallback.
-- `EAgentConfig`: Save/roundtrip tests use temp directories, verify JSON structure.
+- `AppConfig`: Save/roundtrip tests use temp directories, verify JSON structure.
 
 ## Build
 ```

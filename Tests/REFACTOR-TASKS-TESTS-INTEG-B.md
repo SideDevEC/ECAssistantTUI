@@ -17,7 +17,7 @@
 - ✅ 9 tests written
 - ✅ Build passes
 - ✅ Tests pass
-- Tests: EMemoryManager Add→Save→Load→Search, multiple entries ranked search, persist after dispose,
+- Tests: MemoryManager Add→Save→Load→Search, multiple entries ranked search, persist after dispose,
   load existing files, clear behavior, VectorMemoryStore index→search cosine similarity,
   persistence round-trip, category filter, remove persistence
 
@@ -26,7 +26,7 @@
 - ✅ Build passes
 - ✅ Tests pass
 - Tests: ConfigLoader real filesystem all sections, missing file defaults, malformed JSON defaults,
-  ConfigProvider GetSection, EAgentConfig Save→Load round-trip all values, empty JSON defaults,
+  ConfigProvider GetSection, AppConfig Save→Load round-trip all values, empty JSON defaults,
   partial JSON overrides
 
 ### 4. ContextWindowIntegrationTests.cs ✅
@@ -58,9 +58,9 @@
 - **Total: 48 new integration tests**
 
 ## Notes
-- EMemoryManager.Clear() only removes entries from in-memory list; Save() does not delete
+- MemoryManager.Clear() only removes entries from in-memory list; Save() does not delete
   previously-saved files from disk. Test documents this as known behavior.
 - ConfigLoader default Llm.ModelPath is "Qwen3-8B-Q4_K_M.gguf" (not "ECAssistant").
-- All tests use real implementations (real SessionDiscovery, EMemoryManager, ConfigLoader,
+- All tests use real implementations (real SessionDiscovery, MemoryManager, ConfigLoader,
   ConfigProvider, FileSystemAdapter, ContextWindow, TokenCounter, ConversationTranscript).
 - All file system tests use temp directories cleaned up via IDisposable.

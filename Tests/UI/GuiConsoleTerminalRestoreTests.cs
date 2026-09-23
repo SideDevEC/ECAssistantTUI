@@ -7,7 +7,7 @@ namespace ECAssistant.TUI.Tests.UI;
 /// be written exactly once across multiple shutdown calls (graceful exit + hooks
 /// fire repeatedly), and must never be written in non-ANSI mode.
 /// </summary>
-public sealed class EGuiConsoleTerminalRestoreTests
+public sealed class GuiConsoleTerminalRestoreTests
 {
     private sealed class RecordingTerminal : ITerminalOutput
     {
@@ -29,9 +29,9 @@ public sealed class EGuiConsoleTerminalRestoreTests
         public void DisableMouse() { }
     }
 
-    private static void SetPrivate(EGuiConsole console, string field, object value)
+    private static void SetPrivate(GuiConsole console, string field, object value)
     {
-        var f = typeof(EGuiConsole).GetField(field, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        var f = typeof(GuiConsole).GetField(field, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
         Assert.NotNull(f);
         f!.SetValue(console, value);
     }
@@ -41,7 +41,7 @@ public sealed class EGuiConsoleTerminalRestoreTests
     {
         // Test env: Console.IsOutputRedirected → DetectAnsiSupport is false → guard must hold.
         var term = new RecordingTerminal();
-        var console = new EGuiConsole(term);
+        var console = new GuiConsole(term);
 
         console.ShutdownConsole();
 
@@ -52,7 +52,7 @@ public sealed class EGuiConsoleTerminalRestoreTests
     public void AnsiTerminal_ShutdownConsole_WritesRestoreSequenceOnce()
     {
         var term = new RecordingTerminal();
-        var console = new EGuiConsole(term);
+        var console = new GuiConsole(term);
         SetPrivate(console, "_ansiSupported", true);
 
         // Simulate: graceful shutdown + ProcessExit + CancelKeyPress all firing.

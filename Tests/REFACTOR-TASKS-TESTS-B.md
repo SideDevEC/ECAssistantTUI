@@ -4,8 +4,8 @@
 
 ## Progress
 
-- [x] 1. EToolBaseTests.cs — EToolResult.Success, Failure, ToSystemPromptBlock, ToString
-- [x] 2. ToolAdapterTests.cs — wrapping ITool as EToolBase
+- [x] 1. EToolBaseTests.cs — ToolResult.Success, Failure, ToSystemPromptBlock, ToString
+- [x] 2. ToolAdapterTests.cs — wrapping ITool as ToolBase
 - [x] 3. ToolPolicyTests.cs — SetPermission, GetPermissionLevel, IsAllowed, etc.
 - [x] 4. EShellAgentTests.cs — ExecuteAsync, GetPolicy, Name, Description
 - [x] 5. EBackgroundExecToolTests.cs — ExecuteAsync actions

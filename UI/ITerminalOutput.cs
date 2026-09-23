@@ -2,7 +2,7 @@ namespace ECAssistant.TUI.UI;
 
 /// <summary>
 /// Abstraction for low-level terminal output operations.
-/// EGuiConsole uses this instead of Console.Write directly,
+/// GuiConsole uses this instead of Console.Write directly,
 /// enabling the TUI to be hosted in non-console environments
 /// (e.g., ECSQL's AvaloniaGuiConsole provides its own implementation).
 /// </summary>

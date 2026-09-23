@@ -13,22 +13,22 @@ Packages: 2  |  Types: 30
 - 🟡 AnsiInputParser  (ECAssistantTUI)
 - 🟡 AnsiInputParserCursorPasteTests  (ECAssistantTUI)
 - 🟡 AnsiInputParserTests  (ECAssistantTUI)
-- 🟡 AppController : IAppController  (ECAssistantTUI)  deps: [IGuiConsole, EAgentConfig, string, string, string, ILogger, IGuiConsole, EAgentConfig, string, string, string, ILogger, List, IGuiConsole, EAgentConfig, string, string, string, ILogger, List, BackgroundProcessManager, FileWatcherService, IAiSetupResetter? setupResetter =]
+- 🟡 AppController : IAppController  (ECAssistantTUI)  deps: [IGuiConsole, AppConfig, string, string, string, ILogger, IGuiConsole, AppConfig, string, string, string, ILogger, List, IGuiConsole, AppConfig, string, string, string, ILogger, List, BackgroundProcessManager, FileWatcherService, IAiSetupResetter? setupResetter =]
 - 🟡 BaseLayer  (ECAssistantTUI)
 - 🟡 BaseLayerAnsiTests  (ECAssistantTUI)
 - 🟡 BaseLayerBufferTests  (ECAssistantTUI)
-- 🟡 ConfigLayer : BaseLayer  (ECAssistantTUI)  deps: [EColor]
+- 🟡 ConfigLayer : BaseLayer  (ECAssistantTUI)  deps: [AnsiColor]
 - 🟡 ConsoleTerminalOutput : ITerminalOutput, IDisposable  (ECAssistantTUI)
-- 🟡 ConsoleUiRenderer : IOutputListener, IDisposable  (ECAssistantTUI)  deps: [SessionLayer, EColor, Func, Func, IReadOnlyList, Action]
+- 🟡 ConsoleUiRenderer : IOutputListener, IDisposable  (ECAssistantTUI)  deps: [SessionLayer, AnsiColor, Func, Func, IReadOnlyList, Action]
 - 🟡 ConsoleUiRendererTests  (ECAssistantTUI)
-- 🟡 EGuiConsole : EGuiBase, IGuiConsole  (ECAssistantTUI)  deps: [ITerminalOutput]
-- 🟡 EGuiConsoleTerminalRestoreTests  (ECAssistantTUI)
-- 🟡 HelpLayer : BaseLayer  (ECAssistantTUI)  deps: [EColor, string]
+- 🟡 GuiConsole : GuiBase, IGuiConsole  (ECAssistantTUI)  deps: [ITerminalOutput]
+- 🟡 GuiConsoleTerminalRestoreTests  (ECAssistantTUI)
+- 🟡 HelpLayer : BaseLayer  (ECAssistantTUI)  deps: [AnsiColor, string]
 - 🟡 LayerTests  (ECAssistantTUI)
-- 🟡 LoadingIndicator : IDisposable  (ECAssistantTUI)  deps: [IGuiConsole, EColor]
+- 🟡 LoadingIndicator : IDisposable  (ECAssistantTUI)  deps: [IGuiConsole, AnsiColor]
 - 🟡 SessionLayer : BaseLayer  (ECAssistantTUI)  deps: [string, string label =]
-- 🟡 StartupLayer : BaseLayer  (ECAssistantTUI)  deps: [EColor]
-- 🟡 StatusIndicator : IDisposable  (ECAssistantTUI)  deps: [IGuiConsole, EColor]
+- 🟡 StartupLayer : BaseLayer  (ECAssistantTUI)  deps: [AnsiColor]
+- 🟡 StatusIndicator : IDisposable  (ECAssistantTUI)  deps: [IGuiConsole, AnsiColor]
 - 🟡 TuiSetupUi : ISetupUi  (ECAssistantTUI)  deps: [IGuiConsole]
 
 ## Tests (7 types, ~852 LOC)
@@ -38,5 +38,5 @@ Packages: 2  |  Types: 30
 - 🟡 BaseLayerAnsiTests  (Tests)
 - 🟡 BaseLayerBufferTests  (Tests)
 - 🟡 ConsoleUiRendererTests  (Tests)
-- 🟡 EGuiConsoleTerminalRestoreTests  (Tests)
+- 🟡 GuiConsoleTerminalRestoreTests  (Tests)
 - 🟡 LayerTests  (Tests)

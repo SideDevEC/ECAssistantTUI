@@ -7,7 +7,7 @@ namespace ECAssistant.TUI.Tests.Session;
 
 /// <summary>
 /// Tests for ConsoleUiRenderer — verifies it writes to SessionLayer's buffer
-/// (not to EGuiConsole directly, as in v10.25).
+/// (not to GuiConsole directly, as in v10.25).
 /// </summary>
 public class ConsoleUiRendererTests
 {
@@ -17,7 +17,7 @@ public class ConsoleUiRendererTests
     public ConsoleUiRendererTests()
     {
         _layer = new SessionLayer("test");
-        _renderer = new ConsoleUiRenderer(_layer, new EColor());
+        _renderer = new ConsoleUiRenderer(_layer, new AnsiColor());
     }
 
     [Fact]

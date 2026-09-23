@@ -5,21 +5,21 @@ namespace ECAssistant.TUI.Session;
 
 /// <summary>
 /// Simple loading indicator — writes the label once, no animation.
-/// In ANSI mode, updates are routed through the EGuiConsole layer/render
+/// In ANSI mode, updates are routed through the GuiConsole layer/render
 /// path (replace-last-line) instead of emitting raw \r\x1b[2K escape
 /// sequences that would pollute the layer buffer.
 /// </summary>
 public class LoadingIndicator : IDisposable
 {
     private readonly IGuiConsole _gui;
-    private readonly EGuiConsole? _egui;
-    private readonly EColor _color;
+    private readonly GuiConsole? _egui;
+    private readonly AnsiColor _color;
     private string _currentLine = "";
 
-    public LoadingIndicator(IGuiConsole gui, EColor color)
+    public LoadingIndicator(IGuiConsole gui, AnsiColor color)
     {
         _gui = gui;
-        _egui = gui as EGuiConsole;
+        _egui = gui as GuiConsole;
         _color = color;
     }
 
@@ -41,7 +41,7 @@ public class LoadingIndicator : IDisposable
         // M9: guard against Stop() before Start() — nothing to clear.
         if (string.IsNullOrEmpty(_currentLine)) return;
 
-        // Remove the loading line via EGuiConsole (buffering/layer/term path);
+        // Remove the loading line via GuiConsole (buffering/layer/term path);
         // raw fallback only for foreign IGuiConsole implementations.
         // M9: ClearLoadingLine only works when the line is still the last one in the
         // buffer. If other output was added after the loading line, it won't match —
@@ -57,7 +57,7 @@ public class LoadingIndicator : IDisposable
     {
         if (_egui != null)
         {
-            // Route through the EGuiConsole path — replaces the previous
+            // Route through the GuiConsole path — replaces the previous
             // loading line (startup buffer or active layer) instead of raw ANSI.
             _egui.WriteLoadingLine(previous, line);
         }

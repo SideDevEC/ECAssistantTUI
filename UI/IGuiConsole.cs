@@ -3,11 +3,11 @@ namespace ECAssistant.TUI.UI;
 /// <summary>
 /// Interface for the console terminal that AppController and layers depend on.
 ///
-/// EGuiConsole implements this for the standalone terminal app.
+/// GuiConsole implements this for the standalone terminal app.
 /// External hosts (e.g., ECSQL's Avalonia terminal pane) can implement this
 /// to embed ECAssistant's TUI logic without using System.Console directly.
 ///
-/// This interface covers both EGuiBase output methods and EGuiConsole
+/// This interface covers both GuiBase output methods and GuiConsole
 /// terminal-specific methods, so implementers provide everything in one shot.
 /// </summary>
 public interface IGuiConsole
@@ -31,7 +31,7 @@ public interface IGuiConsole
     int ScreenWidth { get; }
     int ScreenHeight { get; }
 
-    // ── Output methods (from EGuiBase) ──
+    // ── Output methods (from GuiBase) ──
     void WriteLine(string text);
     void WriteLineColored(string coloredText);
     void WriteLineColored(string coloredText, int maxChars);

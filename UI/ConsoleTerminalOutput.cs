@@ -48,29 +48,29 @@ public class ConsoleTerminalOutput : ITerminalOutput, IDisposable
     public void Write(string text) => Console.Write(text);
     public void Flush() => Console.Out.Flush();
 
-    [Obsolete("EGuiConsole manages screen clearing via delta rendering; not used via ITerminalOutput.")]
+    [Obsolete("GuiConsole manages screen clearing via delta rendering; not used via ITerminalOutput.")]
     public void ClearScreen() => Console.Write("\x1b[2J");
 
-    [Obsolete("EGuiConsole positions the cursor via _term.Write directly; not used via ITerminalOutput.")]
+    [Obsolete("GuiConsole positions the cursor via _term.Write directly; not used via ITerminalOutput.")]
     public void SetCursorPosition(int row, int col)
         => Console.Write($"\x1b[{row + 1};{col + 1}H");
 
-    [Obsolete("EGuiConsole writes cursor sequences directly; not used via ITerminalOutput.")]
+    [Obsolete("GuiConsole writes cursor sequences directly; not used via ITerminalOutput.")]
     public void ShowCursor() => Console.Write("\x1b[?25h");
-    [Obsolete("EGuiConsole writes cursor sequences directly; not used via ITerminalOutput.")]
+    [Obsolete("GuiConsole writes cursor sequences directly; not used via ITerminalOutput.")]
     public void HideCursor() => Console.Write("\x1b[?25l");
 
-    [Obsolete("EGuiConsole writes alternate-screen sequences directly; not used via ITerminalOutput.")]
+    [Obsolete("GuiConsole writes alternate-screen sequences directly; not used via ITerminalOutput.")]
     public void EnableAlternateScreen()
         => Console.Write("\x1b[?1049h\x1b[?1000h");
 
-    [Obsolete("EGuiConsole writes alternate-screen sequences directly; not used via ITerminalOutput.")]
+    [Obsolete("GuiConsole writes alternate-screen sequences directly; not used via ITerminalOutput.")]
     public void DisableAlternateScreen()
         => Console.Write("\x1b[?1000l\x1b[?25h\x1b[?1049l");
 
-    [Obsolete("Mouse tracking is deliberately not enabled — see EGuiConsole.InitConsole comment.")]
+    [Obsolete("Mouse tracking is deliberately not enabled — see GuiConsole.InitConsole comment.")]
     public void EnableMouse() => Console.Write("\x1b[?1000h");
-    [Obsolete("Mouse tracking is deliberately not enabled — see EGuiConsole.InitConsole comment.")]
+    [Obsolete("Mouse tracking is deliberately not enabled — see GuiConsole.InitConsole comment.")]
     public void DisableMouse() => Console.Write("\x1b[?1000l");
 
     /// <summary>L1: stop the resize-poll timer to prevent leaks when disposed.</summary>

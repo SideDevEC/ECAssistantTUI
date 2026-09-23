@@ -84,6 +84,6 @@
 ## Build & Run
 ```bash
 cd ~/Agent/ECAssistant && dotnet build Tests/ECAssistant.Tests.csproj
-cd ~/Agent/ECAssistant && dotnet test Tests/ECAssistant.Tests.csproj --filter "FullyQualifiedName~VectorMemoryStore|FullyQualifiedName~EMemoryManager|FullyQualifiedName~EContextAnalyzer|FullyQualifiedName~SessionDiscovery|FullyQualifiedName~ConsoleUiRenderer|FullyQualifiedName~SubAgentTask|FullyQualifiedName~SubAgentResult|FullyQualifiedName~SubAgentError|FullyQualifiedName~FailureAnalysis|FullyQualifiedName~FailureEntry|FullyQualifiedName~FailurePattern"
+cd ~/Agent/ECAssistant && dotnet test Tests/ECAssistant.Tests.csproj --filter "FullyQualifiedName~VectorMemoryStore|FullyQualifiedName~MemoryManager|FullyQualifiedName~ContextAnalyzer|FullyQualifiedName~SessionDiscovery|FullyQualifiedName~ConsoleUiRenderer|FullyQualifiedName~SubAgentTask|FullyQualifiedName~SubAgentResult|FullyQualifiedName~SubAgentError|FullyQualifiedName~FailureAnalysis|FullyQualifiedName~FailureEntry|FullyQualifiedName~FailurePattern"
 ```
 All 188 tests pass.

@@ -8,7 +8,7 @@ namespace ECAssistant.TUI.UI;
 /// agent is working — structured inference is non-streamed (up to 240s), so
 /// without this the TUI is silent between "enter" and the answer.
 /// Braille frames + phase label + elapsed seconds, redrawn in place via the
-/// EGuiConsole loading-line path (same replace-last-line mechanics as
+/// GuiConsole loading-line path (same replace-last-line mechanics as
 /// LoadingIndicator — layer-safe, never pollutes the buffer).
 /// One instance per session, driven by IOutputListener.OnStatus.
 /// </summary>
@@ -18,8 +18,8 @@ public class StatusIndicator : IDisposable
     private const int TickMs = 90;
 
     private readonly IGuiConsole _gui;
-    private readonly EGuiConsole? _egui;
-    private readonly EColor _color;
+    private readonly GuiConsole? _egui;
+    private readonly AnsiColor _color;
     private readonly object _lock = new();
     private System.Threading.Timer? _timer;
     private string? _label;
@@ -28,10 +28,10 @@ public class StatusIndicator : IDisposable
     private int _frame;
     private bool _disposed;
 
-    public StatusIndicator(IGuiConsole gui, EColor color)
+    public StatusIndicator(IGuiConsole gui, AnsiColor color)
     {
         _gui = gui;
-        _egui = gui as EGuiConsole;
+        _egui = gui as GuiConsole;
         _color = color;
     }
 

@@ -51,21 +51,21 @@ public class LayerTests
     [Fact]
     public void HelpLayer_Name_IsHelp()
     {
-        var layer = new HelpLayer(new EColor(), Array.Empty<string>());
+        var layer = new HelpLayer(new AnsiColor(), Array.Empty<string>());
         Assert.Equal("help", layer.Name);
     }
 
     [Fact]
     public void HelpLayer_GetInputPrompt_ReturnsGreaterThan()
     {
-        var layer = new HelpLayer(new EColor(), Array.Empty<string>());
+        var layer = new HelpLayer(new AnsiColor(), Array.Empty<string>());
         Assert.Equal("> ", layer.GetInputPrompt());
     }
 
     [Fact]
     public void HelpLayer_BuildContent_PopulatesBuffer()
     {
-        var layer = new HelpLayer(new EColor(), new[] { "Line 1", "Line 2" });
+        var layer = new HelpLayer(new AnsiColor(), new[] { "Line 1", "Line 2" });
         layer.BuildContent();
         // Should have: title + hint + blank + Line 1 + Line 2
         Assert.True(layer.OutputLines.Count >= 5);
@@ -74,7 +74,7 @@ public class LayerTests
     [Fact]
     public void HelpLayer_BuildContent_FirstLine_IsTitle()
     {
-        var layer = new HelpLayer(new EColor(), Array.Empty<string>());
+        var layer = new HelpLayer(new AnsiColor(), Array.Empty<string>());
         layer.BuildContent();
         Assert.Contains("ECAssistant", layer.OutputLines[0]);
     }
@@ -82,7 +82,7 @@ public class LayerTests
     [Fact]
     public void HelpLayer_BuildContent_SecondLine_HasReturnHint()
     {
-        var layer = new HelpLayer(new EColor(), Array.Empty<string>());
+        var layer = new HelpLayer(new AnsiColor(), Array.Empty<string>());
         layer.BuildContent();
         Assert.Contains("ESC", layer.OutputLines[1]);
     }
@@ -92,21 +92,21 @@ public class LayerTests
     [Fact]
     public void StartupLayer_Name_IsStartup()
     {
-        var layer = new StartupLayer(new EColor());
+        var layer = new StartupLayer(new AnsiColor());
         Assert.Equal("startup", layer.Name);
     }
     
     [Fact]
     public void StartupLayer_GetInputPrompt_ReturnsGreaterThan()
     {
-        var layer = new StartupLayer(new EColor());
+        var layer = new StartupLayer(new AnsiColor());
         Assert.Equal("> ", layer.GetInputPrompt());
     }
     
     [Fact]
     public void StartupLayer_UpdateStatus_RebuildsHomeScreen()
     {
-        var layer = new StartupLayer(new EColor());
+        var layer = new StartupLayer(new AnsiColor());
         layer.UpdateStatus("v11.0", "/path/to/model.gguf", "/path/to/secondary.gguf", true, "/working/dir", "/config/path", 3, "main");
         Assert.True(layer.OutputLines.Count > 0);
         Assert.Contains(layer.OutputLines, l => l.Contains("ECAssistant"));
@@ -118,7 +118,7 @@ public class LayerTests
     [Fact]
     public void StartupLayer_UpdateStatus_SecondaryDisabled_ShowsDisabled()
     {
-        var layer = new StartupLayer(new EColor());
+        var layer = new StartupLayer(new AnsiColor());
         layer.UpdateStatus("v11.0", "/path/to/model.gguf", "", false, "/working/dir", "/config/path", 0, "none");
         Assert.Contains(layer.OutputLines, l => l.Contains("disabled"));
     }
@@ -126,7 +126,7 @@ public class LayerTests
     [Fact]
     public void StartupLayer_UpdateStatus_ShowsSessionSwitchCommand()
     {
-        var layer = new StartupLayer(new EColor());
+        var layer = new StartupLayer(new AnsiColor());
         layer.UpdateStatus("v11.0", "/path/to/model.gguf", "", false, "/working/dir", "/config/path", 2, "main");
         Assert.Contains(layer.OutputLines, l => l.Contains("/session"));
     }
@@ -136,7 +136,7 @@ public class LayerTests
     [Fact]
     public void ConfigLayer_Name_IsConfig()
     {
-        var layer = new ConfigLayer(new EColor());
+        var layer = new ConfigLayer(new AnsiColor());
         Assert.Equal("config", layer.Name);
     }
     
@@ -157,7 +157,7 @@ public class LayerTests
     public void BaseLayer_ProcessInput_UnknownCommand_ReturnsFalse()
     {
         // Use HelpLayer which doesn't have a default catch-all like SessionLayer
-        var layer = new HelpLayer(new EColor(), Array.Empty<string>());
+        var layer = new HelpLayer(new AnsiColor(), Array.Empty<string>());
         bool handled = layer.ProcessInput("/totally-made-up-command");
         Assert.False(handled);
     }

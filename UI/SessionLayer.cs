@@ -9,7 +9,7 @@ namespace ECAssistant.TUI.UI;
 /// One instance per Core session. Owns the output buffer for that session.
 /// 
 /// The buffer fills continuously — even when this layer is not the active one.
-/// ConsoleUiRenderer writes to this layer's buffer, not to EGuiConsole.
+/// ConsoleUiRenderer writes to this layer's buffer, not to GuiConsole.
 /// When the user switches back to this layer, all output is already there.
 /// 
 /// ProcessInput handles session-specific commands and forwards non-command
@@ -27,7 +27,7 @@ public sealed class SessionLayer : BaseLayer
     internal AgentSession? CoreSession { get; set; }
     
     /// <summary>Color formatter for output.</summary>
-    internal EColor? Color { get; set; }
+    internal AnsiColor? Color { get; set; }
     
     public override string Name => $"session:{SessionKey}";
     
@@ -61,7 +61,7 @@ public sealed class SessionLayer : BaseLayer
         var parts = input[1..].ToLowerInvariant().Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
         var cmd = parts.Length > 0 ? parts[0] : "";
         var arg = parts.Length > 1 ? parts[1].Trim() : "";
-        var color = Color ?? new EColor();
+        var color = Color ?? new AnsiColor();
         
         switch (cmd)
         {

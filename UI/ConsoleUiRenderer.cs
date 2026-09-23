@@ -7,7 +7,7 @@ namespace ECAssistant.TUI.Session;
 /// <summary>
 /// Bridges Core's IOutputListener to a SessionLayer's buffer.
 ///
-/// v11.0: Writes to the SessionLayer's buffer, NOT to EGuiConsole directly.
+/// v11.0: Writes to the SessionLayer's buffer, NOT to GuiConsole directly.
 /// The layer owns the output buffer. When the layer is active, its buffer
 /// is what gets rendered. When it's not active, the buffer keeps filling
 /// silently — so when the user switches back, all output is there.
@@ -17,7 +17,7 @@ namespace ECAssistant.TUI.Session;
 public class ConsoleUiRenderer : IOutputListener, IDisposable
 {
     private readonly SessionLayer _layer;
-    private readonly EColor _color;
+    private readonly AnsiColor _color;
     private readonly Func<string>? _streamBufferGetter;
     private Timer? _streamPollTimer;
     private volatile string _lastStreamSnapshot = ""; // L7: volatile — read/written across timer/UI threads; benign races (worst case: a stale compare skips one 80ms tick)
@@ -26,7 +26,7 @@ public class ConsoleUiRenderer : IOutputListener, IDisposable
     private readonly Func<string, System.Collections.Generic.IReadOnlyList<string>, int?>? _choicePrompt;
     private readonly Action<string?>? _statusCallback;
 
-    public ConsoleUiRenderer(SessionLayer layer, EColor color, Func<string>? streamBufferGetter = null, Func<string, bool>? approvalPrompt = null,
+    public ConsoleUiRenderer(SessionLayer layer, AnsiColor color, Func<string>? streamBufferGetter = null, Func<string, bool>? approvalPrompt = null,
         Func<string, ECAssistant.Core.Session.ApprovalScope>? approvalPromptScoped = null, Func<string, System.Collections.Generic.IReadOnlyList<string>, int?>? choicePrompt = null, Action<string?>? statusCallback = null)
     {
         _layer = layer;

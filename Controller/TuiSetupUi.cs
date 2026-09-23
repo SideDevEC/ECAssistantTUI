@@ -1,7 +1,7 @@
 using ECAssistant.Core.Setup;
 
 using ECAssistant.TUI.UI;
-using EColor = ECAssistant.Core.EColor;
+using AnsiColor = ECAssistant.Core.AnsiColor;
 namespace ECAssistant.TUI.Controller;
 
 /// <summary>
@@ -10,7 +10,7 @@ namespace ECAssistant.TUI.Controller;
 /// </summary>
 public sealed class TuiSetupUi : ISetupUi
 {
-    private static readonly EColor Color = new();
+    private static readonly AnsiColor Color = new();
     private readonly IGuiConsole _console;
 
     public TuiSetupUi(IGuiConsole console) => _console = console;

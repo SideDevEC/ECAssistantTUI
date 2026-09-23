@@ -24,7 +24,7 @@ Cross-package deps: ECAssistant.Core, ECAssistant.TUI.UI
 > Tests for ConsoleUiRenderer — verifies it writes to SessionLayer's buffer
 Cross-package deps: ECAssistant.Core, ECAssistant.Core.Session, ECAssistant.TUI.Session, ECAssistant.TUI.UI
 
-### Class: EGuiConsoleTerminalRestoreTests
+### Class: GuiConsoleTerminalRestoreTests
 > Terminal-restore behavior tests (2026-09-21 fixes): the restore sequence must
 Cross-package deps: ECAssistant.TUI.UI
 

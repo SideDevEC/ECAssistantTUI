@@ -4,20 +4,20 @@ using System.Text;
 namespace ECAssistant.TUI.UI;
 
 /// <summary>
-/// Abstract base class for all layers in the EGuiConsole system.
+/// Abstract base class for all layers in the GuiConsole system.
 /// 
 /// Each layer represents one full screen of content. Only one layer is
-/// active at a time (held by EGuiConsole). Layers own their output buffers,
+/// active at a time (held by GuiConsole). Layers own their output buffers,
 /// scroll position, status bar, and live stream line. They fill continuously
 /// even when not the active layer — so when the user switches back, all
 /// output is already there.
 ///
 /// Layers do NOT know about the controller or other layers. They only know
-/// about the EGuiConsole they are bound to (for repaint requests).
+/// about the GuiConsole they are bound to (for repaint requests).
 /// </summary>
 public abstract class BaseLayer
 {
-    // Guards all mutable buffer/scroll state. Console rendering (EGuiConsole,
+    // Guards all mutable buffer/scroll state. Console rendering (GuiConsole,
     // under its own _writeLock) and background stream updates (timer threads in
     // ConsoleUiRenderer) both go through this lock. Never call RequestRepaint
     // while holding it — repaint acquires the console's write lock, and the
@@ -59,7 +59,7 @@ public abstract class BaseLayer
     // Console reference (set by Bind/Unbind, used for repaint requests)
     protected IGuiConsole? _console;
     
-    // ── Screen dimensions (set by EGuiConsole when bound) ──
+    // ── Screen dimensions (set by GuiConsole when bound) ──
     protected int _screenWidth = 80;
     protected int _screenHeight = 24;
     protected int _outputRegionStart = 0;
@@ -69,7 +69,7 @@ public abstract class BaseLayer
     //  LIFECYCLE
     // ═══════════════════════════════════════════════════
     
-    /// <summary>Bind this layer to an EGuiConsole. Layer can now request repaints.</summary>
+    /// <summary>Bind this layer to an GuiConsole. Layer can now request repaints.</summary>
     public void BindToConsole(IGuiConsole console)
     {
         _console = console;
@@ -82,7 +82,7 @@ public abstract class BaseLayer
         _console = null;
     }
     
-    /// <summary>Update screen dimensions (called by EGuiConsole on resize or bind).</summary>
+    /// <summary>Update screen dimensions (called by GuiConsole on resize or bind).</summary>
     public void UpdateDimensions(int width, int height)
     {
         // L8: protect dimension updates with _stateLock so background threads
@@ -97,7 +97,7 @@ public abstract class BaseLayer
     }
     
     // ═══════════════════════════════════════════════════
-    //  RENDERING QUERIES (called by EGuiConsole)
+    //  RENDERING QUERIES (called by GuiConsole)
     // ═══════════════════════════════════════════════════
     
     /// <summary>Layer name for debugging.</summary>
@@ -255,7 +255,7 @@ public abstract class BaseLayer
     }
     
     // ═══════════════════════════════════════════════════
-    //  SCROLL NAVIGATION (called by EGuiConsole)
+    //  SCROLL NAVIGATION (called by GuiConsole)
     // ═══════════════════════════════════════════════════
     
     /// <summary>Scroll up (away from newest) by the given number of lines.</summary>
@@ -326,7 +326,7 @@ public abstract class BaseLayer
     // ═══════════════════════════════════════════════════
     
     /// <summary>
-    /// Request a repaint from the bound EGuiConsole.
+    /// Request a repaint from the bound GuiConsole.
     /// Only fires if the layer is bound to a console (i.e., is active).
     /// No-op if not bound — background layers don't trigger repaints.
     /// </summary>
@@ -368,7 +368,7 @@ public abstract class BaseLayer
     }
     
     // ═══════════════════════════════════════════════════
-    //  ANSI HELPERS (moved from EGuiConsole)
+    //  ANSI HELPERS (moved from GuiConsole)
     // ═══════════════════════════════════════════════════
     
     /// <summary>Remove ANSI escape sequences from a string to get visible length.</summary>

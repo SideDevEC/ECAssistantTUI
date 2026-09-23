@@ -24,4 +24,4 @@
 - SelfCorrectionManager alternating test uses different tools to avoid ToolLoop detection triggering first.
 - TaskPlanner SplitOnSteps only splits on first occurrence of each separator, so "Build then test then deploy" → 2 sub-tasks.
 - EDecisionLoop + DecisionResult deleted — dead code, superseded by AgentOrchestrator. Tests only covered DecisionResult data class (no behavioral tests).
-- ParallelToolExecutor static methods (CombineResults, FormatConsoleSummary) are tested directly; ExecuteAsync requires EAgentEngine/Program.Gui.
+- ParallelToolExecutor static methods (CombineResults, FormatConsoleSummary) are tested directly; ExecuteAsync requires AgentEngine/Program.Gui.

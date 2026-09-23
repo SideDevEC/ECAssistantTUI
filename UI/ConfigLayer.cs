@@ -4,23 +4,23 @@ using ECAssistant.Core.Config;
 namespace ECAssistant.TUI.UI;
 
 /// <summary>
-/// Config layer — displays all EAgentConfig values in a readable format.
+/// Config layer — displays all AppConfig values in a readable format.
 /// Read-only inspection. Accessible via /config command.
-/// Uses the typed EAgentConfig surface directly (no reflection).
+/// Uses the typed AppConfig surface directly (no reflection).
 /// </summary>
 public sealed class ConfigLayer : BaseLayer
 {
-    private readonly EColor _color;
+    private readonly AnsiColor _color;
     
     public override string Name => "config";
     
-    public ConfigLayer(EColor color)
+    public ConfigLayer(AnsiColor color)
     {
         _color = color;
     }
     
-    /// <summary>Build the config display from an EAgentConfig instance.</summary>
-    public void BuildFromConfig(EAgentConfig config, string modelPath)
+    /// <summary>Build the config display from an AppConfig instance.</summary>
+    public void BuildFromConfig(AppConfig config, string modelPath)
     {
         Clear();
         

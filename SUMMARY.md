@@ -20,7 +20,7 @@ ECAssistantTUI/
 │   └── AppController.cs            ← Application logic + layer lifecycle
 ├── UI/
 │   ├── IGuiConsole.cs              ← Interface for terminal injection (v11.1)
-│   ├── EGuiConsole.cs              ← Terminal engine (render + input + delta)
+│   ├── GuiConsole.cs              ← Terminal engine (render + input + delta)
 │   ├── BaseLayer.cs                ← Abstract layer: buffer, scroll, ANSI helpers
 │   ├── SessionLayer.cs             ← One per session, owns output buffer
 │   ├── StartupLayer.cs             ← Home screen, always present
@@ -52,12 +52,12 @@ ECAssistantTUI/
 
 - **Library project** — `OutputType` changed from `Exe` to `Library`
 - **IGuiConsole interface** — enables hosting TUI in external apps
-- **EGuiConsole implements IGuiConsole**
+- **GuiConsole implements IGuiConsole**
 - **AppController** — accepts `IGuiConsole` via constructor (injectable)
-- **AppController** — constructor overload with `List<EToolBase>` for external tools
+- **AppController** — constructor overload with `List<ToolBase>` for external tools
 - **AppController** — passes external tools to `SessionBuilder.BuildAsync`
-- **BaseLayer** — uses `IGuiConsole` instead of `EGuiConsole`
-- **LoadingIndicator** — uses `IGuiConsole` instead of `EGuiBase`
+- **BaseLayer** — uses `IGuiConsole` instead of `GuiConsole`
+- **LoadingIndicator** — uses `IGuiConsole` instead of `GuiBase`
 - **Namespace** — `ECAssistant.*` → `ECAssistant.TUI.*` (UI, Controller, Session)
 - **Program.cs removed** — moved to ECAssistantConsole project
 - **Tests renamed** — `ECAssistant.Tests` → `ECAssistant.TUI.Tests`
@@ -65,8 +65,8 @@ ECAssistantTUI/
 ## v11.0 Architecture (2026-08-16)
 
 - **AppController** — application logic, command parsing, session/layer lifecycle
-- **EGuiConsole** — pure terminal engine (render + input + delta rendering)
+- **GuiConsole** — pure terminal engine (render + input + delta rendering)
 - **BaseLayer** — per-screen state: output buffers, scroll position, status bar
 - Each session gets its own SessionLayer with its own buffer
-- ConsoleUiRenderer writes to SessionLayer buffer, not EGuiConsole
+- ConsoleUiRenderer writes to SessionLayer buffer, not GuiConsole
 - Layer-level command parsing: BaseLayer handles /clear, SessionLayer handles session commands

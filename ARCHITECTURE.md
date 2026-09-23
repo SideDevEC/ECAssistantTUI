@@ -12,7 +12,7 @@ ECAssistantTUI is a full-screen terminal UI library for a local, offline AI codi
 The architecture follows a strict three-layer separation:
 
 1. **Controller** — application logic, layer-switching commands, session/layer lifecycle
-2. **EGuiConsole** — terminal rendering engine, input reading, delta rendering
+2. **GuiConsole** — terminal rendering engine, input reading, delta rendering
 3. **BaseLayer** — per-screen state: output buffers, scroll position, status bar
 
 Nobody knows about things above them. Dependencies flow strictly top-down.
@@ -41,7 +41,7 @@ Controller/
 └── AppController.cs                ← Application logic, layer-switching, session management (v11.2: StopAll/DeleteSession/List/Rename migration)
 UI/
 ├── IGuiConsole.cs                  ← Interface for terminal injection (hosts implement this)
-├── EGuiConsole.cs                  ← Terminal engine (implements IGuiConsole)
+├── GuiConsole.cs                  ← Terminal engine (implements IGuiConsole)
 ├── BaseLayer.cs                    ← Abstract layer: output buffer, scroll, status, ANSI helpers
 ├── SessionLayer.cs                 ← One per session, owns output buffer, handles session commands (v11.2: inline context status)
 ├── StartupLayer.cs                 ← Always-present home screen, boot log, app status
@@ -75,7 +75,7 @@ public interface IGuiConsole
 }
 ```
 
-- `EGuiConsole` implements it for standalone terminal
+- `GuiConsole` implements it for standalone terminal
 - ECSQL (or other hosts) implement it with a PTY-backed Avalonia control
 - `AppController` accepts `IGuiConsole` via constructor — fully injectable
 
@@ -96,7 +96,7 @@ Both call `SessionBuilder.BuildAsync(session, _externalTools)` which registers e
 ```
 Host app (Console, ECSQL, etc.)
   │
-  │ creates IGuiConsole implementation (EGuiConsole or custom)
+  │ creates IGuiConsole implementation (GuiConsole or custom)
   │ creates AppController(console, config, ..., externalTools?)
   │ calls controller.RunAsync()
   ▼
@@ -104,11 +104,11 @@ AppController
   ├── creates → Dictionary<string, BaseLayer> (owns all layers)
   ├── holds  → IGuiConsole (injected)
   ├── holds  → SessionManager (Core)
-  ├── holds  → List<EToolBase>? externalTools (injected)
+  ├── holds  → List<ToolBase>? externalTools (injected)
   ├── creates SessionBuilder with ExternalTools
   └── calls builder.BuildAsync(session, _externalTools)
   ▼
-EGuiConsole (implements IGuiConsole)
+GuiConsole (implements IGuiConsole)
   ├── owns: terminal (alt buffer, cursor, ANSI, dimensions)
   ├── owns: input buffer, delta rendering
   └── calls back: controller.OnPrompt(), controller.OnEscapePressed()
@@ -134,12 +134,12 @@ User types input → Enter → Controller.OnPrompt(input)
 
 ## Key Constraints
 
-- `Console.Write/WriteLine` ONLY in `EGuiConsole`
-- `EColor` used ONLY by layers and renderers (not in Core)
+- `Console.Write/WriteLine` ONLY in `GuiConsole`
+- `AnsiColor` used ONLY by layers and renderers (not in Core)
 - TUI has zero LLamaSharp dependencies — removed entirely from `ECAssistant.TUI.csproj` (replaced with `Microsoft.Extensions.Logging.Abstractions`)
 - TUI has zero external file dependencies (system prompts + config in Core DLL)
 - `AppController` only interacts via `IGuiConsole` — no direct `Console.*` calls
-- `EGuiConsole` has no application logic — renders and forwards input
+- `GuiConsole` has no application logic — renders and forwards input
 - Layers have no knowledge of each other or the controller
 - Controller is the only class that knows about all three (console + layers + Core)
 
@@ -203,7 +203,7 @@ The TUI was updated to match the new Core HTTP-based engine surface:
 
 ## Changelog — 2026-09-02 (post-reinstall hot reload)
 
-- **AppController.ReloadAfterSetupAsync()** — after `/reinstall` + wizard, the runtime rebuilds in place: dispose renderers/sessions/SessionManager → reload `EAgentConfig` from appsettings.json via `ConfigLoader` → re-resolve model path (`ResolveModelPath`, mirrors EcaCompositionRoot rules) → rebuild sessions via shared `WireSessionAsync()` → switch to active session layer. No app restart needed.
+- **AppController.ReloadAfterSetupAsync()** — after `/reinstall` + wizard, the runtime rebuilds in place: dispose renderers/sessions/SessionManager → reload `AppConfig` from appsettings.json via `ConfigLoader` → re-resolve model path (`ResolveModelPath`, mirrors EcaCompositionRoot rules) → rebuild sessions via shared `WireSessionAsync()` → switch to active session layer. No app restart needed.
 - **WireSessionAsync(session)** — session→layer/renderer/builder wiring extracted; shared by `InitializeAppAsync` and reload path (no duplicated logic).
 - `_config`/`_modelPath` fields now mutable (reloaded after setup).
 - Regenerated API-INDEX via LDC generator.
@@ -219,12 +219,12 @@ The TUI was updated to match the new Core HTTP-based engine surface:
 - Remote setup asks embedding model id + vision capability; `/config` shows `Vision: enabled/disabled`.
 - `/menu <topic>` layered help with topic back-stack (ESC walks back); `/help` alias.
 - `/reinstall`: y/n warning → stop server, delete keys/config (models kept) → wizard.
-- `EGuiConsole`: generic cross-thread prompt queue (`PromptViaInputLoop`) — installer prompts after `await` no longer fight the input loop.
+- `GuiConsole`: generic cross-thread prompt queue (`PromptViaInputLoop`) — installer prompts after `await` no longer fight the input loop.
 
 ## Changelog — 2026-08-30 (cleanup hardening)
 
 - **ConsoleTerminalOutput**: `OnResize` event now actually raised (200ms poll) instead of CS0067 no-op
-- **EGuiConsole**: silent-input mode no longer echoes typed characters; approval prompt wait is quit-aware (no deadlock when quit requested during cross-thread prompt)
+- **GuiConsole**: silent-input mode no longer echoes typed characters; approval prompt wait is quit-aware (no deadlock when quit requested during cross-thread prompt)
 - **LoadingIndicator**: label updates replace their line in the layer buffer — no raw `\r\x1b[2K` junk output in ANSI mode
 - **AnsiInputParser**: pure streaming escape-sequence decoder (X10/SGR mouse, CSI/SS3 arrows, unknown-CSI drain)
 - Case-preserving command parsing (session names case-insensitive-friendly), ANSI-safe line wrapping, crash guard on bare `/` input
@@ -242,7 +242,7 @@ files MUST be added there or they are silently not compiled (bit us once today).
 
 ## Changelog — 2026-09-21 (terminal restore hardening)
 
-- **EGuiConsole.RestoreTerminal()** (new, idempotent): leaves the alternate screen
+- **GuiConsole.RestoreTerminal()** (new, idempotent): leaves the alternate screen
   (`?1049l`), restores the cursor (`?25h`), clears mouse modes (1000/1002/1003/1006).
   Graceful shutdown, `AppDomain.ProcessExit` and `Console.CancelKeyPress` all route here.
 - **All exit paths restore now**: init failure / unhandled exception / Ctrl-C used to
@@ -260,7 +260,7 @@ files MUST be added there or they are silently not compiled (bit us once today).
 - **AnsiInputParser**: new events `ArrowLeft`/`ArrowRight` (CSI C/D + SS3 C/D),
   `Delete` (CSI 3~), `BracketPasteStart`/`BracketPasteEnd` (CSI 200~/201~) and
   `PasteChar` (+ `LastChar`) for paste content. Pure parser, fully unit-tested.
-- **EGuiConsole in-line editing**: `_inputCursor` position — Left/Right move it,
+- **GuiConsole in-line editing**: `_inputCursor` position — Left/Right move it,
   printable chars INSERT at it, Backspace deletes before it, Delete deletes at it.
   Applies to the main input line AND the cross-thread prompt sub-loop.
 - **Bracketed paste (CSI 2004)**: enabled when the alt screen is entered, disabled

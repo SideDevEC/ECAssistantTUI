@@ -20,12 +20,12 @@ namespace ECAssistant.TUI.UI;
 /// ├─────────────────────────────────────┤  row (height-2)
 /// │ Status bar (from ActiveLayer)        │  → layer.GetStatusBar()
 /// ├─────────────────────────────────────┤  row (height-1)
-/// │ > user input (from input buffer)     │  → EGuiConsole owns this
+/// │ > user input (from input buffer)     │  → GuiConsole owns this
 /// └─────────────────────────────────────┘
 ///
 /// Thread safety: all console writes go through _writeLock.
 /// </summary>
-public sealed class EGuiConsole : EGuiBase, IGuiConsole
+public sealed class GuiConsole : GuiBase, IGuiConsole
 {
     private sealed record PromptRequest(string Label, TaskCompletionSource<string?> Tcs);
     private readonly ITerminalOutput _term;
@@ -35,9 +35,9 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     private const string PromptStr = "> ";
     private volatile bool _quitRequested;
 
-    public EGuiConsole() : this(new ConsoleTerminalOutput()) { }
+    public GuiConsole() : this(new ConsoleTerminalOutput()) { }
 
-    public EGuiConsole(ITerminalOutput terminal)
+    public GuiConsole(ITerminalOutput terminal)
     {
         _term = terminal ?? throw new ArgumentNullException(nameof(terminal));
     }
@@ -189,7 +189,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
         _onEscape = onEscape;
     }
     
-    /// <summary>Set the active layer. EGuiConsole will render this layer's content.</summary>
+    /// <summary>Set the active layer. GuiConsole will render this layer's content.</summary>
     public void SetActiveLayer(BaseLayer? layer)
     {
         lock (_writeLock)
@@ -508,7 +508,7 @@ public sealed class EGuiConsole : EGuiBase, IGuiConsole
     }
     
     // ═══════════════════════════════════════════════════
-    //  OUTPUT (for startup buffering + EGuiBase interface)
+    //  OUTPUT (for startup buffering + GuiBase interface)
     // ═══════════════════════════════════════════════════
     
     private void WriteOutput(string text)

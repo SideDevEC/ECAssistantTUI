@@ -17,20 +17,20 @@ using ECAssistant.Core.Interfaces;
 namespace ECAssistant.TUI.Controller;
 
 /// <summary>
-/// Application controller — the binder between EGuiConsole, layers, and Core.
+/// Application controller — the binder between GuiConsole, layers, and Core.
 ///
-/// Created by Program.cs. Owns the EGuiConsole, all layers, and the session
-/// manager. Receives callbacks from EGuiConsole (OnPrompt, OnEscapePressed)
+/// Created by Program.cs. Owns the GuiConsole, all layers, and the session
+/// manager. Receives callbacks from GuiConsole (OnPrompt, OnEscapePressed)
 /// and decides what to do: parse commands, switch layers, route prompts.
 ///
 /// Program.cs only interacts with this class. Nothing above the controller
-/// knows about EGuiConsole, layers, or Core sessions.
+/// knows about GuiConsole, layers, or Core sessions.
 /// </summary>
 public sealed class AppController : IAppController
 {
     // ── Dependencies (injected from Program.cs) ──
     // Mutable: reloaded after /reinstall so the fresh config takes effect without an app restart.
-    private EAgentConfig _config;
+    private AppConfig _config;
     private string _modelPath;
 
     /// <summary>
@@ -49,8 +49,8 @@ public sealed class AppController : IAppController
     private readonly string _workingDir;
     private readonly string _userConfigDir;
     private readonly ILogger _logger;
-    private readonly EColor _color;
-    private readonly List<EToolBase>? _externalTools;
+    private readonly AnsiColor _color;
+    private readonly List<ToolBase>? _externalTools;
     
     // ── Owned objects ──
     private readonly IGuiConsole _console;
@@ -85,7 +85,7 @@ public sealed class AppController : IAppController
     
     public AppController(
         IGuiConsole console,
-        EAgentConfig config,
+        AppConfig config,
         string modelPath,
         string workingDir,
         string userConfigDir,
@@ -96,24 +96,24 @@ public sealed class AppController : IAppController
 
     public AppController(
         IGuiConsole console,
-        EAgentConfig config,
+        AppConfig config,
         string modelPath,
         string workingDir,
         string userConfigDir,
         ILogger logger,
-        List<EToolBase>? externalTools)
+        List<ToolBase>? externalTools)
         : this(console, config, modelPath, workingDir, userConfigDir, logger, externalTools, null, null)
     {
     }
 
     public AppController(
         IGuiConsole console,
-        EAgentConfig config,
+        AppConfig config,
         string modelPath,
         string workingDir,
         string userConfigDir,
         ILogger logger,
-        List<EToolBase>? externalTools,
+        List<ToolBase>? externalTools,
         BackgroundProcessManager? backgroundProcesses,
         FileWatcherService? fileWatcher,
         IAiSetupResetter? setupResetter = null)
@@ -123,7 +123,7 @@ public sealed class AppController : IAppController
         _workingDir = workingDir;
         _userConfigDir = userConfigDir;
         _logger = logger;
-        _color = new EColor();
+        _color = new AnsiColor();
         _externalTools = externalTools;
         _bgMgr = backgroundProcesses ?? new BackgroundProcessManager();
         _setupResetter = setupResetter ?? new AiSetupResetter();
@@ -1156,7 +1156,7 @@ public sealed class AppController : IAppController
 
     /// <summary>Resolve the model path the same way EcaCompositionRoot does
     /// (rooted → as-is; relative → workdir, then llm/models/).</summary>
-    private string ResolveModelPath(EAgentConfig config)
+    private string ResolveModelPath(AppConfig config)
     {
         var modelPath = config.Llm.ModelPath;
         if (Path.IsPathRooted(modelPath))

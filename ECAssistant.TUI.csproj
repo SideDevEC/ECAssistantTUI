@@ -44,7 +44,7 @@
     <Compile Include="Input/AnsiInputParser.cs" />
     <Compile Include="Controller/IAppController.cs" />
     <Compile Include="UI/IGuiConsole.cs" />
-    <Compile Include="UI/EGuiConsole.cs" />
+    <Compile Include="UI/GuiConsole.cs" />
     <Compile Include="UI/BaseLayer.cs" />
     <Compile Include="UI/StartupLayer.cs" />
     <Compile Include="UI/ConfigLayer.cs" />

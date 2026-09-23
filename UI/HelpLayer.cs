@@ -8,12 +8,12 @@ namespace ECAssistant.TUI.UI;
 /// </summary>
 public sealed class HelpLayer : BaseLayer
 {
-    private readonly EColor _color;
+    private readonly AnsiColor _color;
     private readonly string[] _helpLines;
     
     public override string Name => "help";
     
-    public HelpLayer(EColor color, string[] helpLines)
+    public HelpLayer(AnsiColor color, string[] helpLines)
     {
         _color = color;
         _helpLines = helpLines;

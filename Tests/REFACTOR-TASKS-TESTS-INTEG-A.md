@@ -74,10 +74,10 @@ Tests written:
 
 ## Infrastructure Changes
 
-### MockEngine fix (Testing/MockEngine.cs + Engine/EAgentEngine.cs)
+### MockEngine fix (Testing/MockEngine.cs + Engine/AgentEngine.cs)
 - **Problem:** MockEngine constructor called base() which tried to load `/mock/model.gguf` GGUF file
-- **Fix:** Added `EAgentEngine._sForceMockMode` static flag, set by `MockEngine.ActivateMockMode()` helper
-  called as a side-effect in the `base()` argument list. The EAgentEngine constructor checks this flag
+- **Fix:** Added `AgentEngine._sForceMockMode` static flag, set by `MockEngine.ActivateMockMode()` helper
+  called as a side-effect in the `base()` argument list. The AgentEngine constructor checks this flag
   and skips all LLama native initialization when true.
 
 ### Test serialization (Tests/Integration/ProgramGuiCollection.cs)

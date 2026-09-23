@@ -72,14 +72,14 @@ Cross-package deps: ECAssistant.TUI.Input, Xunit
 Cross-package deps: ECAssistant.TUI.Input, Xunit
 
 ### Class: AppController
-> Application controller — the binder between EGuiConsole, layers, and Core.
+> Application controller — the binder between GuiConsole, layers, and Core.
 Implements: IAppController
 Constructor:
-  - AppController(IGuiConsole console, EAgentConfig config, string modelPath, string workingDir, string userConfigDir, ILogger logger, IGuiConsole console, EAgentConfig config, string modelPath, string workingDir, string userConfigDir, ILogger logger, List<EToolBase>? externalTools, IGuiConsole console, EAgentConfig config, string modelPath, string workingDir, string userConfigDir, ILogger logger, List<EToolBase>? externalTools, BackgroundProcessManager? backgroundProcesses, FileWatcherService? fileWatcher, IAiSetupResetter? setupResetter = null)
+  - AppController(IGuiConsole console, AppConfig config, string modelPath, string workingDir, string userConfigDir, ILogger logger, IGuiConsole console, AppConfig config, string modelPath, string workingDir, string userConfigDir, ILogger logger, List<ToolBase>? externalTools, IGuiConsole console, AppConfig config, string modelPath, string workingDir, string userConfigDir, ILogger logger, List<ToolBase>? externalTools, BackgroundProcessManager? backgroundProcesses, FileWatcherService? fileWatcher, IAiSetupResetter? setupResetter = null)
 Cross-package deps: ECAssistant.Core, ECAssistant.Core.Config, ECAssistant.Core.Engine, ECAssistant.Core.Orchestration, ECAssistant.Core.Setup, ECAssistant.Core.Tools, ECAssistant.Core.Config, ECAssistant.Core.Tools.Shell, ECAssistant.Core.Tools.Background, ECAssistant.TUI.UI, ECAssistant.Core.Session, ECAssistant.TUI.Session, ECAssistant.Core.Services, ECAssistant.Core.Analysis, ECAssistant.Core.Interfaces
 
 ### Class: BaseLayer
-> Abstract base class for all layers in the EGuiConsole system.
+> Abstract base class for all layers in the GuiConsole system.
 Cross-package deps: ECAssistant.Core
 
 ### Class: BaseLayerAnsiTests
@@ -91,10 +91,10 @@ Cross-package deps: ECAssistant.Core, ECAssistant.TUI.UI
 Cross-package deps: ECAssistant.Core, ECAssistant.TUI.UI
 
 ### Class: ConfigLayer
-> Config layer — displays all EAgentConfig values in a readable format.
+> Config layer — displays all AppConfig values in a readable format.
 Implements: BaseLayer
 Constructor:
-  - ConfigLayer(EColor color)
+  - ConfigLayer(AnsiColor color)
 Cross-package deps: ECAssistant.Core, ECAssistant.Core.Config
 
 ### Class: ConsoleTerminalOutput
@@ -105,21 +105,21 @@ Implements: ITerminalOutput, IDisposable
 > Bridges Core's IOutputListener to a SessionLayer's buffer.
 Implements: IOutputListener, IDisposable
 Constructor:
-  - ConsoleUiRenderer(SessionLayer layer, EColor color, Func<string>? streamBufferGetter = null, Func<string, bool>? approvalPrompt = null, Func<string, System.Collections.Generic.IReadOnlyList<string>, int?>? choicePrompt = null, Action<string?>? statusCallback = null)
+  - ConsoleUiRenderer(SessionLayer layer, AnsiColor color, Func<string>? streamBufferGetter = null, Func<string, bool>? approvalPrompt = null, Func<string, System.Collections.Generic.IReadOnlyList<string>, int?>? choicePrompt = null, Action<string?>? statusCallback = null)
 Cross-package deps: ECAssistant.Core, ECAssistant.Core.Session, ECAssistant.TUI.UI
 
 ### Class: ConsoleUiRendererTests
 > Tests for ConsoleUiRenderer — verifies it writes to SessionLayer's buffer
 Cross-package deps: ECAssistant.Core, ECAssistant.Core.Session, ECAssistant.TUI.Session, ECAssistant.TUI.UI
 
-### Class: EGuiConsole
+### Class: GuiConsole
 > Pure terminal engine for ECAssistant.
-Implements: EGuiBase, IGuiConsole
+Implements: GuiBase, IGuiConsole
 Constructor:
-  - EGuiConsole(ITerminalOutput terminal)
+  - GuiConsole(ITerminalOutput terminal)
 Cross-package deps: ECAssistant.Core, ECAssistant.Core.UI
 
-### Class: EGuiConsoleTerminalRestoreTests
+### Class: GuiConsoleTerminalRestoreTests
 > Terminal-restore behavior tests (2026-09-21 fixes): the restore sequence must
 Cross-package deps: ECAssistant.TUI.UI
 
@@ -127,7 +127,7 @@ Cross-package deps: ECAssistant.TUI.UI
 > Static help content layer. Shows the help screen with all available commands.
 Implements: BaseLayer
 Constructor:
-  - HelpLayer(EColor color, string[] helpLines)
+  - HelpLayer(AnsiColor color, string[] helpLines)
 Cross-package deps: ECAssistant.Core
 
 ### Class: LayerTests
@@ -138,7 +138,7 @@ Cross-package deps: ECAssistant.Core, ECAssistant.TUI.UI
 > Simple loading indicator — writes the label once, no animation.
 Implements: IDisposable
 Constructor:
-  - LoadingIndicator(IGuiConsole gui, EColor color)
+  - LoadingIndicator(IGuiConsole gui, AnsiColor color)
 Cross-package deps: ECAssistant.Core, ECAssistant.TUI.UI
 
 ### Class: SessionLayer
@@ -152,14 +152,14 @@ Cross-package deps: ECAssistant.Core, ECAssistant.Core.Engine, ECAssistant.Core.
 > The startup/home layer — always present, never deleted.
 Implements: BaseLayer
 Constructor:
-  - StartupLayer(EColor color)
+  - StartupLayer(AnsiColor color)
 Cross-package deps: ECAssistant.Core
 
 ### Class: StatusIndicator
 > v14.10.1: animated processing-status indicator (spinner) shown while the
 Implements: IDisposable
 Constructor:
-  - StatusIndicator(IGuiConsole gui, EColor color)
+  - StatusIndicator(IGuiConsole gui, AnsiColor color)
 Cross-package deps: ECAssistant.Core, ECAssistant.TUI.UI
 
 ### Class: TuiSetupUi

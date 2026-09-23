@@ -12,7 +12,7 @@ namespace ECAssistant.TUI.UI;
 /// </summary>
 public sealed class StartupLayer : BaseLayer
 {
-    private readonly EColor _color;
+    private readonly AnsiColor _color;
     
     // ── Status info (updated by controller) ──
     private string _version = "";
@@ -26,7 +26,7 @@ public sealed class StartupLayer : BaseLayer
     
     public override string Name => "startup";
     
-    public StartupLayer(EColor color)
+    public StartupLayer(AnsiColor color)
     {
         _color = color;
     }

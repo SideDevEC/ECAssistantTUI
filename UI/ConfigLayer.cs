@@ -45,8 +45,7 @@ public sealed class ConfigLayer : BaseLayer
             AddConfigProperty("Embedding Model", config.LlmProvider.EmbeddingModelId);
         if (config.LlmProvider.IsLocal)
         {
-            AddConfigProperty("Auto-Start", config.LlmProvider.AutoStart);
-            AddConfigProperty("Heartbeat", $"{config.LlmProvider.HeartbeatIntervalSec}s");
+            AddConfigProperty("Auto-Start", config.LlmProvider.AutoStart);;
         }
         if (config.LlmProvider.IsRemote && !string.IsNullOrEmpty(config.LlmProvider.ApiKey))
             AddConfigProperty("API Key", "***configured***");

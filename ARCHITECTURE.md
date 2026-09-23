@@ -94,4 +94,4 @@ TUI test suite lives in `Tests/` (unit + UI tests); run filtered — never the f
 
 ## Release
 
-`ECAssistant.TUI` ships via GitHub Packages + nuget.org (tag `tui-v*`). Dependency chain law: Core ships first, TUI bumps its Core PackageReference, then ships; Console follows. See Core ARCHITECTURE.md "Release discipline".
+`ECAssistant.TUI` ships via GitHub Packages + nuget.org (tag `tui-v*`). **Unified versioning:** all packages ship together under one shared version number; all PackageReferences bump in lockstep. See Core ARCHITECTURE.md "Release discipline".

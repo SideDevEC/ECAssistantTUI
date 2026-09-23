@@ -75,7 +75,7 @@ Cross-package deps: ECAssistant.TUI.Input, Xunit
 > Application controller — the binder between GuiConsole, layers, and Core.
 Implements: IAppController
 Constructor:
-  - AppController(IGuiConsole console, AppConfig config, string modelPath, string workingDir, string userConfigDir, ILogger logger, IGuiConsole console, AppConfig config, string modelPath, string workingDir, string userConfigDir, ILogger logger, List<ToolBase>? externalTools, IGuiConsole console, AppConfig config, string modelPath, string workingDir, string userConfigDir, ILogger logger, List<ToolBase>? externalTools, BackgroundProcessManager? backgroundProcesses, FileWatcherService? fileWatcher, IAiSetupResetter? setupResetter = null)
+  - AppController(IGuiConsole console, AppConfig config, string modelPath, string workingDir, string userConfigDir, ILogger logger, IGuiConsole console, AppConfig config, string modelPath, string workingDir, string userConfigDir, ILogger logger, List<EToolBase>? externalTools, IGuiConsole console, AppConfig config, string modelPath, string workingDir, string userConfigDir, ILogger logger, List<EToolBase>? externalTools, BackgroundProcessManager? backgroundProcesses, FileWatcherService? fileWatcher, IAiSetupResetter? setupResetter = null)
 Cross-package deps: ECAssistant.Core, ECAssistant.Core.Config, ECAssistant.Core.Engine, ECAssistant.Core.Orchestration, ECAssistant.Core.Setup, ECAssistant.Core.Tools, ECAssistant.Core.Config, ECAssistant.Core.Tools.Shell, ECAssistant.Core.Tools.Background, ECAssistant.TUI.UI, ECAssistant.Core.Session, ECAssistant.TUI.Session, ECAssistant.Core.Services, ECAssistant.Core.Analysis, ECAssistant.Core.Interfaces
 
 ### Class: BaseLayer

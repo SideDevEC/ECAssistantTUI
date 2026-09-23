@@ -104,7 +104,7 @@ AppController
   ├── creates → Dictionary<string, BaseLayer> (owns all layers)
   ├── holds  → IGuiConsole (injected)
   ├── holds  → SessionManager (Core)
-  ├── holds  → List<ToolBase>? externalTools (injected)
+  ├── holds  → List<EToolBase>? externalTools (injected)
   ├── creates SessionBuilder with ExternalTools
   └── calls builder.BuildAsync(session, _externalTools)
   ▼

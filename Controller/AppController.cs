@@ -50,7 +50,7 @@ public sealed class AppController : IAppController
     private readonly string _userConfigDir;
     private readonly ILogger _logger;
     private readonly AnsiColor _color;
-    private readonly List<ToolBase>? _externalTools;
+    private readonly List<EToolBase>? _externalTools;
     
     // ── Owned objects ──
     private readonly IGuiConsole _console;
@@ -101,7 +101,7 @@ public sealed class AppController : IAppController
         string workingDir,
         string userConfigDir,
         ILogger logger,
-        List<ToolBase>? externalTools)
+        List<EToolBase>? externalTools)
         : this(console, config, modelPath, workingDir, userConfigDir, logger, externalTools, null, null)
     {
     }
@@ -113,7 +113,7 @@ public sealed class AppController : IAppController
         string workingDir,
         string userConfigDir,
         ILogger logger,
-        List<ToolBase>? externalTools,
+        List<EToolBase>? externalTools,
         BackgroundProcessManager? backgroundProcesses,
         FileWatcherService? fileWatcher,
         IAiSetupResetter? setupResetter = null)

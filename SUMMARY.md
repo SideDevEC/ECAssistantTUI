@@ -54,7 +54,7 @@ ECAssistantTUI/
 - **IGuiConsole interface** — enables hosting TUI in external apps
 - **GuiConsole implements IGuiConsole**
 - **AppController** — accepts `IGuiConsole` via constructor (injectable)
-- **AppController** — constructor overload with `List<ToolBase>` for external tools
+- **AppController** — constructor overload with `List<EToolBase>` for external tools
 - **AppController** — passes external tools to `SessionBuilder.BuildAsync`
 - **BaseLayer** — uses `IGuiConsole` instead of `GuiConsole`
 - **LoadingIndicator** — uses `IGuiConsole` instead of `GuiBase`

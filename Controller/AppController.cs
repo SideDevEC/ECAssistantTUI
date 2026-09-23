@@ -5,7 +5,6 @@ using ECAssistant.Core.Engine;
 using ECAssistant.Core.Orchestration;
 using ECAssistant.Core.Setup;
 using ECAssistant.Core.Tools;
-using ECAssistant.Core.Config;
 using ECAssistant.Core.Tools.Shell;
 using ECAssistant.Core.Tools.Background;
 using ECAssistant.TUI.UI;

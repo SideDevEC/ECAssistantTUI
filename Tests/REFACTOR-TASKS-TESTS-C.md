@@ -10,7 +10,7 @@
 5. `Engine/TaskPlannerTests.cs` — ✅ 24 tests (ContainsAny, CountActions, SplitOnSteps, Decompose, CompleteCurrent, FailCurrent, GetProgressContext, GetSummary)
 6. `Engine/StepMapperTests.cs` — ✅ 9 tests (ExecutionPlan, PlannedToolCall, ToPromptString)
 7. `Engine/SelfCorrectionManagerTests.cs` — ✅ 20 tests (failure tracking, analysis patterns, file snapshots, rollback)
-8. `Engine/EDecisionLoopTests.cs` — ✅ 8 tests (DecisionResult data class, scenarios)
+8. `Engine/EDecisionLoopTests.cs` — ❌ DELETED (EDecisionLoop was dead code, superseded by AgentOrchestrator; tests only covered DecisionResult data class)
 9. `Engine/ParallelToolExecutorTests.cs` — ✅ 18 tests (CombineResults, FormatConsoleSummary, BatchToolResult properties)
 10. `Engine/ProjectContextManagerTests.cs` — ✅ 22 tests (context building, project type detection, imports, classes/methods, persistence)
 11. `Engine/ToolCallRequestTests.cs` — ✅ 7 tests (ToString with args, null, truncation)
@@ -23,5 +23,5 @@
 - ToolDependencyAnalyzer: The group-building loop processes all tools with met dependencies in a single iteration, so dependent tools often end up in the same group. Tests reflect this actual behavior.
 - SelfCorrectionManager alternating test uses different tools to avoid ToolLoop detection triggering first.
 - TaskPlanner SplitOnSteps only splits on first occurrence of each separator, so "Build then test then deploy" → 2 sub-tasks.
-- EDecisionLoop's ExtractOutputContent is private; tests cover DecisionResult data class and scenarios.
+- EDecisionLoop + DecisionResult deleted — dead code, superseded by AgentOrchestrator. Tests only covered DecisionResult data class (no behavioral tests).
 - ParallelToolExecutor static methods (CombineResults, FormatConsoleSummary) are tested directly; ExecuteAsync requires EAgentEngine/Program.Gui.

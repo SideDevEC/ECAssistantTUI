@@ -1,15 +1,13 @@
-# ECAssistant TUI — Architecture
+# ECAssistant TUI — Architecture (as-is)
 
-**Updated:** 2026-09-22 (late afternoon — SPINNER WIRE FIX: the status callback was only wired on the new-session renderer path (AppController ~975); WireSessionAsync (line ~1170) — the path every LOADED session uses — never received it, so the spinner silently never appeared (live-verified locally: no OnStatus reached the renderer). Now both renderer creation sites wire PromptChoice + ShowStatus. Live PTY test: spinner animates Thinking during the gap, clears on answer. Previously: STATUS SPINNER
-**Build:** 0 errors, 0 warnings
-**Tests:** 87/87 passing
-**Namespace:** `ECAssistant.TUI.*`
+**Updated:** 2026-09-23 · **Build:** 0 errors · **Namespace:** `ECAssistant.TUI.*`
+**History:** git log — this file describes the CURRENT state only.
 
 ## Overview
 
-ECAssistantTUI is a full-screen terminal UI library for a local, offline AI coding assistant. It is a **class library** (not an executable) that wires into `ECAssistant.Core.dll`. Any .NET 8 app can reference it — the standalone `ECAssistantConsole` launcher, or future GUI hosts like ECSQL's Avalonia terminal pane.
+ECAssistantTUI is a full-screen terminal UI **class library** (not an executable) for ECAssistant. Any .NET 8 app can reference it — the standalone `ECAssistantConsole` launcher, or future GUI hosts like ECSQL's terminal pane.
 
-The architecture follows a strict three-layer separation:
+Strict three-layer separation:
 
 1. **Controller** — application logic, layer-switching commands, session/layer lifecycle
 2. **GuiConsole** — terminal rendering engine, input reading, delta rendering
@@ -21,253 +19,79 @@ Nobody knows about things above them. Dependencies flow strictly top-down.
 
 ```
 ECAssistantTUI/
-├── ECAssistant.TUI.csproj          ← Class library
-│     OutputType=Library, AssemblyName=ECAssistant.TUI
-│     RootNamespace=ECAssistant.TUI
-│     References: ECAssistant.Core.dll (HintPath: lib/)
-│     No LLamaSharp packages — replaced with Microsoft.Extensions.Logging.Abstractions
-│     InternalsVisibleTo: ECAssistant.TUI.Tests
-│
-└── Tests/ECAssistant.TUI.Tests.csproj
-      ProjectReference → ECAssistant.TUI.csproj
-      Reference → ECAssistant.Core.dll
-      66 tests
+├── ECAssistant.TUI.csproj       ← Class library; PackageReference ECAssistant.Core
+│                                  (sibling ProjectReference when EcaUseProjectRefs=true)
+│                                  InternalsVisibleTo: ECAssistant.TUI.Tests
+└── Tests/
 ```
-
-## Files (v11.1)
 
 ```
 Controller/
-└── AppController.cs                ← Application logic, layer-switching, session management (v11.2: StopAll/DeleteSession/List/Rename migration)
+└── AppController.cs             ← Application logic, layer switching, session lifecycle
 UI/
-├── IGuiConsole.cs                  ← Interface for terminal injection (hosts implement this)
-├── GuiConsole.cs                  ← Terminal engine (implements IGuiConsole)
-├── BaseLayer.cs                    ← Abstract layer: output buffer, scroll, status, ANSI helpers
-├── SessionLayer.cs                 ← One per session, owns output buffer, handles session commands (v11.2: inline context status)
-├── StartupLayer.cs                 ← Always-present home screen, boot log, app status
-├── HelpLayer.cs                    ← Help overlay
-├── ConfigLayer.cs                  ← Config inspection overlay (v11.2: LLM Provider section)
-├── LoadingIndicator.cs             ← Animated loading dots
-└── ConsoleUiRenderer.cs            ← Bridges Core IOutputListener → SessionLayer buffer
+├── IGuiConsole.cs               ← Terminal injection interface (hosts implement)
+├── GuiConsole.cs                ← Terminal engine (implements IGuiConsole)
+├── BaseLayer.cs                 ← Abstract layer: output buffer, scroll, status, ANSI helpers
+├── SessionLayer.cs              ← Per-session layer; owns output buffer, session commands
+├── StartupLayer.cs              ← Home screen, boot log, app status
+├── HelpLayer.cs                 ← Help overlay
+├── ConfigLayer.cs               ← Config inspection overlay
+├── LoadingIndicator.cs          ← Animated loading dots
+└── ConsoleUiRenderer.cs         ← Bridges Core IOutputListener → SessionLayer buffer
 ```
 
-## IGuiConsole Interface (v11.1)
+## IGuiConsole Interface
 
-Enables external apps to host ECAssistant's TUI without using System.Console directly:
+External apps host the TUI without System.Console:
 
-```csharp
-public interface IGuiConsole
-{
-    void SetCallbacks(Action<string> onPrompt, Action onEscape);
-    void SetActiveLayer(BaseLayer? layer);
-    void InitConsole();
-    void ShutdownConsole();
-    // RestoreTerminal: idempotent — leaves alt screen, shows cursor, clears mouse
-    // modes (1000/1002/1003/1006). Routed from graceful shutdown AND from
-    // ProcessExit / CancelKeyPress hooks, so init-failure, crash and Ctrl-C exits
-    // can no longer leak terminal state into the next launch.
-    void Quit();
-    bool IsQuitRequested { get; }
-    void RequestRepaint();
-    int ScreenWidth { get; }
-    int ScreenHeight { get; }
-    // + output methods: WriteLine, WriteLineColored, BlankLine, etc.
-}
-```
-
-- `GuiConsole` implements it for standalone terminal
-- ECSQL (or other hosts) implement it with a PTY-backed Avalonia control
+- `GuiConsole` implements it for the standalone terminal
+- ECSQL (or other hosts) implement it with a PTY-backed control
 - `AppController` accepts `IGuiConsole` via constructor — fully injectable
+- `RestoreTerminal()` is idempotent — routed from graceful shutdown AND `ProcessExit`/`CancelKeyPress` hooks, so init-failure, crash, and Ctrl-C exits never leak terminal state into the next launch
+- Status callbacks (PromptChoice + ShowStatus) wired on BOTH renderer creation sites (new-session AND loaded-session paths)
 
-## AppController Constructors (v11.1)
+## AppController
 
 ```csharp
-// Without external tools — standalone use
-new AppController(console, config, modelPath, workingDir, userConfigDir, logger)
-
-// With external tools — host injects custom tools
-new AppController(console, config, modelPath, workingDir, userConfigDir, logger, externalTools)
+new AppController(console, config, modelPath, workingDir, userConfigDir, logger,
+                  externalTools /* nullable — host-injected custom tools */,
+                  backgroundProcesses, fileWatcher, setupResetter);
 ```
 
-Both call `SessionBuilder.BuildAsync(session, _externalTools)` which registers external tools first, then native tools.
+Both construction paths call `SessionBuilder.BuildAsync(session, externalTools)` — external tools register first, then native tools. First-run setup goes through Core's `FirstRunOrchestrator` with a `TuiSetupUi` adapter.
 
 ## Dependency Flow
 
 ```
-Host app (Console, ECSQL, etc.)
-  │
-  │ creates IGuiConsole implementation (GuiConsole or custom)
-  │ creates AppController(console, config, ..., externalTools?)
-  │ calls controller.RunAsync()
-  ▼
-AppController
-  ├── creates → Dictionary<string, BaseLayer> (owns all layers)
-  ├── holds  → IGuiConsole (injected)
-  ├── holds  → SessionManager (Core)
-  ├── holds  → List<EToolBase>? externalTools (injected)
-  ├── creates SessionBuilder with ExternalTools
-  └── calls builder.BuildAsync(session, _externalTools)
-  ▼
-GuiConsole (implements IGuiConsole)
-  ├── owns: terminal (alt buffer, cursor, ANSI, dimensions)
-  ├── owns: input buffer, delta rendering
-  └── calls back: controller.OnPrompt(), controller.OnEscapePressed()
-  ▼
-BaseLayer (abstract)
-  ├── owns: OutputLines[] buffer, ScrollOffset, StatusBar
-  ├── holds: IGuiConsole reference (set via BindToConsole)
-  └── SessionLayer, StartupLayer, HelpLayer, ConfigLayer (concrete)
+Host app → creates IGuiConsole + AppController → RunAsync()
+AppController ─ owns layers dict, IGuiConsole, SessionManager (Core), external tools
+GuiConsole    ─ terminal (alt buffer, cursor, ANSI, delta rendering) → callbacks OnPrompt/OnEscape
+BaseLayer     ─ output buffer, scroll, status bar; concrete: Session/Startup/Help/Config layers
 ```
 
 ## Command Routing
 
 ```
-User types input → Enter → Controller.OnPrompt(input)
-  │
-  ├── /help, /home, /config, /quit, /session, /session-new
-  │     → Controller handles directly (layer switching / shutdown)
-  │
-  └── Everything else → activeLayer.ProcessInput(input)
-        ├── Returns true → handled by layer
-        └── Returns false → Controller.HandleSessionManagerCommand(input)
+input → Controller.OnPrompt(input)
+  ├── /help, /home, /config, /quit, /session, /session-new → controller directly
+  └── everything else → activeLayer.ProcessInput(input)
+        ├── true  → handled by layer
+        └── false → Controller.HandleSessionManagerCommand(input)
 ```
 
 ## Key Constraints
 
 - `Console.Write/WriteLine` ONLY in `GuiConsole`
 - `AnsiColor` used ONLY by layers and renderers (not in Core)
-- TUI has zero LLamaSharp dependencies — removed entirely from `ECAssistant.TUI.csproj` (replaced with `Microsoft.Extensions.Logging.Abstractions`)
-- TUI has zero external file dependencies (system prompts + config in Core DLL)
-- `AppController` only interacts via `IGuiConsole` — no direct `Console.*` calls
+- Zero LLamaSharp, zero external file dependencies (system prompts + config live in Core)
+- `AppController` interacts only via `IGuiConsole` — no direct `Console.*`
 - `GuiConsole` has no application logic — renders and forwards input
-- Layers have no knowledge of each other or the controller
-- Controller is the only class that knows about all three (console + layers + Core)
+- Layers know nothing about each other or the controller; the controller is the only class that knows all three
 
-## Build Order
+## Test Coverage
 
-```
-1. Build ECAssistantCore.sln → produces ECAssistant.Core.dll
-2. Copy DLL to ECAssistantTUI/lib/
-3. Build ECAssistant.TUI.csproj → produces ECAssistant.TUI.dll
-```
+TUI test suite lives in `Tests/` (unit + UI tests); run filtered — never the full suite interactively (process hygiene rule).
 
-## v11.7 — RunAsync Refactor + Tool Approval
+## Release
 
-- **RunAsync simplified** — extracted into 3 clean steps: `InitializeAppAsync()` → input loop → `ShutdownAppAsync()`. Was 150 lines inline, now each method has a single responsibility.
-- **Tool approval prompting** — `ConsoleUiRenderer.OnRequestApproval` implemented via `Func<string, bool>` callback (was `NotImplementedException`). `AppController.PromptApproval()` shows `⚠ APPROVAL REQUIRED` + tool name + args, prompts y/n via `PromptColored`.
-- **Approval callback** wired into all `ConsoleUiRenderer` instances (both disk-loaded and runtime-created sessions).
-
-## v11.6 — Idle Watchdog + Shutdown Wiring
-
-- **`InitializeAsync`** — `AppController.RunAsync` now calls `_sessionManager.InitializeAsync()` before `LoadSessionsFromDiskAsync()` (registers with LLM server, gets clientId, starts heartbeat). Without this, all `/eca/*` requests had no `X-Client-Id` header.
-- **Shutdown wiring** — `AppController` now calls `await _sessionManager.DisposeAsync()` on quit (was missing). This triggers `DisconnectAsync()` + `ServerLauncher.StopServerAsync()` → POST `/eca/shutdown` → server winds down if last client.
-- **Idle watchdog** — `StartIdleWatchdog(15)` starts a 60s timer; after 15 min user inactivity → disconnects from server (frees VRAM). `MarkUserActivity()` called on every input in the input loop; if idle-disconnected, triggers `ReconnectAfterIdleAsync()`.
-- **Error handling** — `InitializeAsync` wrapped in try/catch with helpful error message ("Start the LLM server first...").
-
-## v11.2 — Core/LLM Split Migration (v10.31)
-
-The TUI was updated to match the new Core HTTP-based engine surface:
-
-- **`AppController`** (6 call sites migrated to the new `SessionManager` API):
-   - `StopAllAsync()` → `StopAll()` (sync shutdown)
-   - `GetStatusReport()` → inline session list with a `→` active marker
-   - `GetByIndex(idx)` → `List()[idx - 1]` (Stop/Close/Peek/Rename/Info paths)
-   - `CloseSessionAsync(key)` → `DeleteSession(key)`
-   - `RenameSession(idx, label)` → `session.Rename(label)`
-- **`ConfigLayer`** — removed `GPU Layers` + `Threads` (moved to LLM server's `llm-server.json`). Added an **LLM Provider** section: `Mode`, `Endpoint`, `Model ID`, `Embedding Model` (local), `Auto-Start`/`Heartbeat` (local), `API Key` (remote, masked).
-- **`SessionLayer`** — replaced the removed `Engine.ContextStatusSummary` with an inline format: `tokens used/max (pct%) | KV: MB | prefilled/cold`.
-- **`ECAssistant.TUI.csproj`** — removed all LLamaSharp packages + `System.Text.Json`; added `Microsoft.Extensions.Logging.Abstractions`.
-- **Build** — fresh Core + TUI DLLs are copied into `lib/` after building Core.
-
-## Test Summary (78 tests)
-
-| File | Tests | What |
-|---|---|---|
-| `BaseLayerAnsiTests.cs` | 15 | StripAnsi, TruncateAnsi, WrapLine |
-| `BaseLayerBufferTests.cs` | 10 | AddOutputLine, multi-line, scroll reset, clear |
-| `LayerTests.cs` | 21 | SessionLayer, HelpLayer, StartupLayer, ConfigLayer, scroll, live stream |
-| `ConsoleUiRendererTests.cs` | 16 | OnOutput tags, stream, RenderHistory, writes to SessionLayer |
-## First-Run Setup (v12.9 — shared Core orchestrator)
-
-- `AppController.RunSetupFlowAsync` now delegates to **`FirstRunOrchestrator` (Core)** — the exact same detect→wizard flow the Console host uses; TUI keeps no setup logic of its own
-- Wizard stages (Core `SetupWizard` via `TuiSetupUi`): LLM local/remote → embeddings; **server binary install happens inside the wizard** (`ServerInstallCoordinator` + `NuGetServerFetcher` from Core) exactly when local chat OR local embeddings is chosen — never for pure-remote users
-- `/reinstall` unchanged in UX: y/n confirm → stop server (verified) → config/keys reset (models kept) → shared wizard re-run → `ReloadAfterSetupAsync()` hot rebuild, no app restart
-- 2026-09-21: `WaitForServerShutdownAsync` is now SKIPPED in remote mode — ResolvedEndpoint then points at the remote provider (e.g. openrouter.ai) whose health endpoint never stops responding, so `/reinstall` in remote mode falsely failed with "server did not shut down". New `IsLoopbackEndpoint()` guard only verifies shutdown for localhost/127.0.0.1/[::1] endpoints.
-- Interactive version/foreign-install prompts (VERSION stamp mismatch, foreign `~/.ECAssistantLLM` layout) are rendered through `TuiSetupUi`
-- All failures non-fatal — setup never blocks startup
-
-## Changelog — 2026-09-18 (v12.9 setup refactor)
-
-- Setup orchestration moved to Core (`FirstRunOrchestrator`); `AppController.RunSetupFlowAsync` is a thin delegation
-- Removed TUI-side `EnsureServerBinaryInstalled` — server install is wizard-time (`ServerInstallCoordinator`), conditional on local chat/local embeddings, fetched from nuget.org (no embedded DLLs)
-
-## Changelog — 2026-09-02 (post-reinstall hot reload)
-
-- **AppController.ReloadAfterSetupAsync()** — after `/reinstall` + wizard, the runtime rebuilds in place: dispose renderers/sessions/SessionManager → reload `AppConfig` from appsettings.json via `ConfigLoader` → re-resolve model path (`ResolveModelPath`, mirrors EcaCompositionRoot rules) → rebuild sessions via shared `WireSessionAsync()` → switch to active session layer. No app restart needed.
-- **WireSessionAsync(session)** — session→layer/renderer/builder wiring extracted; shared by `InitializeAppAsync` and reload path (no duplicated logic).
-- `_config`/`_modelPath` fields now mutable (reloaded after setup).
-- Regenerated API-INDEX via LDC generator.
-
-## Changelog — 2026-08-27 (Installer Wizard + /menu)
-
-- **FirstRunWizard**: local/remote AI choice; remote = endpoint/key/model/embedding-model + live connection test, key encrypted via SecureKeyStore.SetKey (keyfile: ref); local = catalog + internet/disk pre-flight, retry ×3, GPU preference → gpu_layers, memory estimates, embeddings ensure, post-install test, model removal
-- **AppController**: `/reinstall` (warn → stop server, delete keys/config, models kept → wizard), `/menu [topic]` layered help (sessions/context/background/ai) with `/help` alias, `RunSetupFlowAsync(onlyIfNeeded)` shared flow
-
-## Changelog — 2026-08-27 (evening: vision/embeddings wizard)
-
-- Wizard question order: local/remote → vector memory → **embeddings source (local/remote, independent)** → vision → GPU → filtered catalog. Vision ON lists vision models only (mmproj wired automatically); OFF lists chat+embeddings. Orphans filtered by mmproj presence + vision choice.
-- Remote setup asks embedding model id + vision capability; `/config` shows `Vision: enabled/disabled`.
-- `/menu <topic>` layered help with topic back-stack (ESC walks back); `/help` alias.
-- `/reinstall`: y/n warning → stop server, delete keys/config (models kept) → wizard.
-- `GuiConsole`: generic cross-thread prompt queue (`PromptViaInputLoop`) — installer prompts after `await` no longer fight the input loop.
-
-## Changelog — 2026-08-30 (cleanup hardening)
-
-- **ConsoleTerminalOutput**: `OnResize` event now actually raised (200ms poll) instead of CS0067 no-op
-- **GuiConsole**: silent-input mode no longer echoes typed characters; approval prompt wait is quit-aware (no deadlock when quit requested during cross-thread prompt)
-- **LoadingIndicator**: label updates replace their line in the layer buffer — no raw `\r\x1b[2K` junk output in ANSI mode
-- **AnsiInputParser**: pure streaming escape-sequence decoder (X10/SGR mouse, CSI/SS3 arrows, unknown-CSI drain)
-- Case-preserving command parsing (session names case-insensitive-friendly), ANSI-safe line wrapping, crash guard on bare `/` input
-- Root-only runtime contract: no dev base-dir model fallback
-
-## Addendum — dependency chain rule (12.9.9)
-
-**Rule (Emre):** Console → TUI → Core as a pure package chain. The Console csproj
-references `ECAssistant.TUI` ONLY — Core arrives transitively (and remains directly
-usable by hosts; nothing is hidden or wrapped). This guarantees the Console always
-runs against the TUI's pinned Core version — no stale-Core escape hatch.
-
-⚠ csproj note: the TUI project uses an explicit `Compile Include` whitelist — new
-files MUST be added there or they are silently not compiled (bit us once today).
-
-## Changelog — 2026-09-21 (terminal restore hardening)
-
-- **GuiConsole.RestoreTerminal()** (new, idempotent): leaves the alternate screen
-  (`?1049l`), restores the cursor (`?25h`), clears mouse modes (1000/1002/1003/1006).
-  Graceful shutdown, `AppDomain.ProcessExit` and `Console.CancelKeyPress` all route here.
-- **All exit paths restore now**: init failure / unhandled exception / Ctrl-C used to
-  exit without `ShutdownConsole()` — hidden cursor + alt-screen state poisoned the
-  next launch (overwrote older scrollback output, cursor stranded mid-screen).
-- **PositionCursorAtInput no-ops without ANSI support**: raw cursor-position escapes
-  (`ESC[row;colH`) used to be written in plain line mode, landing mid-scrollback.
-- **AppController.ShutdownTerminal()**: public terminal-only restore for the host's
-  try/finally path (ConsoleApplication wraps RunAsync).
-- **Verified via PTY harness**: `?1049h` enter → TUI → `/exit` → `?1049l` + `ESC[H 2J 3J`
-  + "Session ended." on a clean prompt; non-ANSI path writes 0 cursor escapes.
-
-## Changelog — 2026-09-21 (input-line editing + bracketed paste)
-
-- **AnsiInputParser**: new events `ArrowLeft`/`ArrowRight` (CSI C/D + SS3 C/D),
-  `Delete` (CSI 3~), `BracketPasteStart`/`BracketPasteEnd` (CSI 200~/201~) and
-  `PasteChar` (+ `LastChar`) for paste content. Pure parser, fully unit-tested.
-- **GuiConsole in-line editing**: `_inputCursor` position — Left/Right move it,
-  printable chars INSERT at it, Backspace deletes before it, Delete deletes at it.
-  Applies to the main input line AND the cross-thread prompt sub-loop.
-- **Bracketed paste (CSI 2004)**: enabled when the alt screen is entered, disabled
-  on restore. Paste content is inserted at the cursor with newlines/tabs normalized
-  to spaces — a multi-line clipboard paste can no longer submit the line mid-paste
-  (previously every \r in a paste looked like an Enter keypress).
-- Arrow Up/Down keep their scroll-output role. Input cursor resets on Enter/ESC.
-- 9 new parser tests (cursor arrows, delete, paste window, split sequences,
-  newline-in-paste). TUI suite: 87/87. Verified end-to-end via PTY:
-  "ab" + LEFT + "X" → `aXb`; paste inserted at cursor → `aXhello worldb`.
+`ECAssistant.TUI` ships via GitHub Packages + nuget.org (tag `tui-v*`). Dependency chain law: Core ships first, TUI bumps its Core PackageReference, then ships; Console follows. See Core ARCHITECTURE.md "Release discipline".

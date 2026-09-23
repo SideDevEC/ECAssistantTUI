@@ -1,6 +1,6 @@
 # ECAssistantTUI.API.md
 
-Types: 23  |  LOC: 3999  |  ~1707 tokens
+Types: 23  |  LOC: 4019  |  ~1721 tokens
 
 ---
 
@@ -76,7 +76,7 @@ Cross-package deps: ECAssistant.TUI.Input, Xunit
 Implements: IAppController
 Constructor:
   - AppController(IGuiConsole console, AppConfig config, string modelPath, string workingDir, string userConfigDir, ILogger logger, IGuiConsole console, AppConfig config, string modelPath, string workingDir, string userConfigDir, ILogger logger, List<EToolBase>? externalTools, IGuiConsole console, AppConfig config, string modelPath, string workingDir, string userConfigDir, ILogger logger, List<EToolBase>? externalTools, BackgroundProcessManager? backgroundProcesses, FileWatcherService? fileWatcher, IAiSetupResetter? setupResetter = null)
-Cross-package deps: ECAssistant.Core, ECAssistant.Core.Config, ECAssistant.Core.Engine, ECAssistant.Core.Orchestration, ECAssistant.Core.Setup, ECAssistant.Core.Tools, ECAssistant.Core.Config, ECAssistant.Core.Tools.Shell, ECAssistant.Core.Tools.Background, ECAssistant.TUI.UI, ECAssistant.Core.Session, ECAssistant.TUI.Session, ECAssistant.Core.Services, ECAssistant.Core.Analysis, ECAssistant.Core.Interfaces
+Cross-package deps: ECAssistant.Core, ECAssistant.Core.Config, ECAssistant.Core.Engine, ECAssistant.Core.Orchestration, ECAssistant.Core.Setup, ECAssistant.Core.Tools, ECAssistant.Core.Tools.Shell, ECAssistant.Core.Tools.Background, ECAssistant.TUI.UI, ECAssistant.Core.Session, ECAssistant.TUI.Session, ECAssistant.Core.Services, ECAssistant.Core.Analysis, ECAssistant.Core.Interfaces
 
 ### Class: BaseLayer
 > Abstract base class for all layers in the GuiConsole system.
@@ -105,7 +105,7 @@ Implements: ITerminalOutput, IDisposable
 > Bridges Core's IOutputListener to a SessionLayer's buffer.
 Implements: IOutputListener, IDisposable
 Constructor:
-  - ConsoleUiRenderer(SessionLayer layer, AnsiColor color, Func<string>? streamBufferGetter = null, Func<string, bool>? approvalPrompt = null, Func<string, System.Collections.Generic.IReadOnlyList<string>, int?>? choicePrompt = null, Action<string?>? statusCallback = null)
+  - ConsoleUiRenderer(SessionLayer layer, AnsiColor color, Func<string>? streamBufferGetter = null, Func<string, bool>? approvalPrompt = null, Func<string, ECAssistant.Core.Session.ApprovalScope>? approvalPromptScoped = null, Func<string, System.Collections.Generic.IReadOnlyList<string>, int?>? choicePrompt = null, Action<string?>? statusCallback = null)
 Cross-package deps: ECAssistant.Core, ECAssistant.Core.Session, ECAssistant.TUI.UI
 
 ### Class: ConsoleUiRendererTests

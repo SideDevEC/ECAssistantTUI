@@ -1162,7 +1162,7 @@ public sealed class AppController : IAppController
         if (Path.IsPathRooted(modelPath))
             return modelPath;
         var inWorkDir = Path.Combine(_userConfigDir, modelPath);
-        var llmRoot = PathExpander.Default.Expand("~/.ECAssistantLLM");
+        var llmRoot = PathExpander.Default.Expand("~/ECALLM");
         var inLlmModels = Path.Combine(llmRoot, "models", Path.GetFileName(modelPath));
         if (File.Exists(inWorkDir)) return inWorkDir;
         if (File.Exists(inLlmModels)) return inLlmModels;

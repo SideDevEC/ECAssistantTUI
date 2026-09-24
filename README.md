@@ -33,6 +33,23 @@ Public on nuget.org — no token, no auth:
 dotnet add package ECAssistant.TUI
 ```
 
+## What you get
+
+| Capability | What it means for your host |
+|---|---|
+| **Streaming chat rendering** | Token-by-token output with thinking/reasoning blocks — never a frozen spinner |
+| **Session tabs** | Multiple concurrent conversations, independent scrollback, dirty indicators, scrollable tab strip |
+| **Tool-call visualization** | Invocations, approval prompts (approve / always / never), and results rendered inline in place |
+| **Decision checkpoints** | Genuine ambiguity becomes a numbered choice in the terminal (Enter = autonomous fallback) |
+| **Setup wizards** | First-run model install + provider configuration flows, ready to reuse |
+| **Undo/redo** | Editor integration via AvaloniaEdit-style `Document.UndoStack` patterns (Ctrl+Z / Ctrl+Y) |
+| **Cross-platform ANSI** | Raw ANSI/VT handling; no mouse sequences; terminal-native scrolling; macOS, Linux, Windows |
+
+## Non-negotiables (why it's solid)
+
+- **All rendering marshaled to the UI thread** — the cross-thread freeze bug class is designed out, not tested away.
+- **A library, not a framework** — bring your own host around [ECAssistantCore](https://github.com/SideDevEC/ECAssistantCore); no hidden coupling to any wiring.
+
 ## See it in action
 
 [ECAssistantConsole](https://github.com/SideDevEC/ECAssistantConsole) is the reference host built on this library — run it and you're looking at the TUI doing its thing.

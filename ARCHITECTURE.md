@@ -1,6 +1,6 @@
 # ECAssistant TUI — Architecture (as-is)
 
-**Updated:** 2026-09-23 · **Build:** 0 errors · **Namespace:** `ECAssistant.TUI.*`
+**Updated:** 2026-09-24 · **Build:** 0 errors · **Namespace:** `ECAssistant.TUI.*`
 **History:** git log — this file describes the CURRENT state only.
 
 ## Overview
